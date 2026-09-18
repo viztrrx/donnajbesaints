@@ -570,6 +570,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button class="gpa-btn game-btn" data-game="maze">Maze</button>
           <button class="gpa-btn game-btn" data-game="invaders">Invaders</button>
           <button class="gpa-btn game-btn" data-game="platformer">Platformer</button>
+          <button class="gpa-btn game-btn" data-game="crusade">Crusade</button>
+          <button class="gpa-btn game-btn" data-game="racer">Racer</button>
         </div>
         <div class="gpa-row" style="margin-top:6px;">
           <button id="gpa-game-restart" class="gpa-btn">🔄 Restart</button>
@@ -9281,6 +9283,313 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     };
   }
 
+  // ---- Crusade (original vertical shmup: waves, a shield pickup, boss fights) ----
+  function initCrusade(root) {
+    const W = 200, H = 260;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'game-canvas';
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const status = document.createElement('div');
+    status.className = 'gpa-sub';
+    status.style.cssText = 'text-align:center;margin-bottom:6px;';
+
+    let ship, bullets, ebullets, drones, boss, shieldPickup, shieldTime, lives, score, wave, over, paused = false, raf, tick;
+    const keys = {};
+
+    function reset() {
+      ship = { x: W / 2, y: H - 20 };
+      bullets = []; ebullets = []; drones = []; boss = null; shieldPickup = null; shieldTime = 0;
+      lives = 3; score = 0; wave = 0; over = false; tick = 0;
+      spawnWave();
+      status.textContent = `Wave ${wave} · Score ${score} · Lives ${lives}`;
+    }
+    function spawnWave() {
+      wave++;
+      if (wave % 5 === 0) {
+        boss = { x: W / 2, y: 34, hp: 24 + wave * 2, maxHp: 24 + wave * 2, dir: 1, fireCd: 0 };
+        drones = [];
+        return;
+      }
+      const cols = 5, rows = Math.min(3, 1 + Math.floor(wave / 3));
+      drones = [];
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        drones.push({ x: 22 + c * 38, y: 20 + r * 22, baseY: 20 + r * 22, alive: true, fireCd: 60 + Math.random() * 120, drift: Math.random() * Math.PI * 2 });
+      }
+    }
+    function draw() {
+      const t = THEMES[theme] || THEMES.dark;
+      ctx.fillStyle = t.bg; ctx.fillRect(0, 0, W, H);
+      // starfield
+      ctx.fillStyle = t.border;
+      for (let i = 0; i < 30; i++) ctx.fillRect((i * 53 + tick * 0.4) % W, (i * 97) % H, 1, 1);
+      // shield pickup
+      if (shieldPickup) {
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath(); ctx.arc(shieldPickup.x, shieldPickup.y, 5, 0, Math.PI * 2); ctx.fill();
+      }
+      // drones
+      drones.forEach((d) => {
+        if (!d.alive) return;
+        ctx.fillStyle = '#a855f7';
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y - 7); ctx.lineTo(d.x + 7, d.y); ctx.lineTo(d.x, d.y + 7); ctx.lineTo(d.x - 7, d.y);
+        ctx.closePath(); ctx.fill();
+      });
+      // boss
+      if (boss) {
+        ctx.fillStyle = '#e5453a';
+        ctx.fillRect(boss.x - 22, boss.y - 12, 44, 24);
+        ctx.fillStyle = t.sub;
+        ctx.fillRect(W / 2 - 30, 6, 60, 4);
+        ctx.fillStyle = '#e5453a';
+        ctx.fillRect(W / 2 - 30, 6, 60 * (boss.hp / boss.maxHp), 4);
+      }
+      // bullets
+      ctx.fillStyle = '#22c55e';
+      bullets.forEach((b) => ctx.fillRect(b.x - 1, b.y, 2, 7));
+      ctx.fillStyle = '#f97316';
+      ebullets.forEach((b) => ctx.fillRect(b.x - 1, b.y, 2, 7));
+      // ship
+      ctx.fillStyle = shieldTime > 0 ? '#38bdf8' : (THEMES[theme] || THEMES.dark).accent;
+      ctx.beginPath();
+      ctx.moveTo(ship.x, ship.y - 9); ctx.lineTo(ship.x + 8, ship.y + 8); ctx.lineTo(ship.x - 8, ship.y + 8);
+      ctx.closePath(); ctx.fill();
+      if (shieldTime > 0) {
+        ctx.strokeStyle = '#38bdf8aa';
+        ctx.beginPath(); ctx.arc(ship.x, ship.y, 13, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    function hurtPlayer() {
+      if (shieldTime > 0) return;
+      lives--;
+      if (lives <= 0) {
+        over = true;
+        const best = setBestIfHigher('crusade', score);
+        status.textContent = `Game over! Score ${score}   Best: ${best}   (Space to retry)`;
+      } else status.textContent = `Hit! Lives ${lives} · Score ${score}`;
+    }
+    function step() {
+      if (over || paused) { draw(); raf = requestAnimationFrame(step); return; }
+      tick++;
+      if (keys.ArrowLeft) ship.x = Math.max(10, ship.x - 2.4);
+      if (keys.ArrowRight) ship.x = Math.min(W - 10, ship.x + 2.4);
+      if (keys.Fire && tick % 9 === 0) bullets.push({ x: ship.x, y: ship.y - 10 });
+      bullets = bullets.filter((b) => (b.y -= 4.2) > -8);
+      ebullets = ebullets.filter((b) => (b.y += 2.6) < H + 8);
+      if (shieldTime > 0) shieldTime--;
+      // shield pickup spawn/collect
+      if (!shieldPickup && Math.random() < 0.0025) shieldPickup = { x: 20 + Math.random() * (W - 40), y: -10 };
+      if (shieldPickup) {
+        shieldPickup.y += 1.2;
+        if (shieldPickup.y > H + 10) shieldPickup = null;
+        else if (Math.abs(shieldPickup.x - ship.x) < 10 && Math.abs(shieldPickup.y - ship.y) < 12) {
+          shieldTime = 360; shieldPickup = null;
+          status.textContent = `🛡 Shield up! Score ${score} · Lives ${lives}`;
+        }
+      }
+      // drones
+      let anyAlive = false;
+      drones.forEach((d) => {
+        if (!d.alive) return;
+        anyAlive = true;
+        d.drift += 0.03;
+        d.x += Math.sin(d.drift) * 0.5;
+        d.y = d.baseY + Math.sin(tick / 40 + d.baseY) * 4 + Math.min(40, wave * 1.5);
+        d.fireCd--;
+        if (d.fireCd <= 0 && Math.random() < 0.02) { ebullets.push({ x: d.x, y: d.y }); d.fireCd = 90; }
+        if (Math.abs(d.x - ship.x) < 9 && Math.abs(d.y - ship.y) < 9) { d.alive = false; hurtPlayer(); }
+      });
+      bullets.forEach((b) => drones.forEach((d) => {
+        if (d.alive && Math.abs(d.x - b.x) < 8 && Math.abs(d.y - b.y) < 8) { d.alive = false; b.y = -99; score += 10; status.textContent = `Score ${score} · Lives ${lives}`; }
+      }));
+      // boss
+      if (boss) {
+        boss.x += boss.dir * (1 + wave * 0.05);
+        if (boss.x < 30 || boss.x > W - 30) boss.dir *= -1;
+        boss.fireCd--;
+        if (boss.fireCd <= 0) {
+          ebullets.push({ x: boss.x - 12, y: boss.y + 12 }, { x: boss.x, y: boss.y + 12 }, { x: boss.x + 12, y: boss.y + 12 });
+          boss.fireCd = 55;
+        }
+        bullets.forEach((b) => {
+          if (Math.abs(b.x - boss.x) < 22 && Math.abs(b.y - boss.y) < 12) {
+            boss.hp--; b.y = -99; score += 3;
+            if (boss.hp <= 0) { score += 100; boss = null; status.textContent = `Boss down! Score ${score} · Lives ${lives}`; spawnWave(); }
+          }
+        });
+        if (boss && Math.abs(boss.x - ship.x) < 20 && Math.abs(boss.y - ship.y) < 16) hurtPlayer();
+      }
+      ebullets.forEach((b) => {
+        if (Math.abs(b.x - ship.x) < 7 && Math.abs(b.y - ship.y) < 9) { b.y = H + 99; hurtPlayer(); }
+      });
+      if (!boss && !anyAlive && drones.length) { score += 20; spawnWave(); status.textContent = `Wave ${wave} · Score ${score} · Lives ${lives}`; }
+      draw();
+      if (!over) raf = requestAnimationFrame(step);
+      else raf = requestAnimationFrame(step);
+    }
+    function onKey(e) {
+      if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = true;
+      if (e.key === 'ArrowRight') keys.ArrowRight = true;
+      if (e.key === ' ') keys.Fire = true;
+      if (over && e.key === ' ') reset();
+    }
+    function onUp(e) {
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = false;
+      if (e.key === 'ArrowRight') keys.ArrowRight = false;
+      if (e.key === ' ') keys.Fire = false;
+    }
+    onWin('keydown', onKey); onWin('keyup', onUp);
+
+    reset();
+    draw();
+    raf = requestAnimationFrame(step);
+
+    const hint = document.createElement('div');
+    hint.className = 'gpa-sub';
+    hint.textContent = 'Arrows to move, hold Space to fire — grab the blue orb for a temporary shield, watch for the boss every 5th wave.';
+    root.appendChild(status);
+    root.appendChild(canvas);
+    root.appendChild(hint);
+
+    return {
+      cleanup: () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onUp); },
+      pause: () => { paused = true; }, resume: () => { paused = false; },
+      redraw: draw,
+      stats: () => [
+        { label: 'Score', value: score }, { label: 'Wave', value: wave },
+        { label: 'Lives', value: Math.max(0, lives) }, { label: 'Shield', value: shieldTime > 0 ? 'Up' : 'Down' }
+      ]
+    };
+  }
+
+  // ---- Racer (original neon anti-gravity lane-dodger) ----
+  function initRacer(root) {
+    const W = 200, H = 260;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'game-canvas';
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const status = document.createElement('div');
+    status.className = 'gpa-sub';
+    status.style.cssText = 'text-align:center;margin-bottom:6px;';
+
+    const TRACK_L = 30, TRACK_R = W - 30;
+    let shipX, obstacles, boosts, speed, dist, lives, invuln, over, paused = false, raf, tick, stripeOffset;
+    const keys = {};
+
+    function reset() {
+      shipX = W / 2; obstacles = []; boosts = []; speed = 1.6; dist = 0; lives = 3; invuln = 0; over = false; tick = 0; stripeOffset = 0;
+      status.textContent = `Distance 0m · Lives ${lives}`;
+    }
+    function spawnStuff() {
+      if (Math.random() < 0.035 + Math.min(0.05, speed * 0.006)) {
+        obstacles.push({ x: TRACK_L + 10 + Math.random() * (TRACK_R - TRACK_L - 20), y: -10, w: 14 });
+      }
+      if (Math.random() < 0.006) {
+        boosts.push({ x: TRACK_L + 10 + Math.random() * (TRACK_R - TRACK_L - 20), y: -10 });
+      }
+    }
+    function draw() {
+      const t = THEMES[theme] || THEMES.dark;
+      ctx.fillStyle = t.bg; ctx.fillRect(0, 0, W, H);
+      // track edges (neon)
+      ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(TRACK_L, 0); ctx.lineTo(TRACK_L, H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(TRACK_R, 0); ctx.lineTo(TRACK_R, H); ctx.stroke();
+      // scrolling lane stripes
+      ctx.strokeStyle = t.border; ctx.lineWidth = 1; ctx.setLineDash([10, 14]);
+      ctx.lineDashOffset = -stripeOffset;
+      ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke();
+      ctx.setLineDash([]);
+      // obstacles
+      ctx.fillStyle = '#f97316';
+      obstacles.forEach((o) => ctx.fillRect(o.x - o.w / 2, o.y - 6, o.w, 12));
+      // boosts
+      ctx.fillStyle = '#22c55e';
+      boosts.forEach((b) => { ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI * 2); ctx.fill(); });
+      // ship
+      const flash = invuln > 0 && Math.floor(tick / 4) % 2 === 0;
+      ctx.fillStyle = flash ? '#ffffff88' : t.accent;
+      ctx.beginPath();
+      ctx.moveTo(shipX, H - 30); ctx.lineTo(shipX - 8, H - 14); ctx.lineTo(shipX, H - 19); ctx.lineTo(shipX + 8, H - 14);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(shipX - 2, H - 14, 4, 6 + Math.min(10, speed * 2));
+    }
+    function step() {
+      if (over || paused) { draw(); raf = requestAnimationFrame(step); return; }
+      tick++;
+      if (keys.ArrowLeft) shipX = Math.max(TRACK_L + 8, shipX - 2.6);
+      if (keys.ArrowRight) shipX = Math.min(TRACK_R - 8, shipX + 2.6);
+      speed = Math.min(6, speed + 0.0015);
+      dist += speed;
+      stripeOffset += speed * 2;
+      if (invuln > 0) invuln--;
+      spawnStuff();
+      obstacles.forEach((o) => { o.y += speed * 2.2; });
+      boosts.forEach((b) => { b.y += speed * 2.2; });
+      obstacles = obstacles.filter((o) => {
+        if (o.y > H + 10) return false;
+        if (invuln <= 0 && Math.abs(o.y - (H - 20)) < 10 && Math.abs(o.x - shipX) < o.w / 2 + 7) {
+          lives--; invuln = 70; speed = Math.max(1.4, speed - 1.2);
+          if (lives <= 0) {
+            over = true;
+            const best = setBestIfHigher('racer', Math.floor(dist));
+            status.textContent = `Crashed! Distance ${Math.floor(dist)}m   Best: ${best}m   (Space to retry)`;
+          } else status.textContent = `Crashed! Lives ${lives} · Distance ${Math.floor(dist)}m`;
+          return false;
+        }
+        return true;
+      });
+      boosts = boosts.filter((b) => {
+        if (b.y > H + 10) return false;
+        if (Math.abs(b.y - (H - 20)) < 10 && Math.abs(b.x - shipX) < 12) {
+          speed = Math.min(7, speed + 1.4);
+          status.textContent = `Boost! Distance ${Math.floor(dist)}m · Lives ${lives}`;
+          return false;
+        }
+        return true;
+      });
+      if (!over && tick % 30 === 0) status.textContent = `Distance ${Math.floor(dist)}m · Lives ${lives}`;
+      draw();
+      raf = requestAnimationFrame(step);
+    }
+    function onKey(e) {
+      if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = true;
+      if (e.key === 'ArrowRight') keys.ArrowRight = true;
+      if (over && e.key === ' ') reset();
+    }
+    function onUp(e) {
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = false;
+      if (e.key === 'ArrowRight') keys.ArrowRight = false;
+    }
+    onWin('keydown', onKey); onWin('keyup', onUp);
+
+    reset();
+    draw();
+    raf = requestAnimationFrame(step);
+
+    const hint = document.createElement('div');
+    hint.className = 'gpa-sub';
+    hint.textContent = 'Arrows to steer — dodge the orange barriers, grab green orbs to boost. Speed climbs the longer you survive.';
+    root.appendChild(status);
+    root.appendChild(canvas);
+    root.appendChild(hint);
+
+    return {
+      cleanup: () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onUp); },
+      pause: () => { paused = true; }, resume: () => { paused = false; },
+      redraw: draw,
+      stats: () => [
+        { label: 'Distance', value: Math.floor(dist) + 'm' }, { label: 'Speed', value: speed.toFixed(1) },
+        { label: 'Lives', value: Math.max(0, lives) }
+      ]
+    };
+  }
+
   // ---- Platformer (original run/jump/stomp arcade platformer) ----
   function initPlatformer(root) {
     const W = 260, H = 150, GROUND_Y = H - 18;
@@ -9497,7 +9806,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     pong: initPong, lightsout: initLightsOut, fifteen: initFifteen,
     hanoi: initHanoi, mastermind: initMastermind, blackjack: initBlackjack,
     typing: initTyping, mathsprint: initMathSprint, maze: initMaze,
-    invaders: initInvaders, platformer: initPlatformer
+    invaders: initInvaders, platformer: initPlatformer, crusade: initCrusade, racer: initRacer
   };
 
   const GAME_LABELS = {
@@ -9508,7 +9817,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     tetris: 'Tetris', checkers: 'Checkers', sudoku: 'Sudoku',
     pong: 'Pong', lightsout: 'Lights Out', fifteen: '15-Puzzle', hanoi: 'Tower of Hanoi',
     mastermind: 'Mastermind', blackjack: 'Blackjack', typing: 'Typing Test',
-    mathsprint: 'Math Sprint', maze: 'Maze', invaders: 'Space Invaders', platformer: 'Platformer'
+    mathsprint: 'Math Sprint', maze: 'Maze', invaders: 'Space Invaders', platformer: 'Platformer',
+    crusade: 'Crusade', racer: 'Racer'
   };
 
   const gameStage = panel.querySelector('#gpa-game-stage');
