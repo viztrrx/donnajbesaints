@@ -13,7 +13,7 @@ The panel reads the page you're on, answers questions about it, explains quiz qu
 3. Paste and run:
 
 ```js
-fetch('https://raw.githubusercontent.com/viztrrx/donnajbsaints/main/script.js')
+fetch('https://raw.githubusercontent.com/viztrrx/donnajbesaints/main/script.js')
   .then(r => r.text())
   .then(eval)
 ```
@@ -27,7 +27,7 @@ The first time you use an AI feature it asks for an API key. Keys live in that s
 Create a new bookmark and use this as the URL, so it's one click on any page:
 
 ```
-javascript:fetch('https://raw.githubusercontent.com/viztrrx/donnajbsaints/main/script.js').then(r=>r.text()).then(eval)
+javascript:fetch('https://raw.githubusercontent.com/viztrrx/donnajbesaints/main/script.js').then(r=>r.text()).then(eval)
 ```
 
 A DevTools **Snippet** (Sources → Snippets) works too, and survives navigation better than retyping the fetch.

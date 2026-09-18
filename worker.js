@@ -40,7 +40,12 @@ export default {
     // Global, owner-controlled settings pushed to every client on its next
     // status poll: private mode, a broadcast banner, a reload counter the
     // clients compare against to force-refresh, and feature kill-switches.
-    const CONFIG_DEFAULTS = { privateMode: false, broadcast: '', reloadVersion: 0, features: {}, announcement: null };
+    const CONFIG_DEFAULTS = {
+      privateMode: false, broadcast: '', reloadVersion: 0, features: {}, announcement: null,
+      dailyQuota: 0,        // OpenAI requests/day per non-owner user; 0 = unlimited
+      brandName: '',        // '' = client keeps its own built-in "Agent Console" name
+      defaultTheme: ''      // '' = client keeps its own built-in default theme
+    };
     const getConfig = async (kv) => {
       const stored = kv ? await kv.get('config', 'json') : null;
       return { ...CONFIG_DEFAULTS, ...(stored || {}) };
@@ -57,6 +62,23 @@ export default {
       return { state: 'active', reason: '', kickNonce: mod.kickNonce || 0 };
     };
     const resolve = async (kv, user) => resolveState(await getMod(kv, user), await getConfig(kv), user);
+    // Resolves both providers' assigned keys for one user: a key aimed at
+    // this exact username wins; otherwise an "assign to everyone" key (see
+    // /admin/assignkey) applies. Delivered to the client via /track and
+    // /status so it lands in their own localStorage without them ever
+    // pasting it — see the client-side handling in script.js.
+    const getAssignedKeys = async (kv, user) => {
+      if (!kv || !user) return {};
+      const u = String(user).toLowerCase();
+      const out = {};
+      for (const provider of ['openai', 'gemini']) {
+        const specific = await kv.get(`key:${provider}:${u}`, 'json');
+        const wildcard = specific ? null : await kv.get(`key:${provider}:*`, 'json');
+        const rec = specific || wildcard;
+        if (rec && rec.key) out[provider] = rec.key;
+      }
+      return out;
+    };
     const sha256hex = async (str) => {
       const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
       return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
@@ -161,11 +183,13 @@ export default {
       // even without the separate /status poll.
       const r = await resolve(kv, user);
       const cfg = await getConfig(kv);
+      const assignedKeys = await getAssignedKeys(kv, user);
       return json({
         ok: true, state: r.state, reason: r.reason, kickNonce: r.kickNonce,
         owner: !!r.owner, private: !!r.private,
         broadcast: cfg.broadcast || '', reloadVersion: cfg.reloadVersion || 0, features: cfg.features || {},
-        announcement: cfg.announcement || null
+        announcement: cfg.announcement || null, assignedKeys,
+        brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || ''
       });
     }
 
@@ -173,13 +197,16 @@ export default {
     // effect fast without waiting for the next (write-costing) heartbeat.
     if (url.pathname === '/status' && req.method === 'GET') {
       const kv = env && env.TELEMETRY;
-      const r = await resolve(kv, url.searchParams.get('user') || '');
+      const statusUser = url.searchParams.get('user') || '';
+      const r = await resolve(kv, statusUser);
       const cfg = await getConfig(kv);
+      const assignedKeys = await getAssignedKeys(kv, statusUser);
       return json({
         state: r.state, reason: r.reason, kickNonce: r.kickNonce,
         owner: !!r.owner, private: !!r.private,
         broadcast: cfg.broadcast || '', reloadVersion: cfg.reloadVersion || 0, features: cfg.features || {},
-        announcement: cfg.announcement || null
+        announcement: cfg.announcement || null, assignedKeys,
+        brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || ''
       });
     }
 
@@ -231,6 +258,9 @@ export default {
           : null;
       }
       if (body.features && typeof body.features === 'object') cfg.features = { ...cfg.features, ...body.features };
+      if ('dailyQuota' in body) cfg.dailyQuota = Math.max(0, parseInt(body.dailyQuota, 10) || 0);
+      if ('brandName' in body) cfg.brandName = String(body.brandName || '').slice(0, 60);
+      if ('defaultTheme' in body) cfg.defaultTheme = String(body.defaultTheme || '').slice(0, 20);
       // Bumping this makes every client notice it is out of date on its next
       // status poll and pull the latest script.
       if (body.bumpReload) cfg.reloadVersion = (cfg.reloadVersion || 0) + 1;
@@ -367,14 +397,21 @@ export default {
       return json({ ok: true, rooms });
     }
 
-    // Owner assigns a specific OpenAI key to one user. The key is stored here
-    // (never sent to the browser) and the /v1/* forwarder below prefers it
-    // over anything the client supplies, so it takes effect immediately and
-    // stays in force until the owner clears it — the user never sees or
-    // handles the key at all. Only OpenAI is supported: those calls already
-    // route through this worker, so the key never has to leave the server.
-    // Gemini calls go straight from the browser to Google and can't be
-    // covered this way without exposing the key to that browser.
+    // Owner assigns an OpenAI or Gemini key to one user, several users, or
+    // everyone. The key is stored server-side under key:<provider>:<user>
+    // (or key:<provider>:* for "everyone"). Two delivery paths apply it:
+    //  - OpenAI: the /v1/* forwarder below prefers it over anything the
+    //    client supplies, so it works immediately without the key ever
+    //    reaching that user's browser.
+    //  - Both providers: every /track heartbeat and /status poll hands the
+    //    calling user their own resolved key back (see getAssignedKeys
+    //    above), and script.js writes it into that user's own localStorage
+    //    on receipt — this is required for Gemini (called straight from the
+    //    browser, no proxy to inject into) and is also how OpenAI keys reach
+    //    a user who then goes into direct/no-proxy mode.
+    // Accepts either the current multi-target shape ({provider, users:[...],
+    // all:true, key}) or the original single-user shape ({user, key}) for
+    // back-compat with older admin-panel builds.
     if (url.pathname === '/admin/assignkey' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       const ADMIN = (env && env.ADMIN_TOKEN) || '';
@@ -382,16 +419,19 @@ export default {
       if (!ADMIN || (url.searchParams.get('token') || '') !== ADMIN) return json({ error: 'unauthorized' }, 401);
       let body = {};
       try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
-      const user = String(body.user || '').toLowerCase().slice(0, 80);
-      if (!user) return json({ error: 'no user' }, 400);
+      const provider = (String(body.provider || 'openai').toLowerCase() === 'gemini') ? 'gemini' : 'openai';
       const key = String(body.key || '').trim();
-      const rkey = 'key:openai:' + user;
-      if (!key) {
-        await kv.delete(rkey);
-        return json({ ok: true, user, assigned: false });
+      const all = !!body.all;
+      let targets = Array.isArray(body.users) ? body.users : (body.user ? [body.user] : []);
+      targets = [...new Set(targets.map((u) => String(u || '').toLowerCase().slice(0, 80)).filter(Boolean))];
+      if (!all && !targets.length) return json({ error: 'no user(s) specified' }, 400);
+      const keysTouched = all ? ['*'] : targets;
+      for (const u of keysTouched) {
+        const rkey = `key:${provider}:${u}`;
+        if (!key) await kv.delete(rkey);
+        else await kv.put(rkey, JSON.stringify({ key, assignedAt: Date.now() }));
       }
-      await kv.put(rkey, JSON.stringify({ key, assignedAt: Date.now() }));
-      return json({ ok: true, user, assigned: true });
+      return json({ ok: true, provider, all, users: targets, assigned: !!key });
     }
 
     // Owner mints a one-time unlock code for ONE user. We store only its hash,
@@ -461,12 +501,32 @@ export default {
       const mods = {};
       const ml = await kv.list({ prefix: 'mod:' });
       for (const k of ml.keys) { const v = await kv.get(k.name, 'json'); if (v) mods[k.name.slice(4)] = v; }
-      const keyed = new Set();
+      const keyedOpenai = new Set();
+      const keyedGemini = new Set();
       const kl = await kv.list({ prefix: 'key:openai:' });
-      kl.keys.forEach((k) => keyed.add(k.name.slice('key:openai:'.length)));
+      kl.keys.forEach((k) => keyedOpenai.add(k.name.slice('key:openai:'.length)));
+      const glk = await kv.list({ prefix: 'key:gemini:' });
+      glk.keys.forEach((k) => keyedGemini.add(k.name.slice('key:gemini:'.length)));
+      const allOpenaiKeyed = keyedOpenai.has('*');
+      const allGeminiKeyed = keyedGemini.has('*');
+      // Today's per-user request count, for the Usage tab's analytics — reuses
+      // the same usage:<day>:<user> counters /v1/*'s quota check maintains.
+      const today = new Date().toISOString().slice(0, 10);
+      const usageToday = {};
+      const ul2 = await kv.list({ prefix: `usage:${today}:` });
+      for (const k of ul2.keys) {
+        const u = k.name.slice(`usage:${today}:`.length);
+        usageToday[u] = parseInt(await kv.get(k.name), 10) || 0;
+      }
       const stampOne = (x) => {
         const r = resolveState(mods[String(x.user).toLowerCase()] || { state: 'active' }, cfg, x.user);
-        return { ...x, state: r.state, reason: r.reason, owner: !!r.owner, private: !!r.private, hasOpenAiKey: keyed.has(String(x.user).toLowerCase()) };
+        const u = String(x.user).toLowerCase();
+        return {
+          ...x, state: r.state, reason: r.reason, owner: !!r.owner, private: !!r.private,
+          hasOpenAiKey: keyedOpenai.has(u) || allOpenaiKeyed,
+          hasGeminiKey: keyedGemini.has(u) || allGeminiKeyed,
+          requestsToday: usageToday[u] || 0
+        };
       };
 
       // Collapse multiple live sessions from one user into a single presence.
@@ -481,7 +541,8 @@ export default {
         privateMode: !!cfg.privateMode,
         activeCount: Object.keys(activeByUser).length,
         active: Object.values(activeByUser).sort((a, b) => b.lastSeen - a.lastSeen).map(stampOne),
-        users: users.sort((a, b) => b.lastSeen - a.lastSeen).map(stampOne)
+        users: users.sort((a, b) => b.lastSeen - a.lastSeen).map(stampOne),
+        allOpenaiKeyed, allGeminiKeyed, dailyQuota: cfg.dailyQuota || 0
       });
     }
 
@@ -547,11 +608,27 @@ export default {
       if (r.state === 'blocked') {
         return json({ error: { message: 'Access to this tool has been blocked by the owner.' + (r.reason ? ' ' + r.reason : ''), type: 'blocked_by_owner' } }, 403);
       }
+      // Per-user daily request cap (see /admin/config's dailyQuota, 0 =
+      // unlimited). The owner is exempt. Counted per calendar day (UTC) with
+      // a 2-day TTL so old counters clean themselves up — no cron needed.
+      if (!r.owner) {
+        const cfg = await getConfig(env.TELEMETRY);
+        if (cfg.dailyQuota > 0) {
+          const day = new Date().toISOString().slice(0, 10);
+          const qKey = `usage:${day}:${String(modUser).toLowerCase()}`;
+          const used = parseInt(await env.TELEMETRY.get(qKey), 10) || 0;
+          if (used >= cfg.dailyQuota) {
+            return json({ error: { message: `Daily request limit reached (${cfg.dailyQuota}/day). Ask the owner to raise it, or try again tomorrow.`, type: 'quota_exceeded' } }, 429);
+          }
+          await env.TELEMETRY.put(qKey, String(used + 1), { expirationTtl: 60 * 60 * 24 * 2 });
+        }
+      }
       // An owner-assigned key (see /admin/assignkey) always wins over
-      // whatever the client sent, and never leaves the server — the user's
-      // browser never has to know or hold this value.
+      // whatever the client sent. A key aimed at this exact user wins over
+      // an "assign to everyone" key.
       try {
-        const rec = await env.TELEMETRY.get('key:openai:' + String(modUser).toLowerCase(), 'json');
+        const specific = await env.TELEMETRY.get('key:openai:' + String(modUser).toLowerCase(), 'json');
+        const rec = specific || await env.TELEMETRY.get('key:openai:*', 'json');
         if (rec && rec.key) assignedKey = rec.key;
       } catch (e) { /* fall back to whatever the client sent */ }
     }

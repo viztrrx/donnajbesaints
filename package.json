@@ -1,5 +1,5 @@
 {
-  "name": "donnajbsaints",
+  "name": "donnajbesaints",
   "version": "1.0.0",
   "description": "Agent Console — an injectable floating AI assistant panel for any web page: reads the page, answers questions, explains quizzes, takes notes, plays music, and bundles seventeen games. No extension, no build step.",
   "keywords": [
@@ -14,13 +14,13 @@
     "overlay",
     "shadow-dom"
   ],
-  "homepage": "https://github.com/viztrrx/donnajbsaints#readme",
+  "homepage": "https://github.com/viztrrx/donnajbesaints#readme",
   "bugs": {
-    "url": "https://github.com/viztrrx/donnajbsaints/issues"
+    "url": "https://github.com/viztrrx/donnajbesaints/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/viztrrx/donnajbsaints.git"
+    "url": "git+https://github.com/viztrrx/donnajbesaints.git"
   },
   "license": "MIT",
   "author": "viztrrx",

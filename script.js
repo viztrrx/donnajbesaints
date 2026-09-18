@@ -95,7 +95,7 @@
   // configured, so they aren't nagged every call — the owner may have
   // assigned them a key server-side via the admin console's "Assign key".
   const OPENAI_KEY_SKIP = 'gpa_openai_key_skip';
-  const OPENAI_MODEL = 'gpt-4o-mini';
+  const OPENAI_MODEL = 'gpt-5';
   const REASON_KEY = 'gpa_reason';
 const REASONING_MODELS = new Set([
   'gpt-6-astra',
@@ -298,6 +298,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   panel.innerHTML = `
     <div class="gpa-header" id="gpa-drag">
+      <button id="gpa-sidebar-toggle" title="Show/hide the sidebar">&#9776;</button>
       <button id="gpa-min" title="Minimize">&minus;</button>
       <span class="gpa-title">Agent Console</span>
       <span class="gpa-dot"></span>
@@ -345,16 +346,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <svg class="gpa-chevron" viewBox="0 0 20 20" width="13" height="13"><path d="M5 7l5 6 5-6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="gpa-dropdown-menu" id="gpa-dropdown-menu">
-          <button class="gpa-dropdown-item active" data-tab="scan"><span class="gpa-nav-ic">◧</span>Page Insights</button>
-          <button class="gpa-dropdown-item" data-tab="ask"><span class="gpa-nav-ic">✦</span>Ask AI</button>
-          <button class="gpa-dropdown-item" data-tab="chat"><span class="gpa-nav-ic">◔</span>Chat<span id="gpa-chat-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
-          <button class="gpa-dropdown-item" data-tab="music"><span class="gpa-nav-ic">♫</span>Music</button>
-          <button class="gpa-dropdown-item" data-tab="browser"><span class="gpa-nav-ic">◫</span>Browser</button>
-          <button class="gpa-dropdown-item" data-tab="games"><span class="gpa-nav-ic">▣</span>Games</button>
-          <button class="gpa-dropdown-item" data-tab="study"><span class="gpa-nav-ic">◈</span>Study</button>
-          <button class="gpa-dropdown-item" data-tab="notes"><span class="gpa-nav-ic">▤</span>Notes</button>
-          <button class="gpa-dropdown-item" data-tab="saved"><span class="gpa-nav-ic">☆</span>Saved</button>
-          <button class="gpa-dropdown-item" data-tab="theme"><span class="gpa-nav-ic">⚙</span>Settings</button>
+          <button class="gpa-dropdown-item active" data-tab="scan"><span class="gpa-nav-ic">◧</span><span class="gpa-nav-label">Page Insights</span></button>
+          <button class="gpa-dropdown-item" data-tab="ask"><span class="gpa-nav-ic">✦</span><span class="gpa-nav-label">Ask AI</span></button>
+          <button class="gpa-dropdown-item" data-tab="chat"><span class="gpa-nav-ic">◔</span><span class="gpa-nav-label">Chat</span><span id="gpa-chat-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
+          <button class="gpa-dropdown-item" data-tab="music"><span class="gpa-nav-ic">♫</span><span class="gpa-nav-label">Music</span></button>
+          <button class="gpa-dropdown-item" data-tab="browser"><span class="gpa-nav-ic">◫</span><span class="gpa-nav-label">Browser</span></button>
+          <button class="gpa-dropdown-item" data-tab="games"><span class="gpa-nav-ic">▣</span><span class="gpa-nav-label">Games</span></button>
+          <button class="gpa-dropdown-item" data-tab="study"><span class="gpa-nav-ic">◈</span><span class="gpa-nav-label">Study</span></button>
+          <button class="gpa-dropdown-item" data-tab="notes"><span class="gpa-nav-ic">▤</span><span class="gpa-nav-label">Notes</span></button>
+          <button class="gpa-dropdown-item" data-tab="saved"><span class="gpa-nav-ic">☆</span><span class="gpa-nav-label">Saved</span></button>
+          <button class="gpa-dropdown-item" data-tab="theme"><span class="gpa-nav-ic">⚙</span><span class="gpa-nav-label">Settings</span></button>
         </div>
       </div>
       </nav>
@@ -443,20 +444,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     </select>
     <label class="gpa-sub" for="gpa-ask-context" style="display:block; margin-top:8px;">Anything else the AI should know</label>
     <textarea id="gpa-ask-context" class="gpa-sync-box" style="height:52px;" placeholder="e.g. Test on Friday; prefer step-by-step; I already know basic derivatives."></textarea>
+    <label class="gpa-sub" style="display:block; margin-top:8px;">Reasoning effort</label>
+    <div class="gpa-segmented" style="margin-top:4px;">
+      <button class="gpa-btn gpa-reason" data-reason="low">Low</button>
+      <button class="gpa-btn gpa-reason primary" data-reason="medium">Medium</button>
+      <button class="gpa-btn gpa-reason" data-reason="high">High</button>
+    </div>
+    <div id="gpa-reason-note" class="gpa-sub" style="margin-top:4px;"></div>
     <div class="gpa-row" style="margin-top:8px; margin-bottom:0;">
       <button id="gpa-ask-settings-save" class="gpa-btn primary" style="flex:1;">Save</button>
     </div>
   </div>
   <div id="gpa-chat" class="gpa-chat"></div>
-  <div class="gpa-row" style="align-items:center;">
-    <span class="gpa-sub" style="flex-shrink:0;">Reasoning</span>
-    <div class="gpa-segmented">
-      <button class="gpa-btn gpa-reason" data-reason="low">Low</button>
-      <button class="gpa-btn gpa-reason primary" data-reason="medium">Medium</button>
-      <button class="gpa-btn gpa-reason" data-reason="high">High</button>
-    </div>
-  </div>
-    <div id="gpa-reason-note" class="gpa-sub" style="margin:2px 0 6px;"></div>
   <div id="gpa-ask-images" class="gpa-row" style="flex-wrap:wrap; gap:6px; display:none; margin-bottom:6px;"></div>
   <div class="gpa-row">
     <input id="gpa-ask-input" class="gpa-input" placeholder="Ask me anything… (paste an image too)" />
@@ -714,9 +713,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         <div id="gpa-cloud-msg" class="gpa-sub" style="margin-top:4px;"></div>
         <div class="gpa-sub" style="margin:14px 0 6px;">AI provider</div>
         <div class="gpa-row">
-          <button class="gpa-btn provider-btn primary" data-provider="gemini">Gemini</button>
-          <button class="gpa-btn provider-btn" data-provider="openai">OpenAI</button>
+          <button class="gpa-btn provider-btn" data-provider="gemini">Gemini</button>
+          <button class="gpa-btn provider-btn primary" data-provider="openai">OpenAI</button>
         </div>
+        <div class="gpa-sub" style="margin:14px 0 6px;">Language</div>
+        <div class="gpa-row">
+          <button class="gpa-btn lang-btn primary" data-lang="en">English</button>
+          <button class="gpa-btn lang-btn" data-lang="es">Español</button>
+        </div>
+        <div class="gpa-admin-note" style="margin-top:4px;">Translates the navigation, header, and sign-in screen so far — most AI-generated answers and deeper settings screens are still English-only.</div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Voice</div>
         <div class="gpa-row">
           <button id="gpa-tts-toggle" class="gpa-btn">🔇 Read answers aloud: OFF</button>
@@ -749,13 +754,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Minimized button look</div>
         <div class="gpa-row">
-          <button class="gpa-btn look-btn primary" data-look="futuristic">Futuristic</button>
-          <button class="gpa-btn look-btn" data-look="minimal">Minimal</button>
+          <button class="gpa-btn look-btn" data-look="futuristic">Futuristic</button>
+          <button class="gpa-btn look-btn primary" data-look="minimal">Minimal</button>
         </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Minimized button color</div>
         <div class="gpa-row">
-          <button class="gpa-btn colormode-btn primary" data-colormode="theme">Theme accent</button>
-          <button class="gpa-btn colormode-btn" data-colormode="page">Match this page</button>
+          <button class="gpa-btn colormode-btn" data-colormode="theme">Theme accent</button>
+          <button class="gpa-btn colormode-btn primary" data-colormode="page">Match this page</button>
         </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Interface size</div>
         <div class="gpa-row">
@@ -880,6 +885,54 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div class="gpa-sub" style="margin-top:4px;">Every open copy re-fetches the script and restarts itself.</div>
             <div class="gpa-sub" style="margin:14px 0 4px;">🚦 Feature switches — off hides it for everyone but you</div>
             <div id="gpa-adm-flags" class="gpa-row" style="flex-wrap:wrap;"></div>
+
+            <div class="gpa-sub" style="margin:14px 0 4px;">🎨 Branding &amp; limits — applies to everyone</div>
+            <div class="gpa-row">
+              <input id="gpa-adm-brand" class="gpa-input" placeholder='Console name (blank = "Agent Console")' maxlength="60" autocomplete="off" />
+            </div>
+            <div class="gpa-row">
+              <select id="gpa-adm-def-theme" class="gpa-input" style="flex:1;">
+                <option value="">Default theme: leave as-is</option>
+                <option value="dark">Dark</option><option value="matte">Matte Black</option>
+                <option value="red">Red</option><option value="blue">Blue</option>
+                <option value="purple">Purple</option><option value="pink">Pink</option>
+                <option value="lightblue">Light Blue</option><option value="white">White</option>
+              </select>
+              <input id="gpa-adm-quota" class="gpa-input" type="number" min="0" step="10" placeholder="Daily request cap (0 = unlimited)" style="flex:1;" />
+            </div>
+            <div class="gpa-admin-note">Default theme only applies to someone who has never picked a theme themselves — it won't override anyone's own choice. The request cap applies per non-owner user per day, OpenAI only (Gemini calls bypass this worker).</div>
+            <div class="gpa-row">
+              <button id="gpa-adm-brand-save" class="gpa-btn primary" style="flex:1;">Save branding &amp; limits</button>
+            </div>
+
+            <div class="gpa-sub" style="margin:14px 0 4px;">🔑 Assign an API key remotely</div>
+            <div class="gpa-admin-note">
+              Delivered to each targeted user's own browser automatically (no pasting) — OpenAI keys
+              also work invisibly server-side even before that. Assigning a new key overwrites
+              whatever key that user already had saved.
+            </div>
+            <div class="gpa-row">
+              <select id="gpa-adm-key-provider" class="gpa-input" style="flex:1;">
+                <option value="openai">OpenAI</option>
+                <option value="gemini">Gemini</option>
+              </select>
+              <select id="gpa-adm-key-target" class="gpa-input" style="flex:1;">
+                <option value="specific">Specific user(s)</option>
+                <option value="all">Everyone</option>
+              </select>
+            </div>
+            <div class="gpa-row" id="gpa-adm-key-users-row">
+              <input id="gpa-adm-key-users" class="gpa-input" placeholder="username, username2, …" autocomplete="off" />
+            </div>
+            <div class="gpa-row">
+              <input id="gpa-adm-key-value" class="gpa-input" type="password" placeholder="API key to assign" autocomplete="off" />
+            </div>
+            <div class="gpa-row" style="flex-wrap:wrap;">
+              <button id="gpa-adm-key-assign" class="gpa-btn primary" style="flex:1;">Assign</button>
+              <button id="gpa-adm-key-remove" class="gpa-btn" style="flex:1;">Remove instead</button>
+            </div>
+            <div id="gpa-adm-key-msg" class="gpa-sub" style="margin-top:4px;"></div>
+
             <div id="gpa-adm-control-msg" class="gpa-sub" style="margin-top:6px;"></div>
           </div>
 
@@ -1000,7 +1053,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function renderMiniIcon() {
     const style = localStorage.getItem(ICON_KEY) || 'dot';
     if (style === 'letter') {
-      const provider = localStorage.getItem(PROVIDER_KEY) || 'gemini';
+      const provider = localStorage.getItem(PROVIDER_KEY) || 'openai';
       minimized.textContent = provider === 'openai' ? 'O' : 'G';
     } else {
       minimized.innerHTML = MINI_ICONS[style] || MINI_ICONS.dot;
@@ -1011,7 +1064,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // "Futuristic" (default) keeps the spinning rings/pulse; "Minimal" is a
   // calmer, low-key badge for anyone who'd rather it not stand out visually.
   function applyMiniLook() {
-    const look = localStorage.getItem(ICON_LOOK_KEY) || 'futuristic';
+    const look = localStorage.getItem(ICON_LOOK_KEY) || 'minimal';
     minimized.classList.toggle('gpa-mini-minimal', look === 'minimal');
   }
   applyMiniLook();
@@ -1030,7 +1083,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   function applyMiniColorMode() {
-    const mode = localStorage.getItem(ICON_COLOR_MODE_KEY) || 'theme';
+    const mode = localStorage.getItem(ICON_COLOR_MODE_KEY) || 'page';
     if (mode === 'page') {
       const c = getPageAccentColor();
       const core = `rgb(${c.r}, ${c.g}, ${c.b})`;
@@ -1083,7 +1136,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-panel.gpa-fullpage .gpa-header { cursor: default; }
       .gpa-header:active { cursor: grabbing; }
-      #gpa-min, #gpa-reload, #gpa-close {
+      #gpa-sidebar-toggle, #gpa-min, #gpa-reload, #gpa-close {
         width: 26px; height: 26px; border-radius: 8px;
         border: 1px solid transparent;
         background: transparent;
@@ -1093,7 +1146,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         flex-shrink: 0;
         transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
       }
-      #gpa-min:hover, #gpa-reload:hover { background: ${t.field}; color: ${t.text}; }
+      #gpa-sidebar-toggle:hover, #gpa-min:hover, #gpa-reload:hover { background: ${t.field}; color: ${t.text}; }
+      #gpa-sidebar-toggle.active { background: ${t.accent}; color: ${t.accentFg}; }
       #gpa-min:active, #gpa-reload:active, #gpa-close:active { transform: scale(0.92); }
       #gpa-reload:disabled { opacity: 0.5; cursor: default; }
       #gpa-reload.spinning { animation: gpa-spin 0.8s linear infinite; }
@@ -1118,8 +1172,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         background: ${t.panel}; border-right: 1px solid ${t.border};
         overflow-y: auto;
       }
+      /* Collapsed: just the active tool's content shows, full width — the
+         header's toggle button (always visible) brings the sidebar back. */
+      .gpa-panel.gpa-sidebar-hidden .gpa-sidebar { display: none; }
       .gpa-main {
-        flex: 1; min-width: 0; min-height: 0; overflow-y: auto;
+        flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
         padding: 16px; user-select: text;
         display: flex; flex-direction: column;
       }
@@ -1167,22 +1224,37 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-pane { display: none; }
       .gpa-pane.active {
-        display: flex; flex-direction: column; flex: 1; min-height: 0;
+        display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0;
         animation: gpa-pane-in 0.18s ease both;
       }
       @keyframes gpa-pane-in {
         from { opacity: 0; transform: translateY(3px); }
         to { opacity: 1; transform: translateY(0); }
       }
-      .gpa-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-shrink: 0; }
+      /* flex-wrap by default: a row of buttons/inputs that doesn't fit the
+         current panel width wraps onto another line instead of forcing the
+         whole pane wider — the previous no-wrap default is what caused
+         content to overflow past the panel's edge and get clipped by its
+         own overflow:hidden, showing up as an unexpected horizontal
+         scrollbar or answers/controls that looked "cut off". */
+      .gpa-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; flex-shrink: 0; }
       .gpa-actions { flex-wrap: wrap; }
       /* Page Insights: an action rail beside a flexible output column,
          instead of every control stacked in one long vertical list. */
-      .gpa-scan-layout { display: flex; gap: 16px; flex: 1; min-height: 0; }
-      .gpa-scan-rail { flex: 0 0 250px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+      .gpa-scan-layout { display: flex; gap: 16px; flex: 1; min-height: 0; min-width: 0; }
+      .gpa-scan-rail { flex: 0 0 250px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; overflow-x: hidden; }
       .gpa-scan-rail .gpa-row { flex-wrap: wrap; }
       .gpa-scan-rail .gpa-btn { flex: 1; min-width: 90px; }
-      .gpa-scan-output-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; gap: 10px; }
+      .gpa-scan-output-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overflow-x: hidden; gap: 10px; }
+      /* Below ~640px of actual panel width (the smaller windowed size
+         presets, or the full-page mode on a narrow browser) a fixed 250px
+         rail leaves the output column too cramped to be usable — stack
+         instead of squeezing. Driven by a ResizeObserver rather than a
+         @media query since panel width and browser viewport width are two
+         different things (a Compact-sized panel in a wide browser window
+         still needs to stack). */
+      .gpa-panel.gpa-narrow .gpa-scan-layout { flex-direction: column; }
+      .gpa-panel.gpa-narrow .gpa-scan-rail { flex: 0 0 auto; overflow-y: visible; }
       .gpa-card {
         background: ${t.panel}; border: 1px solid ${t.border}; border-radius: 14px;
         padding: 14px; flex-shrink: 0;
@@ -1337,11 +1409,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         display: flex; flex-direction: column; gap: 7px; padding: 12px;
         background: ${t.panel}; border: 1px solid ${t.border}; border-radius: 14px;
       }
-      .gpa-chat-msg { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-      .gpa-chat-msg .who { font-weight: 600; color: ${t.accent}; margin-right: 5px; }
-      .gpa-chat-msg.mine .who { color: #22c55e; }
+      .gpa-chat-msg { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; }
+      .gpa-chat-msg .avatar {
+        flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 11px; font-weight: 700; margin-top: 1px;
+      }
+      .gpa-chat-msg .col { flex: 1; min-width: 0; }
+      .gpa-chat-msg .head { display: flex; align-items: baseline; gap: 6px; }
+      .gpa-chat-msg .who { font-weight: 600; color: ${t.text}; }
+      .gpa-chat-msg.mine .who { color: ${t.accent}; }
       .gpa-chat-msg.owner .who::after { content: ' 👑'; }
-      .gpa-chat-msg .when { font-size: 10px; color: ${t.sub}; margin-left: 6px; font-variant-numeric: tabular-nums; }
+      .gpa-chat-msg .when { font-size: 10px; color: ${t.sub}; font-variant-numeric: tabular-nums; }
+      .gpa-chat-msg .body { line-height: 1.5; overflow-wrap: anywhere; }
       .gpa-chat-empty { color: ${t.sub}; font-size: 12px; text-align: center; padding: 16px 0; }
       /* ---- Announcement modal ---- */
       .gpa-ann-backdrop {
@@ -2059,6 +2139,36 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
   }
 
+  // ---- Sidebar collapse ------------------------------------------------
+  // Hides the tool list entirely so only the active tool's own content
+  // shows, full width — the header button (always visible, never hidden
+  // along with the sidebar) brings it back. Persisted like every other
+  // layout preference.
+  const SIDEBAR_HIDDEN_KEY = 'gpa_sidebar_hidden';
+  const sidebarToggleBtn = panel.querySelector('#gpa-sidebar-toggle');
+  function setSidebarHidden(hidden) {
+    panel.classList.toggle('gpa-sidebar-hidden', hidden);
+    sidebarToggleBtn.classList.toggle('active', hidden);
+    sidebarToggleBtn.title = hidden ? 'Show the sidebar' : 'Hide the sidebar';
+    localStorage.setItem(SIDEBAR_HIDDEN_KEY, hidden ? '1' : '0');
+    if (typeof fitGameToStage === 'function') requestAnimationFrame(fitGameToStage);
+  }
+  setSidebarHidden(localStorage.getItem(SIDEBAR_HIDDEN_KEY) === '1');
+  sidebarToggleBtn.addEventListener('click', () => setSidebarHidden(!panel.classList.contains('gpa-sidebar-hidden')));
+
+  // Tracks the panel's actual rendered width (not the browser viewport's —
+  // a windowed size preset can be narrow in an otherwise wide browser) so
+  // layouts like Page Insights' two-column rail can stack instead of
+  // squeezing themselves unreadable.
+  if (typeof ResizeObserver !== 'undefined') {
+    const narrowObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        panel.classList.toggle('gpa-narrow', entry.contentRect.width < 640);
+      }
+    });
+    narrowObserver.observe(panel);
+  }
+
   // ---- Dropdown section switcher -----------------------------------------
   const dropdown = panel.querySelector('#gpa-dropdown');
   const dropdownBtn = panel.querySelector('#gpa-dropdown-btn');
@@ -2118,9 +2228,79 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }));
   setTimeout(refresh, 0);
 })();
+  // ---- Language ---------------------------------------------------------
+  // Partial localization: covers the chrome a user sees before they've even
+  // signed in or picked a tool (nav, header, login), not the whole app —
+  // translating every one of the thousands of strings across all 10 panes
+  // and the admin console is a much larger job than this covers today.
+  const LANG_KEY = 'gpa_language';
+  const NAV_LABELS_EN = {
+    scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat', music: 'Music',
+    browser: 'Browser', games: 'Games', study: 'Study', notes: 'Notes',
+    saved: 'Saved', theme: 'Settings'
+  };
+  const I18N = {
+    es: {
+      'Page Insights': 'Información de la página', 'Ask AI': 'Preguntar a la IA',
+      'Chat': 'Chat', 'Music': 'Música', 'Browser': 'Navegador', 'Games': 'Juegos',
+      'Study': 'Estudio', 'Notes': 'Notas', 'Saved': 'Guardado', 'Settings': 'Ajustes',
+      'Agent Console': 'Consola del Agente',
+      'Sign in to continue': 'Inicia sesión para continuar',
+      'Welcome back': 'Bienvenido de nuevo',
+      'Username': 'Usuario', 'PIN': 'PIN', 'Sign in': 'Iniciar sesión',
+      'Transfer access code': 'Transferir código de acceso'
+    }
+  };
+  function currentLang() { return localStorage.getItem(LANG_KEY) || 'en'; }
+  function t(text) {
+    const dict = I18N[currentLang()];
+    return (dict && dict[text]) || text;
+  }
+  function applyLanguage() {
+    panel.querySelectorAll('.gpa-dropdown-item[data-tab]').forEach((item) => {
+      const label = item.querySelector('.gpa-nav-label');
+      const en = NAV_LABELS_EN[item.dataset.tab];
+      if (label && en) label.textContent = t(en);
+    });
+    const titleEl = panel.querySelector('.gpa-title');
+    // Only translate the built-in name — an owner-set brand name (see
+    // applyBrandName) always wins and is left exactly as the owner typed it.
+    if (titleEl && (titleEl.textContent === 'Agent Console' || titleEl.textContent === t('Agent Console'))) {
+      titleEl.textContent = t('Agent Console');
+    }
+    const map = {
+      '.gpa-login-heading': 'Welcome back',
+      '.gpa-login-label[for="gpa-login-user"]': 'Username',
+      '.gpa-login-label[for="gpa-login-pin"]': 'PIN',
+      '#gpa-login-btn': 'Sign in',
+      '#gpa-login-restore': 'Transfer access code',
+      '.gpa-login-dept': 'Sign in to continue'
+    };
+    Object.keys(map).forEach((sel) => {
+      const el = panel.querySelector(sel);
+      if (el) el.textContent = t(map[sel]);
+    });
+  }
+  panel.querySelectorAll('.lang-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      localStorage.setItem(LANG_KEY, btn.dataset.lang);
+      panel.querySelectorAll('.lang-btn').forEach((b) => b.classList.toggle('primary', b === btn));
+      applyLanguage();
+    });
+  });
+  (function initLangUI() {
+    const lang = currentLang();
+    panel.querySelectorAll('.lang-btn').forEach((b) => b.classList.toggle('primary', b.dataset.lang === lang));
+    applyLanguage();
+  })();
+
   // ---- Theme swatches -----------------------------------------------------
+  const THEME_USER_SET_KEY = 'gpa_theme_user_set';
   panel.querySelectorAll('.gpa-swatch').forEach((btn) => {
-    btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
+    btn.addEventListener('click', () => {
+      localStorage.setItem(THEME_USER_SET_KEY, '1');
+      applyTheme(btn.dataset.theme);
+    });
   });
 
   const customColorInput = panel.querySelector('#gpa-custom-color');
@@ -2151,7 +2331,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function setProviderUI(p) {
     providerBtns.forEach((b) => b.classList.toggle('primary', b.dataset.provider === p));
   }
-  setProviderUI(localStorage.getItem(PROVIDER_KEY) || 'gemini');
+  setProviderUI(localStorage.getItem(PROVIDER_KEY) || 'openai');
   providerBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       localStorage.setItem(PROVIDER_KEY, btn.dataset.provider);
@@ -2179,7 +2359,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function setLookUI(l) {
     lookBtns.forEach((b) => b.classList.toggle('primary', b.dataset.look === l));
   }
-  setLookUI(localStorage.getItem(ICON_LOOK_KEY) || 'futuristic');
+  setLookUI(localStorage.getItem(ICON_LOOK_KEY) || 'minimal');
   lookBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       localStorage.setItem(ICON_LOOK_KEY, btn.dataset.look);
@@ -2193,7 +2373,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function setColorModeUI(m) {
     colorModeBtns.forEach((b) => b.classList.toggle('primary', b.dataset.colormode === m));
   }
-  setColorModeUI(localStorage.getItem(ICON_COLOR_MODE_KEY) || 'theme');
+  setColorModeUI(localStorage.getItem(ICON_COLOR_MODE_KEY) || 'page');
   colorModeBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       localStorage.setItem(ICON_COLOR_MODE_KEY, btn.dataset.colormode);
@@ -2580,8 +2760,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     TELE_NOTICE_SEEN: 'gpa_tele_notice_seen'
   };
   function admGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
-  function autoUpgradeOn() { return admGet(ADMIN_KEYS.AUTO_UPGRADE) === 'on'; }
-  function smartModel() { return (admGet(ADMIN_KEYS.SMART_MODEL) || '').trim(); }
+  // Defaults to ON with gpt-6-astra as the smart model until the owner
+  // explicitly sets either value — an explicit 'off' or a different smart
+  // model always wins over these defaults.
+  function autoUpgradeOn() { const v = admGet(ADMIN_KEYS.AUTO_UPGRADE); return v === null ? true : v === 'on'; }
+  function smartModel() { return (admGet(ADMIN_KEYS.SMART_MODEL) || '').trim() || 'gpt-6-astra'; }
   // The model for a request. On a task flagged `hard`, when auto-upgrade is on
   // and a smart model is set, escalate to it; otherwise use the base override,
   // else the provider default.
@@ -2926,7 +3109,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // Dispatches to whichever provider is selected in the Theme tab.
   async function callAI(userText, systemText, imageDataUrls, hard) {
     if (aiBlocked) throw new Error('Access to this tool has been blocked by the owner.');
-    const provider = localStorage.getItem(PROVIDER_KEY) || 'gemini';
+    const provider = localStorage.getItem(PROVIDER_KEY) || 'openai';
     // Order matters: admin standing instructions, then saved context, then the
     // caller's own system text LAST — the JSON-only rules several callers rely
     // on have to be the final word, or the model narrates instead of obeying.
@@ -2994,7 +3177,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   function currentProviderLabel() {
-    return (localStorage.getItem(PROVIDER_KEY) || 'gemini') === 'openai' ? 'OpenAI' : 'Gemini';
+    return (localStorage.getItem(PROVIDER_KEY) || 'openai') === 'openai' ? 'OpenAI' : 'Gemini';
   }
 
   // ---- Typewriter effect for AI responses ---------------------------------
@@ -5156,20 +5339,40 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (chatRoomSel.value !== chatRoom) { chatRoom = 'public'; chatRoomSel.value = 'public'; }
   }
 
+  // A deterministic color per username (same idea as Discord/Slack's
+  // per-user avatar tint) so people are visually distinguishable at a
+  // glance in a busy room, without needing real uploaded avatars.
+  function avatarColor(name) {
+    let hash = 0;
+    const s = String(name || '?');
+    for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+    return `hsl(${hash % 360}, 55%, 45%)`;
+  }
   function chatMsgEl(m) {
     const div = document.createElement('div');
     div.className = 'gpa-chat-msg'
       + (currentUser && m.u === currentUser ? ' mine' : '')
       + (m.owner ? ' owner' : '');
+    const avatar = document.createElement('span');
+    avatar.className = 'avatar';
+    avatar.textContent = String(m.u || '?').trim().charAt(0).toUpperCase();
+    avatar.style.background = avatarColor(m.u);
+    const col = document.createElement('div');
+    col.className = 'col';
+    const head = document.createElement('div');
+    head.className = 'head';
     const who = document.createElement('span');
     who.className = 'who';
-    who.textContent = m.u + ':';
-    const body = document.createElement('span');
-    body.textContent = ' ' + m.t;
+    who.textContent = m.u;
     const when = document.createElement('span');
     when.className = 'when';
     when.textContent = new Date(m.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    div.appendChild(who); div.appendChild(body); div.appendChild(when);
+    head.appendChild(who); head.appendChild(when);
+    const body = document.createElement('div');
+    body.className = 'body';
+    body.textContent = m.t;
+    col.appendChild(head); col.appendChild(body);
+    div.appendChild(avatar); div.appendChild(col);
     return div;
   }
 
@@ -6122,12 +6325,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const savedCustom = localStorage.getItem(CUSTOM_COLOR_KEY);
       if (savedCustom) THEMES.custom = { ...THEMES.dark, accent: savedCustom };
       applyTheme(THEMES[savedTheme] ? savedTheme : 'matte');
-      if (typeof setProviderUI === 'function') setProviderUI(localStorage.getItem(PROVIDER_KEY) || 'gemini');
+      if (typeof setProviderUI === 'function') setProviderUI(localStorage.getItem(PROVIDER_KEY) || 'openai');
       if (typeof setSpeedUI === 'function') setSpeedUI(localStorage.getItem(SPEED_KEY) || 'normal');
       if (typeof setFontUI === 'function') setFontUI(localStorage.getItem(FONT_KEY) || 'mono');
       if (typeof setIconUI === 'function') setIconUI(localStorage.getItem(ICON_KEY) || 'dot');
-      if (typeof setLookUI === 'function') setLookUI(localStorage.getItem(ICON_LOOK_KEY) || 'futuristic');
-      if (typeof setColorModeUI === 'function') setColorModeUI(localStorage.getItem(ICON_COLOR_MODE_KEY) || 'theme');
+      if (typeof setLookUI === 'function') setLookUI(localStorage.getItem(ICON_LOOK_KEY) || 'minimal');
+      if (typeof setColorModeUI === 'function') setColorModeUI(localStorage.getItem(ICON_COLOR_MODE_KEY) || 'page');
       if (typeof renderMiniIcon === 'function') renderMiniIcon();
       if (typeof applyMiniLook === 'function') applyMiniLook();
       if (typeof applyMiniColorMode === 'function') applyMiniColorMode();
@@ -9198,8 +9401,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function syncFullscreenLabel() {
     const active = !!(document.fullscreenElement || document.webkitFullscreenElement);
     fullscreenBtn.textContent = active ? '⛶ Exit Fullscreen' : '⛶ Fullscreen';
-    // Entering/leaving fullscreen changes the available area — refit.
-    requestAnimationFrame(fitGameToStage);
+    // Entering/leaving fullscreen changes the available area — refit. Chrome
+    // doesn't always finish laying out the fullscreen element within a single
+    // frame, so one rAF could measure a stale (pre-transition) size and scale
+    // the game too large, cutting off the bottom. Retry a few times over the
+    // next ~300ms so it settles on the real, final dimensions regardless of
+    // how long that particular transition takes.
+    let tries = 0;
+    (function refit() {
+      fitGameToStage();
+      if (++tries < 6) setTimeout(() => requestAnimationFrame(refit), 60);
+    })();
   }
   onWin('resize', () => requestAnimationFrame(fitGameToStage));
   onDoc('fullscreenchange', syncFullscreenLabel);
@@ -9457,8 +9669,56 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     } catch (e) { /* best-effort */ }
   }
 
+  // Delivered by /track and /status when the owner has assigned this user a
+  // key remotely (admin console → Control → Assign API key, to one person,
+  // several, or everyone). Written straight into this browser's own
+  // localStorage so it's picked up by the normal getOpenAiKey()/getApiKey()
+  // flow with no paste required, and re-applied on every poll so a change on
+  // the owner's end reaches this device within one heartbeat. Clearing an
+  // assignment on the owner's side does not retroactively erase a key
+  // already written here — the user can still clear it themselves in
+  // Settings.
+  let lastAppliedOpenaiKey = null, lastAppliedGeminiKey = null;
+  function applyAssignedKeys(keys) {
+    const openai = sanitizeKey(keys.openai || '');
+    if (openai && openai !== lastAppliedOpenaiKey) {
+      lastAppliedOpenaiKey = openai;
+      localStorage.setItem(OPENAI_STORAGE_KEY, openai);
+      localStorage.removeItem(OPENAI_KEY_SKIP);
+    }
+    const gemini = sanitizeKey(keys.gemini || '');
+    if (gemini && gemini !== lastAppliedGeminiKey) {
+      lastAppliedGeminiKey = gemini;
+      localStorage.setItem(STORAGE_KEY, gemini);
+    }
+  }
+  // Owner-set brand name (admin console → Control → Branding) replaces the
+  // built-in "Agent Console" name in the header and login screen. Not
+  // persisted locally — like the broadcast banner, it just reapplies from
+  // the next poll, so clearing it on the owner's end reverts everyone.
+  function applyBrandName(name) {
+    const n = (name || '').trim() || (typeof t === 'function' ? t('Agent Console') : 'Agent Console');
+    const title = panel.querySelector('.gpa-title');
+    const loginCompany = panel.querySelector('.gpa-login-company');
+    if (title) title.textContent = n;
+    if (loginCompany) loginCompany.textContent = n;
+  }
+  // Owner-set default theme (same admin section) applies once for anyone who
+  // has never actually picked a theme themselves — it never overrides a
+  // theme the user chose, even if the owner sets a different default later.
+  let appliedServerTheme = null;
+  function maybeApplyServerDefaultTheme(defaultTheme) {
+    if (!defaultTheme || !THEMES[defaultTheme]) return;
+    if (localStorage.getItem(THEME_USER_SET_KEY) === '1') return;
+    if (appliedServerTheme === defaultTheme) return;
+    appliedServerTheme = defaultTheme;
+    applyTheme(defaultTheme);
+  }
   function applyModeration(s) {
     if (!s || typeof s !== 'object') return;
+    if (s.assignedKeys && typeof s.assignedKeys === 'object') applyAssignedKeys(s.assignedKeys);
+    if (typeof s.brandName === 'string') applyBrandName(s.brandName);
+    if (typeof s.defaultTheme === 'string') maybeApplyServerDefaultTheme(s.defaultTheme);
     if (typeof s.kickNonce === 'number') {
       // Baseline on the first status we see, so an old kick doesn't fire on
       // load — only a kick issued while this session is live boots them.
@@ -9575,7 +9835,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
     });
     // Quiz/tutor can be switched off without hiding the whole tab.
-    [['quiz', '#gpa-quiz-btn'], ['tutor', '#gpa-tutor-btn']].forEach(([flag, sel]) => {
+    [
+      ['quiz', '#gpa-quiz-btn'], ['tutor', '#gpa-tutor-btn'],
+      ['watch', '#gpa-watch-btn'], ['autofill', '[data-action="autofill"]'],
+      ['research', '#gpa-research-btn']
+    ].forEach(([flag, sel]) => {
       const btn = panel.querySelector(sel);
       if (!btn) return;
       const on = ownerMode || featureOn(flag);
@@ -9891,12 +10155,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         + `<span>${dot}<b>${escapeHtml(name)}</b> ${stateBadge(state, owner)}${hasKey ? ' <span title="Has an owner-assigned OpenAI key" style="opacity:0.85;">🔑</span>' : ''}</span>`
         + `<span style="opacity:0.8;">${escapeHtml(meta)}</span></div>`
         + modButtons(name, state, owner, hasKey) + `</div>`;
+      const quotaSuffix = (n, cap) => cap ? ` · ${n || 0}/${cap} today` : (n ? ` · ${n} today` : '');
       const activeRows = active.map((s) =>
-        row(s.user, [s.host, s.region, s.country].filter(Boolean).join(' · ') + ' · ' + ago(s.lastSeen), s.state, s.owner, s.hasOpenAiKey)).join('');
+        row(s.user, [s.host, s.region, s.country].filter(Boolean).join(' · ') + ' · ' + ago(s.lastSeen) + quotaSuffix(s.requestsToday, data.dailyQuota), s.state, s.owner, s.hasOpenAiKey)).join('');
       const userRows = users.map((u) =>
-        row(u.user, (u.opens || 0) + '× · ' + [u.country, u.region].filter(Boolean).join(' · ') + ' · last ' + ago(u.lastSeen), u.state, u.owner, u.hasOpenAiKey)).join('');
+        row(u.user, (u.opens || 0) + '× · ' + [u.country, u.region].filter(Boolean).join(' · ') + ' · last ' + ago(u.lastSeen) + quotaSuffix(u.requestsToday, data.dailyQuota), u.state, u.owner, u.hasOpenAiKey)).join('');
       teleLive.innerHTML =
         `<div class="gpa-admin-statcard" style="margin-bottom:8px;"><span class="n">${data.activeCount || 0}</span><div class="l">active right now</div></div>`
+        + (data.dailyQuota ? `<div class="gpa-sub" style="margin:4px 0;">Daily request cap: ${data.dailyQuota}/user${data.allOpenaiKeyed ? ' · 🔑 OpenAI key assigned to everyone' : ''}</div>` : (data.allOpenaiKeyed ? `<div class="gpa-sub" style="margin:4px 0;">🔑 OpenAI key assigned to everyone</div>` : ''))
         + `<div class="gpa-sub" style="margin:4px 0;">Active now</div>`
         + `<div class="gpa-admin-users">${activeRows || '<div class="gpa-sub">Nobody active in the last few minutes.</div>'}</div>`
         + `<div class="gpa-sub" style="margin:10px 0 4px;">Everyone who has ever opened it (${users.length})</div>`
@@ -10061,7 +10327,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     const FLAGS = [
       ['quiz', 'Quiz solver'], ['tutor', 'Tutor mode'], ['games', 'Games'],
-      ['music', 'Music'], ['browser', 'Browser'], ['notes', 'Notes'], ['study', 'Study']
+      ['music', 'Music'], ['browser', 'Browser'], ['notes', 'Notes'], ['study', 'Study'],
+      ['watch', 'Page watcher'], ['autofill', 'Form auto-fill'], ['research', 'Research mode']
     ];
     let knownFlags = {};
     function renderFlags() {
@@ -10101,6 +10368,50 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       panel.querySelector('#gpa-adm-ann-text').value = '';
       await postConfig({ announcement: null }, 'Announcement cleared.');
     });
+
+    panel.querySelector('#gpa-adm-brand-save').addEventListener('click', async () => {
+      const brandName = panel.querySelector('#gpa-adm-brand').value.trim();
+      const defaultTheme = panel.querySelector('#gpa-adm-def-theme').value;
+      const dailyQuota = parseInt(panel.querySelector('#gpa-adm-quota').value, 10) || 0;
+      await postConfig({ brandName, defaultTheme, dailyQuota }, 'Saved — takes effect for everyone within ~15s.');
+    });
+
+    // ---- Assign an API key remotely (one person, several, or everyone) ----
+    const keyTargetSel = panel.querySelector('#gpa-adm-key-target');
+    const keyUsersRow = panel.querySelector('#gpa-adm-key-users-row');
+    function syncKeyTargetUI() { keyUsersRow.style.display = keyTargetSel.value === 'all' ? 'none' : 'flex'; }
+    syncKeyTargetUI();
+    keyTargetSel.addEventListener('change', syncKeyTargetUI);
+    async function assignKeyRemote(removing) {
+      const msg = panel.querySelector('#gpa-adm-key-msg');
+      const token = teleToken.value.trim();
+      const base = adminBase();
+      if (!token || !base) { msg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      const provider = panel.querySelector('#gpa-adm-key-provider').value;
+      const all = keyTargetSel.value === 'all';
+      const users = all ? [] : panel.querySelector('#gpa-adm-key-users').value.split(',').map((u) => u.trim()).filter(Boolean);
+      if (!all && !users.length) { msg.textContent = 'Enter at least one username, or switch the target to Everyone.'; return; }
+      const key = removing ? '' : panel.querySelector('#gpa-adm-key-value').value.trim();
+      if (!removing && !key) { msg.textContent = 'Paste the key to assign, or use "Remove instead".'; return; }
+      msg.textContent = (removing ? 'Removing' : 'Assigning') + '…';
+      try {
+        const res = await fetch(base + '/admin/assignkey?token=' + encodeURIComponent(token), {
+          method: 'POST', headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ provider, all, users, key })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        const who = all ? 'everyone' : users.join(', ');
+        msg.textContent = removing
+          ? `Removed ${provider} key from ${who}.`
+          : `${provider} key assigned to ${who} — reaches their browser within ~15s.`;
+        if (!removing) panel.querySelector('#gpa-adm-key-value').value = '';
+      } catch (e) {
+        msg.textContent = 'Failed: ' + e.message;
+      }
+    }
+    panel.querySelector('#gpa-adm-key-assign').addEventListener('click', () => assignKeyRemote(false));
+    panel.querySelector('#gpa-adm-key-remove').addEventListener('click', () => assignKeyRemote(true));
 
     // ---- Private chat rooms ----
     async function roomsApi(body) {
@@ -10269,9 +10580,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // Binds a <select> + custom <input> pair to one storage key, saving on
     // change. Custom… reveals the input; a stored id not in the list shows as
     // Custom with the input pre-filled.
-    function wireModelPicker(sel, input, key) {
+    function wireModelPicker(sel, input, key, displayDefault) {
       const refresh = () => {
-        const v = admGet(key) || '';
+        const v = admGet(key) || (displayDefault || '');
         const known = MODEL_OPTIONS.some((o) => o[0] === v);
         if (v && !known) { sel.value = '__custom__'; input.style.display = 'block'; input.value = v; }
         else { sel.value = v; input.style.display = 'none'; input.value = ''; }
@@ -10294,8 +10605,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const smartSel = panel.querySelector('#gpa-adm-smart-sel');
     fillModelSelect(modelSel);
     fillModelSelect(smartSel);
-    const refreshBase = wireModelPicker(modelSel, panel.querySelector('#gpa-adm-model'), ADMIN_KEYS.MODEL);
-    const refreshSmart = wireModelPicker(smartSel, panel.querySelector('#gpa-adm-smart'), ADMIN_KEYS.SMART_MODEL);
+    const refreshBase = wireModelPicker(modelSel, panel.querySelector('#gpa-adm-model'), ADMIN_KEYS.MODEL, OPENAI_MODEL);
+    const refreshSmart = wireModelPicker(smartSel, panel.querySelector('#gpa-adm-smart'), ADMIN_KEYS.SMART_MODEL, 'gpt-6-astra');
 
     const autoUpgradeBtn = panel.querySelector('#gpa-adm-autoupgrade');
     function refreshAutoUpgrade() {
@@ -10451,7 +10762,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // ---- Reload the console in place ------------------------------------------
   // Fetches the latest copy of this script and restarts it, so you pick up a
   // new version without re-running the bookmarklet.
-  const SCRIPT_SRC = 'https://raw.githubusercontent.com/viztrrx/donnajbsaints/main/script.js';
+  const SCRIPT_SRC = 'https://raw.githubusercontent.com/viztrrx/donnajbesaints/main/script.js';
   function scriptSource() { return (admGet('gpa_script_src') || '').trim() || SCRIPT_SRC; }
 
   // Undo everything this instance did to the page. Anything missed here shows
