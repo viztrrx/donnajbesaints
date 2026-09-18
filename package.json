@@ -1,0 +1,43 @@
+{
+  "name": "donnajbsaints",
+  "version": "1.0.0",
+  "description": "Agent Console — an injectable floating AI assistant panel for any web page: reads the page, answers questions, explains quizzes, takes notes, plays music, and bundles seventeen games. No extension, no build step.",
+  "keywords": [
+    "ai",
+    "assistant",
+    "bookmarklet",
+    "browser",
+    "gemini",
+    "openai",
+    "cloudflare-worker",
+    "userscript",
+    "overlay",
+    "shadow-dom"
+  ],
+  "homepage": "https://github.com/viztrrx/donnajbsaints#readme",
+  "bugs": {
+    "url": "https://github.com/viztrrx/donnajbsaints/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/viztrrx/donnajbsaints.git"
+  },
+  "license": "MIT",
+  "author": "viztrrx",
+  "type": "module",
+  "main": "script.js",
+  "files": [
+    "script.js",
+    "worker.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "browser": "script.js",
+  "private": false,
+  "scripts": {
+    "start": "echo \"Paste the snippet from README.md into your browser console.\" && exit 0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
