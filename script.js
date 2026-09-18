@@ -905,6 +905,40 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <button id="gpa-adm-brand-save" class="gpa-btn primary" style="flex:1;">Save branding &amp; limits</button>
             </div>
 
+            <div class="gpa-sub" style="margin:14px 0 4px;">🛡️ Chat &amp; access controls</div>
+            <div class="gpa-row" style="flex-wrap:wrap;">
+              <button id="gpa-adm-readonly" class="gpa-btn" style="flex:1;">📢 Read-only chat: OFF</button>
+              <button id="gpa-adm-approval" class="gpa-btn" style="flex:1;">🚪 Approval queue: OFF</button>
+            </div>
+            <div class="gpa-row">
+              <input id="gpa-adm-blockedcountries" class="gpa-input" placeholder="Blocked country codes, comma-separated (e.g. KP, RU)" autocomplete="off" />
+            </div>
+            <div class="gpa-row">
+              <input id="gpa-adm-allowedmodels" class="gpa-input" placeholder="Allowed models, comma-separated (blank = allow any)" autocomplete="off" />
+            </div>
+            <div class="gpa-row">
+              <input id="gpa-adm-maxtokens" class="gpa-input" type="number" min="0" step="100" placeholder="Max tokens per request (0 = no cap)" style="flex:1;" />
+              <input id="gpa-adm-allowedorigins" class="gpa-input" placeholder="Allowed Origins, comma-separated (blank = allow any)" style="flex:1;" />
+            </div>
+            <div class="gpa-admin-note">Read-only and the approval queue affect everyone (except you). Country/model/token/Origin limits apply to /v1/* (and country also applies to chat); every one of these is off/empty by default, i.e. no change until you set it.</div>
+            <div class="gpa-row">
+              <button id="gpa-adm-access-save" class="gpa-btn primary" style="flex:1;">Save access controls</button>
+            </div>
+
+            <div class="gpa-sub" style="margin:14px 0 4px;">📜 Audit log</div>
+            <div class="gpa-row">
+              <button id="gpa-adm-audit-load" class="gpa-btn" style="flex:1;">↻ Load last 100 actions</button>
+            </div>
+            <div id="gpa-adm-audit" class="gpa-admin-log" style="margin-top:6px;max-height:220px;"></div>
+
+            <div class="gpa-sub" style="margin:14px 0 4px;">💾 Full backup</div>
+            <div class="gpa-row" style="flex-wrap:wrap;">
+              <button id="gpa-adm-backup-dl" class="gpa-btn" style="flex:1;">⬇ Download backup</button>
+              <button id="gpa-adm-restore-btn" class="gpa-btn" style="flex:1;">⬆ Restore from file</button>
+            </div>
+            <input id="gpa-adm-restore-file" type="file" accept="application/json" style="display:none;" />
+            <div class="gpa-admin-note">Backup includes config, every moderation record, every room (and its slow-mode/ban settings), and the audit log. Restore overwrites matching records — it does not first wipe anything the backup doesn't mention.</div>
+
             <div class="gpa-sub" style="margin:14px 0 4px;">🔑 Assign an API key remotely</div>
             <div class="gpa-admin-note">
               Delivered to each targeted user's own browser automatically (no pasting) — OpenAI keys
@@ -2757,7 +2791,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     LOGS: 'gpa_admin_logs',
     TELE_TOKEN: 'gpa_admin_tele_token',      // admin secret (owner's device only)
     TELE_ENDPOINT: 'gpa_admin_tele_endpoint', // worker base URL override
-    TELE_NOTICE_SEEN: 'gpa_tele_notice_seen'
+    TELE_NOTICE_SEEN: 'gpa_tele_notice_seen',
+    OWNER_CODE: 'gpa_owner_code'              // proves this device is really the owner (see worker.js OWNER_CODE)
   };
   function admGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   // Defaults to ON with gpt-6-astra as the smart model until the owner
@@ -5455,8 +5490,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!telemetryOn()) { chatNote.textContent = 'Chat needs the worker to be set up.'; return; }
     chatInput.value = '';
     try {
+      // See sendBeat() for why this header is conditional: only present at
+      // all on the owner's own device, so nobody else's request shape changes.
+      const ownerCode = admGet(ADMIN_KEYS.OWNER_CODE);
+      const sendHeaders = { 'Content-Type': 'text/plain' };
+      if (ownerCode) sendHeaders['X-GPA-Owner'] = ownerCode;
       const res = await fetch(telemetryEndpoint() + '/chat/send', {
-        method: 'POST', headers: { 'Content-Type': 'text/plain' },
+        method: 'POST', headers: sendHeaders,
         body: JSON.stringify({ room: chatRoom, user: currentUser, text, code: chatCodeFor(chatRoom) })
       });
       const data = await res.json().catch(() => ({}));
@@ -9625,10 +9665,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     });
     try {
       // text/plain = CORS-safelisted = no preflight. keepalive lets a beat
-      // sent as the tab closes still go out.
+      // sent as the tab closes still go out. X-GPA-Owner is only added when
+      // an owner code is actually configured (Data tab) — for everyone else
+      // this stays header-free so the no-preflight fast path is untouched;
+      // only the owner's own device pays a preflight, to prove nobody else
+      // can post beats/messages under the owner's username (see worker.js).
+      const ownerCode = admGet(ADMIN_KEYS.OWNER_CODE);
+      const beatHeaders = { 'Content-Type': 'text/plain' };
+      if (ownerCode) beatHeaders['X-GPA-Owner'] = ownerCode;
       fetch(telemetryEndpoint() + '/track', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
+        headers: beatHeaders,
         body: payload,
         keepalive: true,
         mode: 'cors'
@@ -10113,6 +10160,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const h = Math.round(m / 60);
       return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
     }
+    function timeLeft(untilMs) {
+      const s = Math.max(0, Math.round((untilMs - Date.now()) / 1000));
+      if (s < 60) return s + 's left';
+      const m = Math.round(s / 60);
+      if (m < 60) return m + 'm left';
+      const h = Math.round(m / 60);
+      return h < 24 ? h + 'h left' : Math.round(h / 24) + 'd left';
+    }
     function stateBadge(state, owner) {
       if (owner) return '<span style="color:#22c55e;font-weight:700;">👑 OWNER · immune</span>';
       if (state === 'blocked') return '<span style="color:#ff6b6b;font-weight:700;">⛔ blocked</span>';
@@ -10120,8 +10175,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       return '';
     }
     // The moderation buttons for one user, keyed by username via data-attrs.
-    function modButtons(user, state, owner, hasKey) {
+    function modButtons(user, state, owner, hasKey, extra) {
       if (owner) return '';   // the owner can't be moderated
+      extra = extra || {};
       const b = (action, label, title) =>
         `<button class="gpa-btn gpa-mod-btn" data-mod-user="${escapeHtml(user)}" data-mod-action="${action}" title="${title}"`
         + ` style="font-size:9px;padding:2px 6px;">${label}</button>`;
@@ -10136,6 +10192,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       else if (state !== 'blocked') parts.push(b('lock', '🔒 Lock', 'Temporarily freeze their panel'));
       parts.push(b('assignkey', hasKey ? '🔑 Change key' : '🔑 Assign key', 'Give this OpenAI key to this user only — applied server-side, they never see it. Leave blank to remove it.'));
       parts.push(b('kick', '👢 Kick', 'Force a one-time sign-out'));
+      // Timed mute / strikes
+      parts.push(b('mute', extra.muted ? '🔇 Mute again' : '🔇 Mute', 'Block them for N hours, then auto-restore — no manual unblock needed'));
+      if (extra.muted) parts.push(b('unmute', '🔈 Unmute', 'Lift the timed mute early'));
+      parts.push(b('warn', `⚠️ Warn${extra.strikes ? ` (${extra.strikes}/3)` : ''}`, '3 warnings auto-applies a 24h mute and resets the count'));
+      if (extra.strikes) parts.push(b('clearstrikes', '🧹 Clear strikes', 'Reset their warning count to 0'));
+      // Approval queue
+      if (extra.pending) parts.push(b('approve', '✅ Approve', 'Let them use AI features — they were held for approval'));
+      else parts.push(b('unapprove', '⏸ Hold for approval', 'Re-flag them as pending — cuts off AI until approved again'));
+      // AI freeze (chat/read still work)
+      parts.push(b(extra.aiFrozen ? 'unfreezeai' : 'freezeai', extra.aiFrozen ? '🧊 Unfreeze AI' : '🧊 Freeze AI', 'Cuts off only AI features — chat and page-reading keep working'));
+      // Shadow mute
+      parts.push(b(extra.shadowMuted ? 'unshadowmute' : 'shadowmute', extra.shadowMuted ? '👻 Unshadow' : '👻 Shadow-mute', 'Their chat messages appear to send but nobody (including them, on another device) ever sees them'));
+      parts.push(b('setfeatures', '🎛 Features…', 'Per-user feature overrides — turn a specific tool on/off for just this person'));
       return `<div class="gpa-row" style="gap:4px;margin-top:4px;flex-wrap:wrap;">${parts.join('')}</div>`;
     }
     function updatePrivateBtn(on) {
@@ -10149,17 +10218,26 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const users = data.users || [];
       updatePrivateBtn(!!data.privateMode);
       const dot = '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;margin-right:5px;box-shadow:0 0 6px #22c55e;"></span>';
-      const row = (name, meta, state, owner, hasKey) =>
+      const extraBadges = (x) => {
+        const bits = [];
+        if (x.pending) bits.push('<span title="Awaiting approval" style="color:#eab308;">⏸ pending</span>');
+        if (x.muted) bits.push(`<span title="Timed mute">🔇 muted${x.mutedUntil ? ' (' + timeLeft(x.mutedUntil) + ')' : ''}</span>`);
+        if (x.strikes) bits.push(`<span title="Warning strikes">⚠️ ${x.strikes}/3</span>`);
+        if (x.aiFrozen) bits.push('<span title="AI access frozen">🧊 AI frozen</span>');
+        if (x.shadowMuted) bits.push('<span title="Shadow muted">👻 shadow</span>');
+        return bits.length ? ' ' + bits.join(' ') : '';
+      };
+      const row = (name, meta, state, owner, hasKey, extra) =>
         `<div class="gpa-admin-userrow" style="flex-direction:column;align-items:stretch;">`
         + `<div class="gpa-row" style="justify-content:space-between;gap:8px;">`
-        + `<span>${dot}<b>${escapeHtml(name)}</b> ${stateBadge(state, owner)}${hasKey ? ' <span title="Has an owner-assigned OpenAI key" style="opacity:0.85;">🔑</span>' : ''}</span>`
+        + `<span>${dot}<b>${escapeHtml(name)}</b> ${stateBadge(state, owner)}${hasKey ? ' <span title="Has an owner-assigned OpenAI key" style="opacity:0.85;">🔑</span>' : ''}${extraBadges(extra || {})}</span>`
         + `<span style="opacity:0.8;">${escapeHtml(meta)}</span></div>`
-        + modButtons(name, state, owner, hasKey) + `</div>`;
+        + modButtons(name, state, owner, hasKey, extra) + `</div>`;
       const quotaSuffix = (n, cap) => cap ? ` · ${n || 0}/${cap} today` : (n ? ` · ${n} today` : '');
       const activeRows = active.map((s) =>
-        row(s.user, [s.host, s.region, s.country].filter(Boolean).join(' · ') + ' · ' + ago(s.lastSeen) + quotaSuffix(s.requestsToday, data.dailyQuota), s.state, s.owner, s.hasOpenAiKey)).join('');
+        row(s.user, [s.host, s.region, s.country].filter(Boolean).join(' · ') + ' · ' + ago(s.lastSeen) + quotaSuffix(s.requestsToday, data.dailyQuota), s.state, s.owner, s.hasOpenAiKey, s)).join('');
       const userRows = users.map((u) =>
-        row(u.user, (u.opens || 0) + '× · ' + [u.country, u.region].filter(Boolean).join(' · ') + ' · last ' + ago(u.lastSeen) + quotaSuffix(u.requestsToday, data.dailyQuota), u.state, u.owner, u.hasOpenAiKey)).join('');
+        row(u.user, (u.opens || 0) + '× · ' + [u.country, u.region].filter(Boolean).join(' · ') + ' · last ' + ago(u.lastSeen) + quotaSuffix(u.requestsToday, data.dailyQuota), u.state, u.owner, u.hasOpenAiKey, u)).join('');
       teleLive.innerHTML =
         `<div class="gpa-admin-statcard" style="margin-bottom:8px;"><span class="n">${data.activeCount || 0}</span><div class="l">active right now</div></div>`
         + (data.dailyQuota ? `<div class="gpa-sub" style="margin:4px 0;">Daily request cap: ${data.dailyQuota}/user${data.allOpenaiKeyed ? ' · 🔑 OpenAI key assigned to everyone' : ''}</div>` : (data.allOpenaiKeyed ? `<div class="gpa-sub" style="margin:4px 0;">🔑 OpenAI key assigned to everyone</div>` : ''))
@@ -10225,11 +10303,30 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (action === 'block' || action === 'lock' || action === 'kick') {
         reason = prompt(`Message to show ${user} (optional):`, '') || '';
       }
+      let extraBody = {};
+      if (action === 'mute') {
+        const hoursStr = prompt(`Mute ${user} for how many hours? (e.g. 1, 0.5, 24)`, '1');
+        if (hoursStr === null) return;
+        const hours = parseFloat(hoursStr);
+        if (!(hours > 0)) { teleMsg.textContent = 'Enter a positive number of hours.'; return; }
+        extraBody.hours = hours;
+        reason = prompt(`Reason to show ${user} (optional):`, '') || '';
+      } else if (action === 'setfeatures') {
+        const raw = prompt(
+          `Per-user feature overrides for ${user}, as JSON (true/false per key — quiz, tutor, games, music, browser, notes, study, watch, autofill, research). Example: {"quiz":false,"games":false}`,
+          '{}'
+        );
+        if (raw === null) return;
+        let features;
+        try { features = JSON.parse(raw); } catch (e) { teleMsg.textContent = 'That was not valid JSON.'; return; }
+        if (!features || typeof features !== 'object' || Array.isArray(features)) { teleMsg.textContent = 'Expected a JSON object like {"quiz":false}.'; return; }
+        extraBody.features = features;
+      }
       teleMsg.textContent = `${action} ${user}…`;
       try {
         const res = await fetch(base + '/admin/moderate?token=' + encodeURIComponent(token), {
           method: 'POST', headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ user, action, reason })
+          body: JSON.stringify({ user, action, reason, ...extraBody })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
@@ -10376,6 +10473,103 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       await postConfig({ brandName, defaultTheme, dailyQuota }, 'Saved — takes effect for everyone within ~15s.');
     });
 
+    // ---- Chat & access controls (read-only, approval queue, country/model/token/origin limits) ----
+    const readOnlyBtn = panel.querySelector('#gpa-adm-readonly');
+    const approvalBtn = panel.querySelector('#gpa-adm-approval');
+    function toggleBtnState(btn, on, onLabel, offLabel) {
+      btn.textContent = on ? onLabel : offLabel;
+      btn.classList.toggle('primary', on);
+      btn.dataset.on = on ? '1' : '0';
+    }
+    toggleBtnState(readOnlyBtn, false, '📢 Read-only chat: ON', '📢 Read-only chat: OFF');
+    toggleBtnState(approvalBtn, false, '🚪 Approval queue: ON', '🚪 Approval queue: OFF');
+    readOnlyBtn.addEventListener('click', async () => {
+      const turningOn = readOnlyBtn.dataset.on !== '1';
+      if (turningOn && !confirm('Make chat read-only for everyone except you?')) return;
+      const cfg = await postConfig({ readOnly: turningOn }, turningOn ? 'Chat is now read-only for everyone but you.' : 'Chat is open again.');
+      if (cfg) toggleBtnState(readOnlyBtn, !!cfg.readOnly, '📢 Read-only chat: ON', '📢 Read-only chat: OFF');
+    });
+    approvalBtn.addEventListener('click', async () => {
+      const turningOn = approvalBtn.dataset.on !== '1';
+      const cfg = await postConfig({ approvalMode: turningOn }, turningOn ? 'New usernames will now be held for approval.' : 'New usernames no longer need approval.');
+      if (cfg) toggleBtnState(approvalBtn, !!cfg.approvalMode, '🚪 Approval queue: ON', '🚪 Approval queue: OFF');
+    });
+    panel.querySelector('#gpa-adm-access-save').addEventListener('click', async () => {
+      const csvList = (id) => panel.querySelector(id).value.split(',').map((s) => s.trim()).filter(Boolean);
+      const blockedCountries = csvList('#gpa-adm-blockedcountries');
+      const allowedModels = csvList('#gpa-adm-allowedmodels');
+      const allowedOrigins = csvList('#gpa-adm-allowedorigins');
+      const maxTokens = parseInt(panel.querySelector('#gpa-adm-maxtokens').value, 10) || 0;
+      await postConfig({ blockedCountries, allowedModels, allowedOrigins, maxTokens }, 'Access controls saved — takes effect within ~15s.');
+    });
+
+    // ---- Audit log ----
+    panel.querySelector('#gpa-adm-audit-load').addEventListener('click', async () => {
+      const out = panel.querySelector('#gpa-adm-audit');
+      const token = teleToken.value.trim();
+      const base = adminBase();
+      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      out.innerHTML = '<div class="gpa-sub">Loading…</div>';
+      try {
+        const res = await fetch(base + '/admin/audit?token=' + encodeURIComponent(token));
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        out.innerHTML = data.entries.length ? data.entries.map((e) =>
+          `<div class="gpa-admin-logrow"><span class="t">${escapeHtml(new Date(e.ts).toLocaleString())}</span>`
+          + `<span class="ev"><b>${escapeHtml(e.admin || '?')}</b> → ${escapeHtml(e.action)} on ${escapeHtml(e.route)}${e.target ? ' (' + escapeHtml(String(e.target)) + ')' : ''}</span></div>`
+        ).join('') : '<div class="gpa-sub">No admin actions logged yet.</div>';
+      } catch (e) {
+        out.innerHTML = '';
+        controlMsg.textContent = 'Could not load audit log: ' + e.message;
+      }
+    });
+
+    // ---- Full backup / restore ----
+    panel.querySelector('#gpa-adm-backup-dl').addEventListener('click', async () => {
+      const token = teleToken.value.trim();
+      const base = adminBase();
+      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      controlMsg.textContent = 'Preparing backup…';
+      try {
+        const res = await fetch(base + '/admin/backup?token=' + encodeURIComponent(token));
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `agent-console-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        controlMsg.textContent = 'Backup downloaded.';
+      } catch (e) {
+        controlMsg.textContent = 'Backup failed: ' + e.message;
+      }
+    });
+    const restoreFileInput = panel.querySelector('#gpa-adm-restore-file');
+    panel.querySelector('#gpa-adm-restore-btn').addEventListener('click', () => restoreFileInput.click());
+    restoreFileInput.addEventListener('change', async () => {
+      const file = restoreFileInput.files && restoreFileInput.files[0];
+      restoreFileInput.value = '';
+      if (!file) return;
+      if (!confirm(`Restore from "${file.name}"? This overwrites any matching records currently on the worker.`)) return;
+      const token = teleToken.value.trim();
+      const base = adminBase();
+      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      try {
+        const text = await file.text();
+        const payload = JSON.parse(text);
+        const res = await fetch(base + '/admin/restore?token=' + encodeURIComponent(token), {
+          method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        controlMsg.textContent = `Restored ${data.restored} record(s).`;
+        loadLive();
+      } catch (e) {
+        controlMsg.textContent = 'Restore failed: ' + e.message;
+      }
+    });
+
     // ---- Assign an API key remotely (one person, several, or everyone) ----
     const keyTargetSel = panel.querySelector('#gpa-adm-key-target');
     const keyUsersRow = panel.querySelector('#gpa-adm-key-users-row');
@@ -10427,19 +10621,69 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         return data;
       } catch (e) { controlMsg.textContent = 'Room action failed: ' + e.message; return null; }
     }
+    // Slow mode + ban/unban buttons shared by the public row and every
+    // private room row.
+    function addRoomModButtons(btns, id, label) {
+      const slow = document.createElement('button');
+      slow.className = 'gpa-btn'; slow.style.fontSize = '9px'; slow.textContent = '⏱ Slow mode';
+      slow.title = 'Seconds between messages per user in this room (0 = off)';
+      slow.addEventListener('click', async () => {
+        const secStr = prompt(`Slow mode for ${label} — seconds between messages (0 = off):`, '0');
+        if (secStr === null) return;
+        const seconds = Math.max(0, parseInt(secStr, 10) || 0);
+        const d = await roomsApi({ action: 'slowmode', id, seconds });
+        if (!d) return;
+        controlMsg.textContent = seconds ? `${label}: slow mode set to ${seconds}s.` : `${label}: slow mode off.`;
+      });
+      const ban = document.createElement('button');
+      ban.className = 'gpa-btn'; ban.style.fontSize = '9px'; ban.textContent = '🚫 Ban…';
+      ban.title = 'Ban a username from this room only — they can still use every other room';
+      ban.addEventListener('click', async () => {
+        const target = (prompt(`Ban which username from ${label}?`, '') || '').trim();
+        if (!target) return;
+        const d = await roomsApi({ action: 'banuser', id, user: target });
+        if (!d) return;
+        controlMsg.textContent = `Banned ${target} from ${label}.`;
+      });
+      const unban = document.createElement('button');
+      unban.className = 'gpa-btn'; unban.style.fontSize = '9px'; unban.textContent = '✅ Unban…';
+      unban.addEventListener('click', async () => {
+        const target = (prompt(`Unban which username from ${label}?`, '') || '').trim();
+        if (!target) return;
+        const d = await roomsApi({ action: 'unbanuser', id, user: target });
+        if (!d) return;
+        controlMsg.textContent = `Unbanned ${target} from ${label}.`;
+      });
+      btns.appendChild(slow); btns.appendChild(ban); btns.appendChild(unban);
+    }
     async function renderRooms() {
       const wrap = panel.querySelector('#gpa-adm-rooms');
       const data = await roomsApi({ action: 'list' });
       if (!data) return;
       wrap.innerHTML = '';
-      if (!data.rooms.length) { wrap.innerHTML = '<div class="gpa-sub">No private rooms yet.</div>'; return; }
+      // Public room: always exists, gets the same moderation tools as a
+      // private room, just no code/delete (it can't be deleted).
+      const publicRow = document.createElement('div');
+      publicRow.className = 'gpa-admin-userrow';
+      publicRow.style.flexDirection = 'column'; publicRow.style.alignItems = 'stretch'; publicRow.style.gap = '4px';
+      const publicHead = document.createElement('span');
+      publicHead.innerHTML = '# <b>public</b>';
+      const publicBtns = document.createElement('div');
+      publicBtns.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
+      addRoomModButtons(publicBtns, 'public', '# public');
+      publicRow.appendChild(publicHead); publicRow.appendChild(publicBtns);
+      wrap.appendChild(publicRow);
+      if (!data.rooms.length) return;
       data.rooms.forEach((r) => {
         const row = document.createElement('div');
         row.className = 'gpa-admin-userrow';
+        row.style.flexDirection = 'column'; row.style.alignItems = 'stretch'; row.style.gap = '4px';
+        const head = document.createElement('div');
+        head.style.cssText = 'display:flex;justify-content:space-between;gap:8px;';
         const left = document.createElement('span');
         left.innerHTML = `🔒 <b>${escapeHtml(r.name)}</b> <span style="opacity:0.6">${escapeHtml(r.id)}</span>`;
         const btns = document.createElement('span');
-        btns.style.cssText = 'display:flex;gap:4px;';
+        btns.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
         const code = document.createElement('button');
         code.className = 'gpa-btn'; code.style.fontSize = '9px'; code.textContent = '🔑 New code';
         code.addEventListener('click', async () => {
@@ -10459,7 +10703,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           renderRooms();
         });
         btns.appendChild(code); btns.appendChild(del);
-        row.appendChild(left); row.appendChild(btns);
+        head.appendChild(left); head.appendChild(btns);
+        const modBtns = document.createElement('div');
+        modBtns.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
+        addRoomModButtons(modBtns, r.id, r.name);
+        row.appendChild(head); row.appendChild(modBtns);
         wrap.appendChild(row);
       });
     }
@@ -10670,7 +10918,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (!wrap) return;
       wrap.innerHTML = '';
       [['Gemini', STORAGE_KEY], ['OpenAI', OPENAI_STORAGE_KEY], ['YouTube', YT_STORAGE_KEY],
-       ['Admin token', ADMIN_KEYS.TELE_TOKEN]].forEach(([label, key]) => {
+       ['Admin token', ADMIN_KEYS.TELE_TOKEN], ['Owner code', ADMIN_KEYS.OWNER_CODE]].forEach(([label, key]) => {
         const v = localStorage.getItem(key) || '';
         const row = document.createElement('div');
         row.className = 'gpa-admin-userrow';
