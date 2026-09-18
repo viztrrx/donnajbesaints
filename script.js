@@ -303,6 +303,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       <span class="gpa-title">Agent Console</span>
       <span class="gpa-dot"></span>
       <button id="gpa-reload" title="Reload the console — fetches the latest script and restarts it">&#10227;</button>
+      <button id="gpa-console-fullscreen" title="Fullscreen the whole console">⛶</button>
       <button id="gpa-close" title="Close">&times;</button>
     </div>
     <div class="gpa-toast-wrap" id="gpa-toast-wrap"></div>
@@ -568,6 +569,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button class="gpa-btn game-btn" data-game="mathsprint">Math Sprint</button>
           <button class="gpa-btn game-btn" data-game="maze">Maze</button>
           <button class="gpa-btn game-btn" data-game="invaders">Invaders</button>
+          <button class="gpa-btn game-btn" data-game="platformer">Platformer</button>
         </div>
         <div class="gpa-row" style="margin-top:6px;">
           <button id="gpa-game-restart" class="gpa-btn">🔄 Restart</button>
@@ -1170,7 +1172,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-panel.gpa-fullpage .gpa-header { cursor: default; }
       .gpa-header:active { cursor: grabbing; }
-      #gpa-sidebar-toggle, #gpa-min, #gpa-reload, #gpa-close {
+      #gpa-sidebar-toggle, #gpa-min, #gpa-reload, #gpa-console-fullscreen, #gpa-close {
         width: 26px; height: 26px; border-radius: 8px;
         border: 1px solid transparent;
         background: transparent;
@@ -1180,9 +1182,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         flex-shrink: 0;
         transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
       }
-      #gpa-sidebar-toggle:hover, #gpa-min:hover, #gpa-reload:hover { background: ${t.field}; color: ${t.text}; }
+      #gpa-sidebar-toggle:hover, #gpa-min:hover, #gpa-reload:hover, #gpa-console-fullscreen:hover { background: ${t.field}; color: ${t.text}; }
       #gpa-sidebar-toggle.active { background: ${t.accent}; color: ${t.accentFg}; }
-      #gpa-min:active, #gpa-reload:active, #gpa-close:active { transform: scale(0.92); }
+      #gpa-min:active, #gpa-reload:active, #gpa-console-fullscreen:active, #gpa-close:active { transform: scale(0.92); }
       #gpa-reload:disabled { opacity: 0.5; cursor: default; }
       #gpa-reload.spinning { animation: gpa-spin 0.8s linear infinite; }
       @keyframes gpa-spin { to { transform: rotate(360deg); } }
@@ -1830,6 +1832,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-game-stage:-webkit-full-screen .game-canvas {
         image-rendering: pixelated;
       }
+      /* Fullscreening the whole console (header, sidebar and all) rather
+         than just one game — the panel itself becomes the fullscreen
+         element, so it needs to actually fill that space edge-to-edge
+         instead of keeping its small floating-widget footprint. */
+      .gpa-panel:fullscreen,
+      .gpa-panel:-webkit-full-screen {
+        width: 100% !important; height: 100% !important;
+        border-radius: 0; border: none;
+        background: ${t.bg};
+      }
       .gpa-game-status {
         font-size: 12px; font-weight: 700; color: ${t.text}; text-align: center;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
@@ -2090,6 +2102,25 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   minimized.addEventListener('click', () => setMinimized(false));
   host.addEventListener('gpa-toggle', () => setMinimized(!isMin));
   panel.querySelector('#gpa-close').addEventListener('click', () => host.remove());
+
+  // ---- Fullscreen the whole console (header, sidebar, everything) --------
+  const consoleFsBtn = panel.querySelector('#gpa-console-fullscreen');
+  consoleFsBtn.addEventListener('click', () => {
+    const isConsoleFs = document.fullscreenElement === panel || document.webkitFullscreenElement === panel;
+    if (isConsoleFs) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      const req = panel.requestFullscreen || panel.webkitRequestFullscreen;
+      if (req) req.call(panel).catch(() => { /* page may block fullscreen */ });
+    }
+  });
+  function syncConsoleFullscreenLabel() {
+    const active = document.fullscreenElement === panel || document.webkitFullscreenElement === panel;
+    consoleFsBtn.textContent = active ? '⤢' : '⛶';
+    consoleFsBtn.title = active ? 'Exit fullscreen' : 'Fullscreen the whole console';
+  }
+  onDoc('fullscreenchange', syncConsoleFullscreenLabel);
+  onDoc('webkitfullscreenchange', syncConsoleFullscreenLabel);
 
   let isMin = false;
   function setMinimized(v) {
@@ -9250,6 +9281,212 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     };
   }
 
+  // ---- Platformer (original run/jump/stomp arcade platformer) ----
+  function initPlatformer(root) {
+    const W = 260, H = 150, GROUND_Y = H - 18;
+    const GRAVITY = 0.5, JUMP_V = -8.4, MOVE_SPEED = 2.2, STOMP_BOUNCE = -5.5;
+    const LEVEL_LENS = [1300, 1800, 2300];
+    const SKINS = { teal: '#14b8a6', coral: '#fb7185', amber: '#f59e0b', violet: '#8b5cf6' };
+    const skinKey = getGameOpt('platformer', 'skin', 'teal');
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'game-canvas';
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const status = document.createElement('div');
+    status.className = 'gpa-game-status';
+
+    let levelIndex, levelLen, grounds, platforms, coins, enemies, flagX;
+    let px, py, pvx, pvy, onGround, facing, lives, score, over, won, paused = false, raf, checkpointX;
+    const keys = {};
+
+    function buildLevel(len) {
+      grounds = []; platforms = []; coins = []; enemies = [];
+      let x = 0;
+      while (x < len) {
+        const runLen = 120 + Math.random() * 160;
+        grounds.push({ x1: x, x2: Math.min(len, x + runLen) });
+        x += runLen;
+        if (x < len - 200 && Math.random() < 0.45) x += 30 + Math.random() * 40;
+      }
+      for (let gx = 80; gx < len - 100; gx += 90 + Math.random() * 60) {
+        const py2 = GROUND_Y - (30 + Math.random() * 50);
+        const pw = 40 + Math.random() * 30;
+        platforms.push({ x: gx, y: py2, w: pw });
+        if (Math.random() < 0.8) coins.push({ x: gx + pw / 2, y: py2 - 10, taken: false });
+      }
+      for (let gx = 60; gx < len - 60; gx += 70 + Math.random() * 90) {
+        if (Math.random() < 0.5) coins.push({ x: gx, y: GROUND_Y - 14, taken: false });
+      }
+      grounds.forEach((g) => {
+        if (g.x2 - g.x1 > 140 && Math.random() < 0.7) {
+          enemies.push({
+            x: g.x1 + (g.x2 - g.x1) / 2, y: GROUND_Y - 10,
+            x1: g.x1 + 20, x2: g.x2 - 20, dir: 1, alive: true,
+            speed: 0.6 + levelIndex * 0.25
+          });
+        }
+      });
+      flagX = len - 30;
+    }
+    function isOverGround(x) { return grounds.some((g) => x >= g.x1 && x <= g.x2); }
+    function loadLevel(i) {
+      levelIndex = i;
+      levelLen = LEVEL_LENS[i] || LEVEL_LENS[LEVEL_LENS.length - 1];
+      buildLevel(levelLen);
+      px = 20; py = GROUND_Y - 10; pvx = 0; pvy = 0; onGround = true; facing = 1; checkpointX = 20;
+      status.textContent = `Level ${i + 1}/${LEVEL_LENS.length} · Score ${score} · Lives ${lives}`;
+    }
+    function reset() { lives = 3; score = 0; over = false; won = false; loadLevel(0); }
+    function respawn() { px = checkpointX; py = GROUND_Y - 10; pvx = 0; pvy = 0; }
+    function loseLife() {
+      lives--;
+      if (lives <= 0) {
+        over = true;
+        const best = setBestIfHigher('platformer', score);
+        status.textContent = `Game over! Score ${score}   Best: ${best}   (Space to retry)`;
+      } else {
+        respawn();
+        status.textContent = `Ouch! Lives ${lives} · Score ${score}`;
+      }
+    }
+    function update() {
+      if (over || paused) return;
+      pvx = 0;
+      if (keys.ArrowLeft) { pvx = -MOVE_SPEED; facing = -1; }
+      if (keys.ArrowRight) { pvx = MOVE_SPEED; facing = 1; }
+      pvy = Math.min(10, pvy + GRAVITY);
+      let nx = px + pvx, ny = py + pvy;
+      let landedY = isOverGround(nx) && ny + 10 >= GROUND_Y ? GROUND_Y - 10 : null;
+      platforms.forEach((p) => {
+        if (nx + 6 > p.x && nx - 6 < p.x + p.w && py + 10 <= p.y && ny + 10 >= p.y) {
+          if (landedY === null || p.y - 10 < landedY) landedY = p.y - 10;
+        }
+      });
+      onGround = false;
+      if (landedY !== null && pvy >= 0) { ny = landedY; pvy = 0; onGround = true; }
+      if (keys.Jump && onGround) { pvy = JUMP_V; onGround = false; keys.Jump = false; }
+      px = Math.max(6, Math.min(levelLen - 6, nx));
+      py = ny;
+      if (py > H + 30) { loseLife(); return; }
+      if (onGround && px > checkpointX + 40) checkpointX = px - 20;
+      coins.forEach((c) => {
+        if (!c.taken && Math.abs(c.x - px) < 10 && Math.abs(c.y - py) < 10) {
+          c.taken = true; score += 10;
+          status.textContent = `Score ${score} · Lives ${lives}`;
+        }
+      });
+      enemies.forEach((e) => {
+        if (!e.alive) return;
+        e.x += e.dir * e.speed;
+        if (e.x < e.x1 || e.x > e.x2) e.dir *= -1;
+        const dx = Math.abs(e.x - px), dy = e.y - py;
+        if (dx < 10 && dy > -4 && dy < 12) {
+          if (pvy > 0 && py < e.y - 4) {
+            e.alive = false; pvy = STOMP_BOUNCE; score += 20;
+            status.textContent = `Score ${score} · Lives ${lives}`;
+          } else loseLife();
+        }
+      });
+      if (over) return;
+      if (px >= flagX) {
+        if (levelIndex + 1 < LEVEL_LENS.length) { score += 50; loadLevel(levelIndex + 1); }
+        else {
+          won = true; over = true;
+          score += 100;
+          const best = setBestIfHigher('platformer', score);
+          status.textContent = `🎉 You made it! Score ${score}   Best: ${best}`;
+        }
+      }
+    }
+    function draw() {
+      const t = THEMES[theme] || THEMES.dark;
+      const cam = Math.max(0, Math.min(levelLen - W, px - W / 2));
+      ctx.fillStyle = t.bg;
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = t.border;
+      grounds.forEach((g) => {
+        const x1 = g.x1 - cam, x2 = g.x2 - cam;
+        if (x2 < 0 || x1 > W) return;
+        ctx.fillRect(x1, GROUND_Y, x2 - x1, H - GROUND_Y);
+      });
+      ctx.fillStyle = t.sub;
+      platforms.forEach((p) => {
+        const x = p.x - cam;
+        if (x + p.w < 0 || x > W) return;
+        ctx.fillRect(x, p.y, p.w, 8);
+      });
+      ctx.fillStyle = '#fbbf24';
+      coins.forEach((c) => {
+        if (c.taken) return;
+        const x = c.x - cam;
+        if (x < -10 || x > W + 10) return;
+        ctx.beginPath(); ctx.arc(x, c.y, 4, 0, Math.PI * 2); ctx.fill();
+      });
+      enemies.forEach((e) => {
+        if (!e.alive) return;
+        const x = e.x - cam;
+        if (x < -14 || x > W + 14) return;
+        ctx.fillStyle = '#e5453a';
+        ctx.fillRect(x - 6, e.y - 8, 12, 10);
+      });
+      const fx = flagX - cam;
+      if (fx > -20 && fx < W + 20) {
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(fx, GROUND_Y - 50, 3, 50);
+        ctx.beginPath(); ctx.moveTo(fx + 3, GROUND_Y - 50); ctx.lineTo(fx + 18, GROUND_Y - 44); ctx.lineTo(fx + 3, GROUND_Y - 38); ctx.fill();
+      }
+      const psx = px - cam;
+      ctx.fillStyle = SKINS[skinKey] || SKINS.teal;
+      ctx.beginPath(); ctx.ellipse(psx, py, 8, 10, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(psx + facing * 3, py - 2, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.beginPath(); ctx.arc(psx + facing * 4, py - 2, 1.3, 0, Math.PI * 2); ctx.fill();
+    }
+    function loop() { update(); draw(); raf = requestAnimationFrame(loop); }
+    function onKey(e) {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', ' '].includes(e.key)) e.preventDefault();
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = true;
+      if (e.key === 'ArrowRight') keys.ArrowRight = true;
+      if (e.key === 'ArrowUp' || e.key === ' ') keys.Jump = true;
+      if (over && (e.key === ' ' || e.key === 'Enter')) reset();
+    }
+    function onKeyUp(e) {
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = false;
+      if (e.key === 'ArrowRight') keys.ArrowRight = false;
+    }
+    onWin('keydown', onKey); onWin('keyup', onKeyUp);
+
+    reset();
+    draw();
+    raf = requestAnimationFrame(loop);
+
+    const hint = document.createElement('div');
+    hint.className = 'gpa-sub';
+    hint.textContent = 'Arrows to move, Up/Space to jump — stomp enemies from above, grab coins, reach the flag.';
+    root.appendChild(status);
+    root.appendChild(canvas);
+    root.appendChild(hint);
+
+    return {
+      cleanup: () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKeyUp); },
+      pause: () => { paused = true; },
+      resume: () => { paused = false; },
+      redraw: draw,
+      stats: () => [
+        { label: 'Score', value: score },
+        { label: 'Lives', value: Math.max(0, lives) },
+        { label: 'Level', value: levelIndex + 1 },
+        { label: 'Status', value: over ? (won ? 'Cleared!' : 'Game over') : 'Playing' }
+      ],
+      options: () => [
+        { key: 'skin', label: 'Color', value: skinKey, restart: true,
+          choices: Object.keys(SKINS).map((k) => ({ value: k, label: k[0].toUpperCase() + k.slice(1) })) }
+      ]
+    };
+  }
+
   const GAME_LOADERS = {
     ttt: initTTT, rps: initRPS, memory: initMemory, snake: initSnake,
     '2048': init2048, whack: initWhack, guess: initGuess, hangman: initHangman,
@@ -9260,7 +9497,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     pong: initPong, lightsout: initLightsOut, fifteen: initFifteen,
     hanoi: initHanoi, mastermind: initMastermind, blackjack: initBlackjack,
     typing: initTyping, mathsprint: initMathSprint, maze: initMaze,
-    invaders: initInvaders
+    invaders: initInvaders, platformer: initPlatformer
   };
 
   const GAME_LABELS = {
@@ -9271,7 +9508,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     tetris: 'Tetris', checkers: 'Checkers', sudoku: 'Sudoku',
     pong: 'Pong', lightsout: 'Lights Out', fifteen: '15-Puzzle', hanoi: 'Tower of Hanoi',
     mastermind: 'Mastermind', blackjack: 'Blackjack', typing: 'Typing Test',
-    mathsprint: 'Math Sprint', maze: 'Maze', invaders: 'Space Invaders'
+    mathsprint: 'Math Sprint', maze: 'Maze', invaders: 'Space Invaders', platformer: 'Platformer'
   };
 
   const gameStage = panel.querySelector('#gpa-game-stage');
