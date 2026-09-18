@@ -1604,7 +1604,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .game-btn { flex: 1 1 auto; min-width: 64px; font-size: 9.5px; }
       .gpa-game-stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
       .gpa-game-viewport {
-        flex: 1; min-height: 0; overflow: hidden; margin-top: 8px;
+        flex: 1; min-height: 0; overflow: auto; margin-top: 8px;
         display: flex; flex-direction: column; align-items: center;
         justify-content: flex-start;
         padding: 6px 2px;
@@ -6518,6 +6518,24 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const scale = Math.min(maxScale, availW / natW, availH / natH);
     gameFit.style.transform = scale < 0.999 || scale > 1.001 ? `scale(${scale})` : 'none';
   }
+  // A ResizeObserver reacts the instant the viewport's real size settles —
+  // fullscreen transitions, sidebar collapse/expand, and window resizes all
+  // land here without guessing how long the browser needs to finish
+  // laying out. This is the primary trigger; the setTimeout retries in
+  // syncFullscreenLabel() remain as a fallback for browsers where the
+  // observer fires a frame late.
+  let gameResizeRAF = null;
+  const gameResizeObserver = (typeof ResizeObserver !== 'undefined' && gameViewport) ? new ResizeObserver(() => {
+    if (gameResizeRAF) return;
+    gameResizeRAF = requestAnimationFrame(() => {
+      gameResizeRAF = null;
+      fitGameToStage();
+      if (activeGameControls && typeof activeGameControls.redraw === 'function') {
+        try { activeGameControls.redraw(); } catch (e) { /* ignore */ }
+      }
+    });
+  }) : null;
+  if (gameResizeObserver) gameResizeObserver.observe(gameViewport);
   const gameBtns = panel.querySelectorAll('.game-btn');
   let activeGameControls = null;
   let gameStartedAt = 0;
@@ -6916,6 +6934,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         lastStep = performance.now(); // don't let paused time cause a jump
         raf = requestAnimationFrame(loop);
       },
+      redraw: () => draw(1),
       stats: () => [
         { label: 'Score', value: score },
         { label: 'Length', value: snake.length },
@@ -7764,6 +7783,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       cleanup: () => { cancelAnimationFrame(raf); canvas.removeEventListener('mousemove', onMove); canvas.removeEventListener('touchmove', onMove); },
       pause: () => { cancelAnimationFrame(raf); paused = true; },
       resume: () => { paused = false; if (!over) raf = requestAnimationFrame(step); },
+      redraw: draw,
       stats: () => [
         { label: 'Score', value: score },
         { label: 'Lives', value: lives },
@@ -7877,6 +7897,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       cleanup: () => { cancelAnimationFrame(raf); canvas.removeEventListener('click', flap); },
       pause: () => { cancelAnimationFrame(raf); paused = true; },
       resume: () => { paused = false; if (!over && started) raf = requestAnimationFrame(step); },
+      redraw: draw,
       stats: () => [
         { label: 'Score', value: score },
         { label: 'Pipes passed', value: pipes.filter((p) => p.passed).length },
@@ -8184,6 +8205,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       cleanup: () => { clearTimeout(dropTimer); window.removeEventListener('keydown', onKey); },
       pause: () => { clearTimeout(dropTimer); dropTimer = null; paused = true; },
       resume: () => { paused = false; if (!over) scheduleTick(); },
+      redraw: draw,
       stats: () => [
         { label: 'Score', value: score },
         { label: 'Level', value: level },
@@ -8571,6 +8593,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return {
       cleanup: () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); },
       pause: () => { paused = true; }, resume: () => { paused = false; },
+      redraw: draw,
       stats: () => [{ label: 'You', value: you }, { label: 'CPU', value: cpu }],
       options: () => [{
         key: 'speed', label: 'Ball speed', value: getGameOpt('pong', 'speed', 'normal'), restart: true,
@@ -9129,6 +9152,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     root.appendChild(status); root.appendChild(canvas);
     return {
       cleanup: () => window.removeEventListener('keydown', onKey),
+      redraw: draw,
       stats: () => [{ label: 'Steps', value: steps }, { label: 'Escaped', value: won ? 'Yes' : 'No' }],
       options: () => [{
         key: 'size', label: 'Maze size', value: String(N), restart: true,
@@ -9221,6 +9245,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return {
       cleanup: () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onUp); },
       pause: () => { paused = true; }, resume: () => { paused = false; },
+      redraw: draw,
       stats: () => [{ label: 'Score', value: score }, { label: 'Wave', value: wave }, { label: 'Lives', value: Math.max(0, lives) }]
     };
   }
@@ -9438,6 +9463,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (req) req.call(gameStage).catch(() => { /* page may block fullscreen */ });
     }
   });
+  // Some canvas games only repaint on their own tick/interval or on user
+  // input (Tetris ticks every 600ms+, Maze/Flappy-before-first-click don't
+  // redraw at all until moved). Chrome can blank a canvas's backing store
+  // when its containing element is promoted into the fullscreen "top
+  // layer" (a real, documented compositor quirk on some GPU/driver
+  // combos) — those idle games would then sit blank until their next
+  // tick/keypress, which for Maze or a paused game may never come. Force
+  // an explicit repaint on every fullscreen transition so this can't
+  // leave the canvas looking empty.
+  function forceRedrawActiveGame() {
+    if (activeGameControls && typeof activeGameControls.redraw === 'function') {
+      try { activeGameControls.redraw(); } catch (e) { /* ignore */ }
+    }
+  }
   function syncFullscreenLabel() {
     const active = !!(document.fullscreenElement || document.webkitFullscreenElement);
     fullscreenBtn.textContent = active ? '⛶ Exit Fullscreen' : '⛶ Fullscreen';
@@ -9450,10 +9489,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     let tries = 0;
     (function refit() {
       fitGameToStage();
+      forceRedrawActiveGame();
       if (++tries < 6) setTimeout(() => requestAnimationFrame(refit), 60);
     })();
   }
-  onWin('resize', () => requestAnimationFrame(fitGameToStage));
+  onWin('resize', () => requestAnimationFrame(() => { fitGameToStage(); forceRedrawActiveGame(); }));
   onDoc('fullscreenchange', syncFullscreenLabel);
   onDoc('webkitfullscreenchange', syncFullscreenLabel);
 
