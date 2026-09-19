@@ -10350,7 +10350,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // ---- Reload the console in place ------------------------------------------
   // Fetches the latest copy of this script and restarts it, so you pick up a
   // new version without re-running the bookmarklet.
-  const SCRIPT_SRC = 'https://raw.githubusercontent.com/viztrrx/donnajbe/main/script.js';
+  const SCRIPT_SRC = 'https://raw.githubusercontent.com/viztrrx/donnajbesaints/main/script.js';
   function scriptSource() { return (admGet('gpa_script_src') || '').trim() || SCRIPT_SRC; }
 
   // Undo everything this instance did to the page. Anything missed here shows
