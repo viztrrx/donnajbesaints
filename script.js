@@ -91,7 +91,11 @@
   const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
   const STORAGE_KEY = 'gpa_gemini_api_key';
   const OPENAI_STORAGE_KEY = 'gpa_openai_api_key';
-  const OPENAI_MODEL = 'gpt-4o-mini';
+  // Set once a user declines the "paste your key" prompt while the proxy is
+  // configured, so they aren't nagged every call — the owner may have
+  // assigned them a key server-side via the admin console's "Assign key".
+  const OPENAI_KEY_SKIP = 'gpa_openai_key_skip';
+  const OPENAI_MODEL = 'gpt-5';
   const REASON_KEY = 'gpa_reason';
 const REASONING_MODELS = new Set([
   'gpt-6-astra',
@@ -115,24 +119,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const TELEMETRY_ENABLED = true;
   const TELEMETRY_ENDPOINT = OPENAI_PROXY; // same worker; blank disables tracking
   const PROVIDER_KEY = 'gpa_ai_provider';
-  // Per-account UI language. It starts with gpa_ and is NOT in
-  // NON_PROFILE_KEYS, so collectState() sweeps it into the profile snapshot —
-  // the choice follows the signed-in account across save/sync, not the device.
-  const LANG_KEY = 'gpa_language';
-  const LANGUAGES = [
-    { code: 'en', label: 'English',    native: 'English' },
-    { code: 'es', label: 'Spanish',    native: 'Espanol' },
-    { code: 'fr', label: 'French',     native: 'Francais' },
-    { code: 'de', label: 'German',     native: 'Deutsch' },
-    { code: 'pt', label: 'Portuguese', native: 'Portugues' },
-    { code: 'it', label: 'Italian',    native: 'Italiano' },
-    { code: 'zh', label: 'Chinese',    native: '中文' },
-    { code: 'ja', label: 'Japanese',   native: '日本語' },
-    { code: 'ko', label: 'Korean',     native: '한국어' },
-    { code: 'hi', label: 'Hindi',      native: 'हिन्दी' },
-    { code: 'ar', label: 'Arabic',     native: 'العربية' },
-    { code: 'ru', label: 'Russian',    native: 'Русский' }
-  ];
   // Tells the AI what it is and what the console can do, so questions like
   // "what can you do?" get a real answer. Injected into the chat-facing
   // system prompts (Ask AI + page Q&A), not into the JSON-only ones.
@@ -159,6 +145,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     large: { w: 420, h: 560 },
     xl: { w: 480, h: 640 }
   };
+  // "Full" isn't a fixed entry in PANEL_SIZES since it has to track whatever
+  // the viewport actually is right now, not a stored pixel size — this is
+  // the new full-page "app" surface, computed live rather than cached.
+  const FULL_MARGIN = 16;
+  function sizeFor(key) {
+    if (key === 'full') {
+      return {
+        w: Math.max(360, window.innerWidth - FULL_MARGIN * 2),
+        h: Math.max(400, window.innerHeight - FULL_MARGIN * 2)
+      };
+    }
+    return PANEL_SIZES[key] || PANEL_SIZES.normal;
+  }
   const PARTICLE_KEY = 'gpa_particle_style';
   const PARTICLE_SIZE_KEY = 'gpa_particle_margin';
   let PARTICLE_PANEL_W = PANEL_SIZES.normal.w;
@@ -224,19 +223,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   // ---- Themes ---------------------------------------------------------
   const THEMES = {
-    dark:      { bg: '#0b0b0f', panel: '#16161c', field: '#1e1e26', text: '#eaeaf0', sub: '#9a9aa8', accent: '#5b8cff', border: '#26262f' },
-    matte:     { bg: '#131313', panel: '#1a1a1a', field: '#222222', text: '#e6e6e6', sub: '#9c9c9c', accent: '#b0b0b0', border: '#2b2b2b' },
-    red:       { bg: '#180a0a', panel: '#241010', field: '#2e1414', text: '#f5e9e9', sub: '#cf9d9d', accent: '#e5453a', border: '#3a1818' },
-    blue:      { bg: '#081420', panel: '#0f1e2e', field: '#132840', text: '#e7eef7', sub: '#9db4c9', accent: '#4da3ff', border: '#1b3149' },
-    purple:    { bg: '#120c1e', panel: '#1c1430', field: '#251c3d', text: '#efe9fb', sub: '#b6a8d1', accent: '#8b5cf6', border: '#2f2350' },
-    pink:      { bg: '#1e0c16', panel: '#301425', field: '#3d1b30', text: '#fbe9f2', sub: '#d1a8bf', accent: '#ec4899', border: '#4a2038' },
-    lightblue: { bg: '#eaf6ff', panel: '#f5fbff', field: '#ffffff', text: '#0f2740', sub: '#5b7c93', accent: '#0ea5e9', border: '#cfe8f7' },
-    white:  { bg: '#ffffff', panel: '#f5f5f7', field: '#ffffff', text: '#17171a', sub: '#6b6b70', accent: '#2563eb', border: '#e1e1e6' }
+    dark:      { bg: '#0b0b0f', panel: '#16161c', field: '#1e1e26', text: '#eaeaf0', sub: '#9a9aa8', accent: '#5b8cff', accentFg: '#ffffff', border: '#26262f' },
+    matte:     { bg: '#131313', panel: '#1a1a1a', field: '#222222', text: '#e6e6e6', sub: '#9c9c9c', accent: '#b0b0b0', accentFg: '#171717', border: '#2b2b2b' },
+    red:       { bg: '#180a0a', panel: '#241010', field: '#2e1414', text: '#f5e9e9', sub: '#cf9d9d', accent: '#e5453a', accentFg: '#ffffff', border: '#3a1818' },
+    blue:      { bg: '#081420', panel: '#0f1e2e', field: '#132840', text: '#e7eef7', sub: '#9db4c9', accent: '#4da3ff', accentFg: '#ffffff', border: '#1b3149' },
+    purple:    { bg: '#120c1e', panel: '#1c1430', field: '#251c3d', text: '#efe9fb', sub: '#b6a8d1', accent: '#8b5cf6', accentFg: '#ffffff', border: '#2f2350' },
+    pink:      { bg: '#1e0c16', panel: '#301425', field: '#3d1b30', text: '#fbe9f2', sub: '#d1a8bf', accent: '#ec4899', accentFg: '#ffffff', border: '#4a2038' },
+    lightblue: { bg: '#eaf6ff', panel: '#f5fbff', field: '#ffffff', text: '#0f2740', sub: '#5b7c93', accent: '#0ea5e9', accentFg: '#ffffff', border: '#cfe8f7' },
+    white:  { bg: '#ffffff', panel: '#f5f5f7', field: '#ffffff', text: '#17171a', sub: '#6b6b70', accent: '#2563eb', accentFg: '#ffffff', border: '#e1e1e6' }
   };
 
   let theme = localStorage.getItem(THEME_KEY) || 'matte';
   const savedCustomAccent = localStorage.getItem(CUSTOM_COLOR_KEY) || '#8b5cf6';
-  THEMES.custom = { ...THEMES.dark, accent: savedCustomAccent };
+  THEMES.custom = { ...THEMES.dark, accent: savedCustomAccent, accentFg: '#ffffff' };
   if (!THEMES[theme]) theme = 'matte';
 
   // ---- Host + Shadow DOM (isolates styles from the host page) -------
@@ -246,17 +245,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   document.documentElement.appendChild(host);
   const root = host.attachShadow({ mode: 'open' });
 
-  // Best-effort load of a nicer monospace font for AI responses. If the
+  // Best-effort load of the UI's real typeface (chrome + AI output). If the
   // host page's CSP blocks external stylesheets, this silently no-ops and
-  // the CSS font-family fallback stack (system monospace fonts) is used.
+  // the CSS font-family fallback stack (system sans/monospace fonts) is used.
   if (!document.getElementById('gpa-font-link')) {
     try {
       const fontLink = document.createElement('link');
       fontLink.id = 'gpa-font-link';
       fontLink.rel = 'stylesheet';
-      fontLink.href = 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap';
+      fontLink.href = 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap';
       document.head.appendChild(fontLink);
-    } catch (e) { /* ignore — falls back to system monospace fonts */ }
+    } catch (e) { /* ignore — falls back to system sans/monospace fonts */ }
   }
 
   // Styles for on-page highlight spans MUST live in the host page's own
@@ -298,25 +297,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   particleWrap.appendChild(panel);
 
   panel.innerHTML = `
-    <span class="gpa-corner gpa-corner-tl"></span>
-    <span class="gpa-corner gpa-corner-tr"></span>
-    <span class="gpa-corner gpa-corner-bl"></span>
-    <span class="gpa-corner gpa-corner-br"></span>
-    <div class="gpa-scanline"></div>
     <div class="gpa-header" id="gpa-drag">
+      <button id="gpa-sidebar-toggle" title="Show/hide the sidebar">&#9776;</button>
       <button id="gpa-min" title="Minimize">&minus;</button>
       <span class="gpa-title">Agent Console</span>
       <span class="gpa-dot"></span>
       <button id="gpa-reload" title="Reload the console — fetches the latest script and restarts it">&#10227;</button>
+      <button id="gpa-console-fullscreen" title="Fullscreen the whole console">⛶</button>
       <button id="gpa-close" title="Close">&times;</button>
     </div>
+    <div class="gpa-toast-wrap" id="gpa-toast-wrap"></div>
     <div class="gpa-login" id="gpa-login">
       <div class="gpa-login-card">
         <div class="gpa-login-brand">
-          <button id="gpa-signup-btn" class="gpa-login-logo" title="Register new account">NW</button>
+          <button id="gpa-signup-btn" class="gpa-login-logo" title="Register new account">＋</button>
           <div class="gpa-login-brandtext">
-            <div class="gpa-login-company">Northwind Workspace</div>
-            <div class="gpa-login-dept">Employee Resource Portal</div>
+            <div class="gpa-login-company">Agent Console</div>
+            <div class="gpa-login-dept">Sign in to continue</div>
           </div>
           <div class="gpa-login-winbtns">
             <button id="gpa-login-min" class="gpa-login-winbtn" title="Minimize">&minus;</button>
@@ -324,125 +321,142 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           </div>
         </div>
         <div class="gpa-login-divider"></div>
-        <div class="gpa-login-heading">Sign in to your account</div>
+        <div class="gpa-login-heading">Welcome back</div>
         <label class="gpa-login-label" for="gpa-login-user">Username</label>
         <input id="gpa-login-user" class="gpa-login-input" placeholder="e.g. j.smith" autocomplete="off" />
-        <label class="gpa-login-label" for="gpa-login-pin">Password / PIN</label>
+        <label class="gpa-login-label" for="gpa-login-pin">PIN</label>
         <input id="gpa-login-pin" class="gpa-login-input" type="password" placeholder="••••••" autocomplete="off" />
         <div id="gpa-login-msg" class="gpa-login-msg"></div>
-        <button id="gpa-login-btn" class="gpa-login-primary">Sign In</button>
+        <button id="gpa-login-btn" class="gpa-login-primary">Sign in</button>
         <div class="gpa-login-actions">
           <button id="gpa-login-restore" class="gpa-login-link">Transfer access code</button>
         </div>
         <div class="gpa-login-footer">
-          <div>Authorized personnel only. Access may be monitored and logged.</div>
           <div class="gpa-login-legal">
-            Credentials are stored locally in this browser and are not encrypted.
-            Do not reuse a password from any other system.
+            Your account lives only in this browser — nothing is sent to a server.
+            Pick a PIN you don't use anywhere else.
           </div>
-          <div class="gpa-login-copyright">© Northwind Workspace · IT Service Desk ext. 4400</div>
         </div>
       </div>
     </div>
     <div class="gpa-body" id="gpa-body">
+      <nav class="gpa-sidebar" aria-label="Agent Console sections">
       <div class="gpa-dropdown" id="gpa-dropdown">
         <button class="gpa-dropdown-btn" id="gpa-dropdown-btn">
           <span id="gpa-dropdown-label">Page Insights</span>
           <svg class="gpa-chevron" viewBox="0 0 20 20" width="13" height="13"><path d="M5 7l5 6 5-6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="gpa-dropdown-menu" id="gpa-dropdown-menu">
-          <button class="gpa-dropdown-item active" data-tab="scan">Page Insights</button>
-          <button class="gpa-dropdown-item" data-tab="ask">Ask AI</button>
-          <button class="gpa-dropdown-item" data-tab="chat">Chat</button>
-          <button class="gpa-dropdown-item" data-tab="music">Music</button>
-          <button class="gpa-dropdown-item" data-tab="browser">Browser</button>
-          <button class="gpa-dropdown-item" data-tab="games">Games</button>
-          <button class="gpa-dropdown-item" data-tab="study">Study</button>
-          <button class="gpa-dropdown-item" data-tab="notes">Notes</button>
-          <button class="gpa-dropdown-item" data-tab="saved">Saved</button>
-          <button class="gpa-dropdown-item" data-tab="theme">Settings</button>
+          <button class="gpa-dropdown-item active" data-tab="scan"><span class="gpa-nav-ic">◧</span><span class="gpa-nav-label">Page Insights</span></button>
+          <button class="gpa-dropdown-item" data-tab="ask"><span class="gpa-nav-ic">✦</span><span class="gpa-nav-label">Ask AI</span></button>
+          <button class="gpa-dropdown-item" data-tab="chat"><span class="gpa-nav-ic">◔</span><span class="gpa-nav-label">Chat</span><span id="gpa-chat-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
+          <button class="gpa-dropdown-item" data-tab="music"><span class="gpa-nav-ic">♫</span><span class="gpa-nav-label">Music</span></button>
+          <button class="gpa-dropdown-item" data-tab="browser"><span class="gpa-nav-ic">◫</span><span class="gpa-nav-label">Browser</span></button>
+          <button class="gpa-dropdown-item" data-tab="games"><span class="gpa-nav-ic">▣</span><span class="gpa-nav-label">Games</span></button>
+          <button class="gpa-dropdown-item" data-tab="study"><span class="gpa-nav-ic">◈</span><span class="gpa-nav-label">Study</span></button>
+          <button class="gpa-dropdown-item" data-tab="notes"><span class="gpa-nav-ic">▤</span><span class="gpa-nav-label">Notes</span></button>
+          <button class="gpa-dropdown-item" data-tab="saved"><span class="gpa-nav-ic">☆</span><span class="gpa-nav-label">Saved</span></button>
+          <button class="gpa-dropdown-item" data-tab="theme"><span class="gpa-nav-ic">⚙</span><span class="gpa-nav-label">Settings</span></button>
         </div>
       </div>
+      </nav>
+      <main class="gpa-main" id="gpa-main">
 
       <div class="gpa-pane active" data-pane="scan">
-        <div class="gpa-row">
-          <button id="gpa-quiz-btn" class="gpa-btn quiz-btn">✨ Solve quiz on this page</button>
-          <button id="gpa-tutor-btn" class="gpa-btn">🎓 Tutor mode</button>
-        </div>
-        <div class="gpa-row">
-          <button id="gpa-autofollow-btn" class="gpa-btn">📍 Auto-explain: ON</button>
-        </div>
-        <div class="gpa-row">
-          <button id="gpa-scan-btn" class="gpa-btn">Scan page text</button>
-          <button id="gpa-capture-btn" class="gpa-btn">Capture screen</button>
-        </div>
-        <div class="gpa-row">
-          <button id="gpa-tables-btn" class="gpa-btn">📋 Extract tables</button>
-          <button id="gpa-watch-btn" class="gpa-btn">👀 Watch page</button>
-        </div>
-        <div class="gpa-row" id="gpa-watch-row" style="display:none;">
-          <input id="gpa-watch-cond" class="gpa-input" placeholder='Tell me when… (e.g. "price drops below $50")' />
-          <button id="gpa-watch-start" class="gpa-btn primary">Arm</button>
-        </div>
-        <div class="gpa-row">
-          <input id="gpa-cmd-input" class="gpa-input" placeholder='⚡ Tell the page what to do… ("click the third assignment")' />
-          <button id="gpa-cmd-btn" class="gpa-btn primary">Do it</button>
-        </div>
-        <div class="gpa-row">
-          <button id="gpa-upload-btn" class="gpa-btn">Upload image</button>
-          <span class="gpa-sub">or paste (Ctrl+V) a screenshot anywhere in this panel</span>
-          <input type="file" id="gpa-image-upload" accept="image/*" style="display:none" />
-        </div>
-        <div class="gpa-row" id="gpa-status-row" style="display:none;">
-          <img id="gpa-thumb" alt="captured screen" />
-          <span id="gpa-scan-status" class="gpa-sub"></span>
-          <button id="gpa-clear-context" class="gpa-btn" title="Clear captured page text and screenshot">Clear</button>
-        </div>
-        <div class="gpa-row gpa-actions" id="gpa-scan-actions" style="display:none;">
-          <button class="gpa-btn primary" data-action="summarize">Summarize</button>
-          <button class="gpa-btn primary" data-action="analyze">Analyze</button>
-          <button class="gpa-btn" data-action="autofill">Auto-Fill Form</button>
-        </div>
-        <div class="gpa-row" id="gpa-question-row" style="display:none;">
-          <input id="gpa-question" class="gpa-input" placeholder="Ask a question about this page…" />
-          <button id="gpa-question-btn" class="gpa-btn primary">Answer</button>
-        </div>
-        <div id="gpa-scan-output" class="gpa-output"></div>
-        <div class="gpa-row" style="margin-top:6px;">
-          <button id="gpa-clear-highlights" class="gpa-btn" style="display:none;">✕ Clear page highlights</button>
+        <div class="gpa-scan-layout">
+          <div class="gpa-scan-rail">
+            <div class="gpa-card">
+              <div class="gpa-card-title">Read the page</div>
+              <div class="gpa-row">
+                <button id="gpa-scan-btn" class="gpa-btn">Scan page text</button>
+                <button id="gpa-capture-btn" class="gpa-btn">Capture screen</button>
+              </div>
+              <div class="gpa-row">
+                <button id="gpa-upload-btn" class="gpa-btn">Upload image</button>
+                <input type="file" id="gpa-image-upload" accept="image/*" style="display:none" />
+              </div>
+              <div class="gpa-sub">or paste (Ctrl+V) a screenshot anywhere in this panel</div>
+            </div>
+            <div class="gpa-card">
+              <div class="gpa-card-title">Automate</div>
+              <div class="gpa-row">
+                <button id="gpa-quiz-btn" class="gpa-btn quiz-btn">✨ Solve quiz on this page</button>
+              </div>
+              <div class="gpa-row">
+                <button id="gpa-tutor-btn" class="gpa-btn">🎓 Tutor mode</button>
+                <button id="gpa-autofollow-btn" class="gpa-btn">📍 Auto-explain: ON</button>
+              </div>
+              <div class="gpa-row">
+                <button id="gpa-tables-btn" class="gpa-btn">📋 Extract tables</button>
+                <button id="gpa-watch-btn" class="gpa-btn">👀 Watch page</button>
+              </div>
+              <div class="gpa-row" id="gpa-watch-row" style="display:none;">
+                <input id="gpa-watch-cond" class="gpa-input" placeholder='Tell me when… (e.g. "price drops below $50")' />
+                <button id="gpa-watch-start" class="gpa-btn primary">Arm</button>
+              </div>
+              <div class="gpa-row">
+                <input id="gpa-cmd-input" class="gpa-input" placeholder='⚡ Tell the page what to do… ("click the third assignment")' />
+                <button id="gpa-cmd-btn" class="gpa-btn primary">Do it</button>
+              </div>
+            </div>
+          </div>
+          <div class="gpa-scan-output-col">
+            <div class="gpa-card">
+              <div class="gpa-card-title">Ask about it</div>
+              <div class="gpa-row" id="gpa-status-row" style="display:none;">
+                <img id="gpa-thumb" alt="captured screen" />
+                <span id="gpa-scan-status" class="gpa-sub"></span>
+                <button id="gpa-clear-context" class="gpa-btn" title="Clear captured page text and screenshot">Clear</button>
+              </div>
+              <div class="gpa-row gpa-actions" id="gpa-scan-actions" style="display:none;">
+                <button class="gpa-btn primary" data-action="summarize">Summarize</button>
+                <button class="gpa-btn primary" data-action="analyze">Analyze</button>
+                <button class="gpa-btn" data-action="autofill">Auto-Fill Form</button>
+              </div>
+              <div class="gpa-row" id="gpa-question-row" style="display:none;">
+                <input id="gpa-question" class="gpa-input" placeholder="Ask a question about this page…" />
+                <button id="gpa-question-btn" class="gpa-btn primary">Answer</button>
+              </div>
+            </div>
+            <div id="gpa-scan-output" class="gpa-output"></div>
+            <div class="gpa-row" style="margin-top:6px;">
+              <button id="gpa-clear-highlights" class="gpa-btn" style="display:none;">✕ Clear page highlights</button>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="gpa-pane" data-pane="ask">
   <div class="gpa-row" style="justify-content:space-between; align-items:center;">
-    <span class="gpa-sub" style="flex:1;">Ask AI &mdash; remembers this conversation</span>
+    <span class="gpa-sub" style="flex:1;">Remembers this conversation</span>
     <button id="gpa-ask-new" class="gpa-btn" title="Start a fresh conversation (clears memory)">🗑 New</button>
     <button id="gpa-ask-settings-btn" class="gpa-btn" title="Study settings">⚙️</button>
   </div>
-  <div id="gpa-ask-settings" style="display:none; margin-bottom:8px; padding:8px; border:1px dashed var(--gpa-accent,#888); border-radius:8px;">
+  <div id="gpa-ask-settings" class="gpa-card" style="display:none; margin-bottom:10px;">
+    <div class="gpa-card-title">Study settings</div>
     <label class="gpa-sub" for="gpa-ask-subject">Subject</label>
     <input id="gpa-ask-subject" class="gpa-input" placeholder="e.g. AP Chemistry, Algebra II, US History" autocomplete="off" />
-    <label class="gpa-sub" for="gpa-ask-level" style="display:block; margin-top:6px;">Level / complexity</label>
+    <label class="gpa-sub" for="gpa-ask-level" style="display:block; margin-top:8px;">Level / complexity</label>
     <select id="gpa-ask-level" class="gpa-input">
       <option value="simple">Explain simply (beginner)</option>
       <option value="standard" selected>Standard</option>
       <option value="advanced">Advanced / in-depth</option>
       <option value="exam">Exam-prep — show the working</option>
     </select>
-    <label class="gpa-sub" for="gpa-ask-context" style="display:block; margin-top:6px;">Anything else the AI should know</label>
+    <label class="gpa-sub" for="gpa-ask-context" style="display:block; margin-top:8px;">Anything else the AI should know</label>
     <textarea id="gpa-ask-context" class="gpa-sync-box" style="height:52px;" placeholder="e.g. Test on Friday; prefer step-by-step; I already know basic derivatives."></textarea>
-    <div class="gpa-row" style="margin-top:6px;">
+    <label class="gpa-sub" style="display:block; margin-top:8px;">Reasoning effort</label>
+    <div class="gpa-segmented" style="margin-top:4px;">
+      <button class="gpa-btn gpa-reason" data-reason="low">Low</button>
+      <button class="gpa-btn gpa-reason primary" data-reason="medium">Medium</button>
+      <button class="gpa-btn gpa-reason" data-reason="high">High</button>
+    </div>
+    <div id="gpa-reason-note" class="gpa-sub" style="margin-top:4px;"></div>
+    <div class="gpa-row" style="margin-top:8px; margin-bottom:0;">
       <button id="gpa-ask-settings-save" class="gpa-btn primary" style="flex:1;">Save</button>
     </div>
   </div>
   <div id="gpa-chat" class="gpa-chat"></div>
-  <div class="gpa-row" style="flex-wrap:wrap;">
-    <span class="gpa-sub" style="flex:1 0 100%;">Reasoning effort</span>
-    <button class="gpa-btn gpa-reason" data-reason="low" style="flex:1;">Low</button>
-    <button class="gpa-btn gpa-reason primary" data-reason="medium" style="flex:1;">Medium</button>
-    <button class="gpa-btn gpa-reason" data-reason="high" style="flex:1;">High</button>
-  </div>
-    <div id="gpa-reason-note" class="gpa-sub" style="margin:2px 0 6px;"></div>
   <div id="gpa-ask-images" class="gpa-row" style="flex-wrap:wrap; gap:6px; display:none; margin-bottom:6px;"></div>
   <div class="gpa-row">
     <input id="gpa-ask-input" class="gpa-input" placeholder="Ask me anything… (paste an image too)" />
@@ -555,6 +569,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button class="gpa-btn game-btn" data-game="mathsprint">Math Sprint</button>
           <button class="gpa-btn game-btn" data-game="maze">Maze</button>
           <button class="gpa-btn game-btn" data-game="invaders">Invaders</button>
+          <button class="gpa-btn game-btn" data-game="platformer">Platformer</button>
+          <button class="gpa-btn game-btn" data-game="crusade">Crusade</button>
+          <button class="gpa-btn game-btn" data-game="racer">Racer</button>
         </div>
         <div class="gpa-row" style="margin-top:6px;">
           <button id="gpa-game-restart" class="gpa-btn">🔄 Restart</button>
@@ -700,16 +717,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         <div id="gpa-cloud-msg" class="gpa-sub" style="margin-top:4px;"></div>
         <div class="gpa-sub" style="margin:14px 0 6px;">AI provider</div>
         <div class="gpa-row">
-          <button class="gpa-btn provider-btn primary" data-provider="gemini">Gemini</button>
-          <button class="gpa-btn provider-btn" data-provider="openai">OpenAI</button>
-        </div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Voice</div>
-        <div class="gpa-row">
-          <button id="gpa-tts-toggle" class="gpa-btn">🔇 Read answers aloud: OFF</button>
+          <button class="gpa-btn provider-btn" data-provider="gemini">Gemini</button>
+          <button class="gpa-btn provider-btn primary" data-provider="openai">OpenAI</button>
         </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Language</div>
         <div class="gpa-row">
-          <button id="gpa-lang-btn" class="gpa-btn">🌐 Choose language</button>
+          <button class="gpa-btn lang-btn primary" data-lang="en">English</button>
+          <button class="gpa-btn lang-btn" data-lang="es">Español</button>
+        </div>
+        <div class="gpa-admin-note" style="margin-top:4px;">Translates the navigation, header, and sign-in screen so far — most AI-generated answers and deeper settings screens are still English-only.</div>
+        <div class="gpa-sub" style="margin:14px 0 6px;">Voice</div>
+        <div class="gpa-row">
+          <button id="gpa-tts-toggle" class="gpa-btn">🔇 Read answers aloud: OFF</button>
         </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Page actions</div>
         <div class="gpa-row">
@@ -739,18 +758,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Minimized button look</div>
         <div class="gpa-row">
-          <button class="gpa-btn look-btn primary" data-look="futuristic">Futuristic</button>
-          <button class="gpa-btn look-btn" data-look="minimal">Minimal</button>
+          <button class="gpa-btn look-btn" data-look="futuristic">Futuristic</button>
+          <button class="gpa-btn look-btn primary" data-look="minimal">Minimal</button>
         </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Minimized button color</div>
         <div class="gpa-row">
-          <button class="gpa-btn colormode-btn primary" data-colormode="theme">Theme accent</button>
-          <button class="gpa-btn colormode-btn" data-colormode="page">Match this page</button>
+          <button class="gpa-btn colormode-btn" data-colormode="theme">Theme accent</button>
+          <button class="gpa-btn colormode-btn primary" data-colormode="page">Match this page</button>
         </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Interface size</div>
         <div class="gpa-row">
+          <button class="gpa-btn size-btn primary" data-size="full">Full page</button>
           <button class="gpa-btn size-btn" data-size="compact">Compact</button>
-          <button class="gpa-btn size-btn primary" data-size="normal">Normal</button>
+          <button class="gpa-btn size-btn" data-size="normal">Normal</button>
           <button class="gpa-btn size-btn" data-size="large">Large</button>
           <button class="gpa-btn size-btn" data-size="xl">XL</button>
         </div>
@@ -869,6 +889,88 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div class="gpa-sub" style="margin-top:4px;">Every open copy re-fetches the script and restarts itself.</div>
             <div class="gpa-sub" style="margin:14px 0 4px;">🚦 Feature switches — off hides it for everyone but you</div>
             <div id="gpa-adm-flags" class="gpa-row" style="flex-wrap:wrap;"></div>
+
+            <div class="gpa-sub" style="margin:14px 0 4px;">🎨 Branding &amp; limits — applies to everyone</div>
+            <div class="gpa-row">
+              <input id="gpa-adm-brand" class="gpa-input" placeholder='Console name (blank = "Agent Console")' maxlength="60" autocomplete="off" />
+            </div>
+            <div class="gpa-row">
+              <select id="gpa-adm-def-theme" class="gpa-input" style="flex:1;">
+                <option value="">Default theme: leave as-is</option>
+                <option value="dark">Dark</option><option value="matte">Matte Black</option>
+                <option value="red">Red</option><option value="blue">Blue</option>
+                <option value="purple">Purple</option><option value="pink">Pink</option>
+                <option value="lightblue">Light Blue</option><option value="white">White</option>
+              </select>
+              <input id="gpa-adm-quota" class="gpa-input" type="number" min="0" step="10" placeholder="Daily request cap (0 = unlimited)" style="flex:1;" />
+            </div>
+            <div class="gpa-admin-note">Default theme only applies to someone who has never picked a theme themselves — it won't override anyone's own choice. The request cap applies per non-owner user per day, OpenAI only (Gemini calls bypass this worker).</div>
+            <div class="gpa-row">
+              <button id="gpa-adm-brand-save" class="gpa-btn primary" style="flex:1;">Save branding &amp; limits</button>
+            </div>
+
+            <div class="gpa-sub" style="margin:14px 0 4px;">🛡️ Chat &amp; access controls</div>
+            <div class="gpa-row" style="flex-wrap:wrap;">
+              <button id="gpa-adm-readonly" class="gpa-btn" style="flex:1;">📢 Read-only chat: OFF</button>
+              <button id="gpa-adm-approval" class="gpa-btn" style="flex:1;">🚪 Approval queue: OFF</button>
+            </div>
+            <div class="gpa-row">
+              <input id="gpa-adm-blockedcountries" class="gpa-input" placeholder="Blocked country codes, comma-separated (e.g. KP, RU)" autocomplete="off" />
+            </div>
+            <div class="gpa-row">
+              <input id="gpa-adm-allowedmodels" class="gpa-input" placeholder="Allowed models, comma-separated (blank = allow any)" autocomplete="off" />
+            </div>
+            <div class="gpa-row">
+              <input id="gpa-adm-maxtokens" class="gpa-input" type="number" min="0" step="100" placeholder="Max tokens per request (0 = no cap)" style="flex:1;" />
+              <input id="gpa-adm-allowedorigins" class="gpa-input" placeholder="Allowed Origins, comma-separated (blank = allow any)" style="flex:1;" />
+            </div>
+            <div class="gpa-admin-note">Read-only and the approval queue affect everyone (except you). Country/model/token/Origin limits apply to /v1/* (and country also applies to chat); every one of these is off/empty by default, i.e. no change until you set it.</div>
+            <div class="gpa-row">
+              <button id="gpa-adm-access-save" class="gpa-btn primary" style="flex:1;">Save access controls</button>
+            </div>
+
+            <div class="gpa-sub" style="margin:14px 0 4px;">📜 Audit log</div>
+            <div class="gpa-row">
+              <button id="gpa-adm-audit-load" class="gpa-btn" style="flex:1;">↻ Load last 100 actions</button>
+            </div>
+            <div id="gpa-adm-audit" class="gpa-admin-log" style="margin-top:6px;max-height:220px;"></div>
+
+            <div class="gpa-sub" style="margin:14px 0 4px;">💾 Full backup</div>
+            <div class="gpa-row" style="flex-wrap:wrap;">
+              <button id="gpa-adm-backup-dl" class="gpa-btn" style="flex:1;">⬇ Download backup</button>
+              <button id="gpa-adm-restore-btn" class="gpa-btn" style="flex:1;">⬆ Restore from file</button>
+            </div>
+            <input id="gpa-adm-restore-file" type="file" accept="application/json" style="display:none;" />
+            <div class="gpa-admin-note">Backup includes config, every moderation record, every room (and its slow-mode/ban settings), and the audit log. Restore overwrites matching records — it does not first wipe anything the backup doesn't mention.</div>
+
+            <div class="gpa-sub" style="margin:14px 0 4px;">🔑 Assign an API key remotely</div>
+            <div class="gpa-admin-note">
+              Delivered to each targeted user's own browser automatically (no pasting) — OpenAI keys
+              also work invisibly server-side even before that. Assigning a new key overwrites
+              whatever key that user already had saved.
+            </div>
+            <div class="gpa-row">
+              <select id="gpa-adm-key-provider" class="gpa-input" style="flex:1;">
+                <option value="openai">OpenAI</option>
+                <option value="gemini">Gemini</option>
+              </select>
+              <select id="gpa-adm-key-target" class="gpa-input" style="flex:1;">
+                <option value="specific">Specific user(s)</option>
+                <option value="all">Everyone</option>
+              </select>
+            </div>
+            <div class="gpa-row" id="gpa-adm-key-users-row">
+              <input id="gpa-adm-key-users" class="gpa-input" placeholder="username, username2, …" autocomplete="off" />
+            </div>
+            <div class="gpa-row">
+              <input id="gpa-adm-key-value" class="gpa-input" type="password" placeholder="API key to assign" autocomplete="off" />
+            </div>
+            <div class="gpa-row" style="flex-wrap:wrap;">
+              <button id="gpa-adm-key-assign" class="gpa-btn primary" style="flex:1;">Assign</button>
+              <button id="gpa-adm-key-remove" class="gpa-btn" style="flex:1;">Remove instead</button>
+            </div>
+            <div id="gpa-adm-key-msg" class="gpa-sub" style="margin-top:4px;"></div>
+
             <div id="gpa-adm-control-msg" class="gpa-sub" style="margin-top:6px;"></div>
           </div>
 
@@ -939,6 +1041,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           </div>
         </div>
       </div>
+      </main>
     </div>
   `;
 
@@ -946,6 +1049,33 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   minimized.className = 'gpa-mini';
   minimized.style.display = 'none';
   panel.appendChild(minimized);
+
+  // ---- Toasts ---------------------------------------------------------
+  // Replaces window.alert() everywhere in this file: non-blocking, themed,
+  // auto-dismissing. alert() froze the whole page (and the panel with it)
+  // for a message that was usually just informational.
+  // A shaped placeholder for "the AI is thinking" spots, replacing plain
+  // "Thinking…"/"Loading…" text — every such call site overwrites this with
+  // real content once a response arrives, so it's always transient.
+  const SKELETON_HTML = '<div class="gpa-skeleton"><div class="gpa-skeleton-line" style="width:88%"></div><div class="gpa-skeleton-line" style="width:64%"></div><div class="gpa-skeleton-line" style="width:74%"></div></div>';
+
+  const toastWrap = panel.querySelector('#gpa-toast-wrap');
+  function showToast(message, opts) {
+    opts = opts || {};
+    // Falls back to a native alert if the panel has already been torn down
+    // (e.g. a reload failure after the old instance removed its own DOM) —
+    // better a jarring alert than a toast nobody will ever see.
+    if (!toastWrap || !toastWrap.isConnected) { alert(message); return; }
+    const el = document.createElement('div');
+    el.className = 'gpa-toast' + (opts.type === 'danger' ? ' danger' : '');
+    el.textContent = message;
+    toastWrap.appendChild(el);
+    const ttl = opts.duration || 4200;
+    setTimeout(() => {
+      el.classList.add('fade-out');
+      setTimeout(() => el.remove(), 200);
+    }, ttl);
+  }
 
   // Original, non-trademarked icon options for the minimized button — not
   // reproductions of any company's actual logo. "Letter" shows G or O
@@ -961,7 +1091,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function renderMiniIcon() {
     const style = localStorage.getItem(ICON_KEY) || 'dot';
     if (style === 'letter') {
-      const provider = localStorage.getItem(PROVIDER_KEY) || 'gemini';
+      const provider = localStorage.getItem(PROVIDER_KEY) || 'openai';
       minimized.textContent = provider === 'openai' ? 'O' : 'G';
     } else {
       minimized.innerHTML = MINI_ICONS[style] || MINI_ICONS.dot;
@@ -972,7 +1102,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // "Futuristic" (default) keeps the spinning rings/pulse; "Minimal" is a
   // calmer, low-key badge for anyone who'd rather it not stand out visually.
   function applyMiniLook() {
-    const look = localStorage.getItem(ICON_LOOK_KEY) || 'futuristic';
+    const look = localStorage.getItem(ICON_LOOK_KEY) || 'minimal';
     minimized.classList.toggle('gpa-mini-minimal', look === 'minimal');
   }
   applyMiniLook();
@@ -991,7 +1121,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   function applyMiniColorMode() {
-    const mode = localStorage.getItem(ICON_COLOR_MODE_KEY) || 'theme';
+    const mode = localStorage.getItem(ICON_COLOR_MODE_KEY) || 'page';
     if (mode === 'page') {
       const c = getPageAccentColor();
       const core = `rgb(${c.r}, ${c.g}, ${c.b})`;
@@ -1009,7 +1139,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     localStorage.setItem(THEME_KEY, theme);
     const t = THEMES[theme];
     style.textContent = `
-      * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      * { box-sizing: border-box; font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
       .gpa-particle-wrap { position: relative; }
       #gpa-particles {
         position: absolute; z-index: 0; pointer-events: none; display: none;
@@ -1020,210 +1150,268 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         height: 480px;
         display: flex;
         flex-direction: column;
-        background: linear-gradient(160deg, ${t.panel}ee 0%, ${t.bg}f2 100%);
+        background: ${t.bg};
         color: ${t.text};
-        border: 1px solid ${t.accent}70;
-        clip-path: polygon(22px 0, 100% 0, 100% calc(100% - 22px), calc(100% - 22px) 100%, 0 100%, 0 22px);
-        backdrop-filter: blur(16px) saturate(150%);
-        -webkit-backdrop-filter: blur(16px) saturate(150%);
-        box-shadow: 0 20px 50px rgba(0,0,0,0.55), 0 0 0 1px ${t.accent}25, 0 0 34px ${t.accent}40, inset 0 0 40px ${t.accent}0d;
+        border: 1px solid ${t.border};
+        border-radius: 20px;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.4), 0 2px 10px ${t.accent}1a;
         overflow: hidden;
         user-select: none;
-        animation: gpa-panel-in 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+        animation: gpa-panel-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
       }
+      .gpa-panel.gpa-fullpage { border-radius: 16px; }
       @keyframes gpa-panel-in {
-        from { opacity: 0; transform: scale(0.92) translateY(8px); }
+        from { opacity: 0; transform: scale(0.97) translateY(6px); }
         to { opacity: 1; transform: scale(1) translateY(0); }
       }
-      .gpa-corner {
-        position: absolute; width: 20px; height: 20px; pointer-events: none; z-index: 3;
-      }
-      .gpa-corner-tl { top: -1px; left: -1px; border-top: 2px solid ${t.accent}; border-left: 2px solid ${t.accent}; }
-      .gpa-corner-tr { top: -1px; right: -1px; border-top: 2px solid ${t.accent}; border-right: 2px solid ${t.accent}; }
-      .gpa-corner-bl { bottom: -1px; left: -1px; border-bottom: 2px solid ${t.accent}; border-left: 2px solid ${t.accent}; }
-      .gpa-corner-br { bottom: -1px; right: -1px; border-bottom: 2px solid ${t.accent}; border-right: 2px solid ${t.accent}; }
-      .gpa-scanline {
-        position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 2;
-        background: linear-gradient(90deg, transparent, ${t.accent}, transparent);
-        opacity: 0.55; pointer-events: none;
-        animation: gpa-scan-sweep 4.5s linear infinite;
-      }
-      @keyframes gpa-scan-sweep {
-        0% { top: 0; opacity: 0; }
-        10% { opacity: 0.55; }
-        90% { opacity: 0.55; }
-        100% { top: 100%; opacity: 0; }
-      }
       .gpa-header {
-        display: flex; align-items: center; gap: 8px;
-        padding: 10px 12px;
-        background: linear-gradient(90deg, ${t.accent}18, transparent 60%);
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 16px;
+        background: ${t.panel};
         cursor: grab;
-        border-bottom: 1px solid ${t.accent}44;
+        border-bottom: 1px solid ${t.border};
         flex-shrink: 0;
       }
+      .gpa-panel.gpa-fullpage .gpa-header { cursor: default; }
       .gpa-header:active { cursor: grabbing; }
-      #gpa-min {
-        width: 22px; height: 22px; border-radius: 50%;
-        border: 1px solid ${t.accent}70;
+      #gpa-sidebar-toggle, #gpa-min, #gpa-reload, #gpa-console-fullscreen, #gpa-close {
+        width: 26px; height: 26px; border-radius: 8px;
+        border: 1px solid transparent;
         background: transparent;
-        color: ${t.accent};
+        color: ${t.sub};
         font-size: 14px; line-height: 1; cursor: pointer;
         display:flex; align-items:center; justify-content:center;
         flex-shrink: 0;
-        transition: box-shadow 0.15s ease, background 0.15s ease;
+        transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
       }
-      #gpa-min:hover { background: ${t.accent}22; box-shadow: 0 0 10px ${t.accent}66; }
-      #gpa-reload {
-        width: 22px; height: 22px; border-radius: 50%;
-        border: 1px solid ${t.accent}70;
-        background: transparent;
-        color: ${t.accent};
-        font-size: 13px; line-height: 1; cursor: pointer;
-        display:flex; align-items:center; justify-content:center;
-        flex-shrink: 0;
-        transition: box-shadow 0.15s ease, background 0.15s ease;
-      }
-      #gpa-reload:hover { background: ${t.accent}22; box-shadow: 0 0 10px ${t.accent}66; }
+      #gpa-sidebar-toggle:hover, #gpa-min:hover, #gpa-reload:hover, #gpa-console-fullscreen:hover { background: ${t.field}; color: ${t.text}; }
+      #gpa-sidebar-toggle.active { background: ${t.accent}; color: ${t.accentFg}; }
+      #gpa-min:active, #gpa-reload:active, #gpa-console-fullscreen:active, #gpa-close:active { transform: scale(0.92); }
       #gpa-reload:disabled { opacity: 0.5; cursor: default; }
       #gpa-reload.spinning { animation: gpa-spin 0.8s linear infinite; }
       @keyframes gpa-spin { to { transform: rotate(360deg); } }
       .gpa-title {
-        font-size: 10.5px; font-weight: 700; letter-spacing: 1.4px; flex: 1;
-        text-transform: uppercase;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-size: 14px; font-weight: 600; flex: 1;
         color: ${t.text};
       }
       .gpa-dot {
-        width: 7px; height: 7px; border-radius: 50%; background: ${t.accent}; flex-shrink:0;
+        width: 6px; height: 6px; border-radius: 50%; background: ${t.accent}; flex-shrink:0;
         box-shadow: 0 0 0 0 ${t.accent}80;
         animation: gpa-dot-pulse 2.4s ease-in-out infinite;
       }
       @keyframes gpa-dot-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 ${t.accent}66; }
+        0%, 100% { box-shadow: 0 0 0 0 ${t.accent}55; }
         50% { box-shadow: 0 0 0 4px ${t.accent}00; }
       }
-      #gpa-close {
-        width: 22px; height: 22px; border-radius: 50%;
-        border: 1px solid ${t.accent}70;
-        background: transparent;
-        color: ${t.accent};
-        font-size: 14px; line-height: 1; cursor: pointer;
-        display:flex; align-items:center; justify-content:center;
-        flex-shrink: 0;
-        transition: box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+      #gpa-close:hover { background: #e5453a; color: #fff; }
+      .gpa-body { flex: 1; display: flex; flex-direction: row; min-height: 0; }
+      .gpa-sidebar {
+        flex-shrink: 0; width: 190px; padding: 12px 8px;
+        background: ${t.panel}; border-right: 1px solid ${t.border};
+        overflow-y: auto;
       }
-      #gpa-close:hover { background: #e5453a; border-color: #e5453a; color: #fff; box-shadow: 0 0 10px #e5453a99; }
-      .gpa-body { padding: 10px; user-select: text; flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-height: 0; }
-      .gpa-dropdown { position: relative; margin-bottom: 10px; flex-shrink: 0; }
+      /* Collapsed: just the active tool's content shows, full width — the
+         header's toggle button (always visible) brings the sidebar back. */
+      .gpa-panel.gpa-sidebar-hidden .gpa-sidebar { display: none; }
+      .gpa-main {
+        flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
+        padding: 16px; user-select: text;
+        display: flex; flex-direction: column;
+      }
+      .gpa-dropdown { position: relative; }
       .gpa-dropdown-btn {
         width: 100%; display: flex; align-items: center; justify-content: space-between;
-        padding: 9px 12px; font-size: 11px; font-weight: 700; letter-spacing: 1px;
-        text-transform: uppercase;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
-        clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+        padding: 9px 12px; font-size: 12px; font-weight: 600;
         cursor: pointer; color: ${t.text};
-        border: 1px solid ${t.accent}55;
-        background: linear-gradient(180deg, ${t.field}, ${t.panel});
-        box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        border: 1px solid ${t.border};
+        border-radius: 10px;
+        background: ${t.field};
+        transition: border-color 0.15s ease;
       }
       .gpa-dropdown-btn { display: none; }
       .gpa-chevron { display: none; }
       .gpa-dropdown-menu {
-        position: static; display: flex; gap: 4px; flex-wrap: wrap;
+        position: static; display: flex; flex-direction: column; gap: 2px;
         background: transparent; border: none; box-shadow: none;
         opacity: 1; transform: none; pointer-events: auto; overflow: visible;
       }
       .gpa-dropdown-item {
-        flex: 1; min-width: 58px; text-align: center; padding: 7px 3px;
-        font-size: 9px; font-weight: 700; color: ${t.sub}; line-height: 1.3;
-        letter-spacing: 0.4px; text-transform: uppercase;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
-        background: ${t.field}; border: 1px solid ${t.accent}35;
-        clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+        position: relative;
+        display: flex; align-items: center; gap: 9px;
+        text-align: left; padding: 8px 10px;
+        font-size: 12.5px; font-weight: 500; color: ${t.sub}; line-height: 1.3;
+        background: transparent; border: 1px solid transparent; border-radius: 9px;
         cursor: pointer;
-        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+        transition: background 0.15s ease, color 0.15s ease;
       }
-      .gpa-dropdown-item:hover { background: ${t.panel}; color: ${t.text}; border-color: ${t.accent}99; }
+      .gpa-nav-ic { flex-shrink: 0; width: 16px; text-align: center; opacity: 0.85; font-size: 13px; }
+      .gpa-dropdown-item:hover { background: ${t.field}; color: ${t.text}; }
+      .gpa-dropdown-item:focus-visible { outline: 2px solid ${t.accent}; outline-offset: 1px; }
       .gpa-dropdown-item.active {
-        color: #fff; background: ${t.accent}; border-color: ${t.accent};
-        box-shadow: 0 0 12px ${t.accent}77;
+        color: ${t.accentFg}; background: ${t.accent};
       }
       .gpa-dropdown-item.active::before { content: none; }
+      .gpa-chat-badge {
+        margin-left: auto; position: static;
+        min-width: 16px; height: 16px; padding: 0 4px;
+        border-radius: 999px; background: #e5453a; color: #fff;
+        font-size: 9.5px; font-weight: 700; text-align: center;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-variant-numeric: tabular-nums;
+        pointer-events: none;
+      }
       .gpa-pane { display: none; }
       .gpa-pane.active {
-        display: flex; flex-direction: column; flex: 1; min-height: 0;
-        animation: gpa-pane-in 0.22s ease both;
+        display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0;
+        animation: gpa-pane-in 0.18s ease both;
       }
       @keyframes gpa-pane-in {
-        from { opacity: 0; transform: translateY(4px); }
+        from { opacity: 0; transform: translateY(3px); }
         to { opacity: 1; transform: translateY(0); }
       }
-      .gpa-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-shrink: 0; }
+      /* flex-wrap by default: a row of buttons/inputs that doesn't fit the
+         current panel width wraps onto another line instead of forcing the
+         whole pane wider — the previous no-wrap default is what caused
+         content to overflow past the panel's edge and get clipped by its
+         own overflow:hidden, showing up as an unexpected horizontal
+         scrollbar or answers/controls that looked "cut off". */
+      .gpa-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; flex-shrink: 0; }
       .gpa-actions { flex-wrap: wrap; }
+      /* Page Insights: an action rail beside a flexible output column,
+         instead of every control stacked in one long vertical list. */
+      .gpa-scan-layout { display: flex; gap: 16px; flex: 1; min-height: 0; min-width: 0; }
+      .gpa-scan-rail { flex: 0 0 250px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; overflow-x: hidden; }
+      .gpa-scan-rail .gpa-row { flex-wrap: wrap; }
+      .gpa-scan-rail .gpa-btn { flex: 1; min-width: 90px; }
+      .gpa-scan-output-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overflow-x: hidden; gap: 10px; }
+      /* Below ~640px of actual panel width (the smaller windowed size
+         presets, or the full-page mode on a narrow browser) a fixed 250px
+         rail leaves the output column too cramped to be usable — stack
+         instead of squeezing. Driven by a ResizeObserver rather than a
+         @media query since panel width and browser viewport width are two
+         different things (a Compact-sized panel in a wide browser window
+         still needs to stack). */
+      .gpa-panel.gpa-narrow .gpa-scan-layout { flex-direction: column; }
+      .gpa-panel.gpa-narrow .gpa-scan-rail { flex: 0 0 auto; overflow-y: visible; }
+      .gpa-card {
+        background: ${t.panel}; border: 1px solid ${t.border}; border-radius: 14px;
+        padding: 14px; flex-shrink: 0;
+      }
+      .gpa-card-title {
+        font-size: 12px; font-weight: 600; color: ${t.text}; margin-bottom: 10px;
+      }
       .gpa-input {
-        flex: 1; padding: 7px 9px; border-radius: 5px;
+        flex: 1; padding: 8px 11px; border-radius: 9px;
         border: 1px solid ${t.border}; background: ${t.field}; color: ${t.text};
-        font-size: 12.5px; outline: none;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-size: 13px; outline: none;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
       }
-      .gpa-input:focus { border-color: ${t.accent}; box-shadow: 0 0 0 2px ${t.accent}33; }
+      .gpa-input:focus { border-color: ${t.accent}; box-shadow: 0 0 0 3px ${t.accent}2a; }
       .gpa-btn {
-        padding: 7px 10px; border: 1px solid ${t.border};
-        background: ${t.field}; color: ${t.text}; font-size: 10.5px; font-weight: 700;
-        letter-spacing: 0.6px; text-transform: uppercase;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
-        clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+        padding: 8px 13px; border: 1px solid ${t.border};
+        border-radius: 9px;
+        background: ${t.field}; color: ${t.text}; font-size: 12px; font-weight: 500;
         cursor: pointer; white-space: nowrap;
-        transition: border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+        transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
       }
-      .gpa-btn:hover { border-color: ${t.accent}; transform: translateY(-1px); box-shadow: 0 0 12px ${t.accent}44; }
-      .gpa-btn:active { transform: translateY(0) scale(0.96); }
-      .gpa-btn.primary { background: ${t.accent}; color: #fff; border-color: ${t.accent}; }
+      .gpa-btn:hover { border-color: ${t.accent}80; background: ${t.panel}; }
+      .gpa-btn:active { transform: scale(0.97); }
+      .gpa-btn:focus-visible { outline: 2px solid ${t.accent}; outline-offset: 1px; }
+      .gpa-btn.primary { background: ${t.accent}; color: ${t.accentFg}; border-color: ${t.accent}; }
       .gpa-btn.primary:hover { box-shadow: 0 0 0 3px ${t.accent}33; }
+      .gpa-btn.danger { background: transparent; color: #e5453a; border-color: #e5453a55; }
+      .gpa-btn.danger:hover { background: #e5453a1a; border-color: #e5453a; }
+      /* A joined 3-way control (e.g. reasoning effort), not 3 loose buttons */
+      .gpa-segmented { display: flex; flex: 1; border: 1px solid ${t.border}; border-radius: 9px; overflow: hidden; }
+      .gpa-segmented .gpa-btn {
+        flex: 1; border: none; border-radius: 0; background: transparent;
+        border-right: 1px solid ${t.border};
+      }
+      .gpa-segmented .gpa-btn:last-child { border-right: none; }
+      .gpa-segmented .gpa-btn:hover { background: ${t.field}; }
+      .gpa-segmented .gpa-btn.primary { background: ${t.accent}; color: ${t.accentFg}; }
+      .gpa-segmented .gpa-btn.primary:hover { background: ${t.accent}; }
+      .gpa-segmented .gpa-btn:disabled { opacity: 0.4; }
       .quiz-btn {
-        width: 100%; padding: 11px; font-size: 11.5px; font-weight: 800;
-        letter-spacing: 0.8px; text-transform: uppercase; border: none; cursor: pointer;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
-        clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
-        color: #fff; background: linear-gradient(120deg, ${t.accent}, ${t.accent}99, ${t.accent});
-        background-size: 220% 220%;
-        box-shadow: 0 4px 16px ${t.accent}55;
-        animation: gpa-shimmer 3.2s ease infinite;
+        width: 100%; padding: 12px; font-size: 13px; font-weight: 600;
+        border: none; border-radius: 12px; cursor: pointer;
+        color: ${t.accentFg}; background: ${t.accent};
+        box-shadow: 0 4px 16px ${t.accent}40;
+        transition: transform 0.1s ease, box-shadow 0.15s ease;
       }
-      @keyframes gpa-shimmer {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-      }
-      .quiz-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px ${t.accent}77; }
-      .quiz-btn:active { transform: translateY(0) scale(0.97); }
-      .quiz-btn:disabled { opacity: 0.65; cursor: default; transform: none; }
+      .quiz-btn:hover { box-shadow: 0 6px 20px ${t.accent}55; }
+      .quiz-btn:active { transform: scale(0.98); }
+      .quiz-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
       .gpa-sub {
-        color: ${t.sub}; font-size: 10px; flex: 1; letter-spacing: 0.5px;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        color: ${t.sub}; font-size: 11.5px; flex: 1;
       }
       .gpa-output {
         /* flex-shrink: 0 — inside the scrolling pane this box must size to
            its content (up to max-height), or rows of buttons below/above
            squeeze it down to a single visible line. */
-        margin-top: 6px; flex: 0 0 auto; max-height: 260px; overflow-y: auto;
-        font-size: 12.5px; line-height: 1.6; white-space: pre-wrap;
+        margin-top: 8px; flex: 0 0 auto; max-height: 320px; overflow-y: auto;
+        font-size: 13px; line-height: 1.6; white-space: pre-wrap;
         overflow-wrap: break-word; word-break: break-word;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
-        padding: 8px; background: ${t.field}; border-radius: 6px;
-        border: 1px solid ${t.accent}40;
-        box-shadow: 0 0 0 1px ${t.accent}15 inset;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        padding: 12px; background: ${t.field}; border-radius: 12px;
+        border: 1px solid ${t.border};
       }
       .gpa-output:empty { display: none; }
       .gpa-error {
         display: flex; align-items: flex-start; gap: 8px;
         background: rgba(229, 69, 58, 0.1); border: 1px solid rgba(229, 69, 58, 0.35);
-        border-radius: 8px; padding: 9px 10px; color: ${t.text};
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        border-radius: 10px; padding: 10px 12px; color: ${t.text};
       }
       .gpa-error-icon { flex-shrink: 0; font-size: 14px; line-height: 1.4; }
+      /* Small solid-fill status/count chips — square-ish, not decorative pills */
+      .gpa-badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px;
+        font-variant-numeric: tabular-nums;
+      }
+      /* A real switch, replacing buttons whose label text used to flip ON/OFF */
+      .gpa-toggle {
+        display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+        font-size: 12px; color: ${t.text}; background: transparent; border: none; padding: 0;
+      }
+      .gpa-toggle-track {
+        width: 34px; height: 20px; border-radius: 999px; background: ${t.field};
+        border: 1px solid ${t.border}; position: relative; flex-shrink: 0;
+        transition: background 0.15s ease, border-color 0.15s ease;
+      }
+      .gpa-toggle-thumb {
+        position: absolute; top: 1px; left: 1px; width: 16px; height: 16px;
+        border-radius: 50%; background: ${t.sub};
+        transition: transform 0.15s ease, background 0.15s ease;
+      }
+      .gpa-toggle.on .gpa-toggle-track { background: ${t.accent}33; border-color: ${t.accent}; }
+      .gpa-toggle.on .gpa-toggle-thumb { transform: translateX(14px); background: ${t.accent}; }
+      /* Lightweight non-blocking notifications, replacing window.alert() */
+      .gpa-toast-wrap {
+        position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+        z-index: 60; display: flex; flex-direction: column; gap: 6px; align-items: center;
+        pointer-events: none; max-width: 90%;
+      }
+      .gpa-toast {
+        pointer-events: auto;
+        background: ${t.panel}; color: ${t.text}; border: 1px solid ${t.border};
+        border-radius: 10px; padding: 9px 14px; font-size: 12px; line-height: 1.4;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+        animation: gpa-toast-in 0.18s ease both;
+        max-width: 100%; overflow-wrap: break-word;
+      }
+      .gpa-toast.danger { border-color: #e5453a99; }
+      .gpa-toast.fade-out { animation: gpa-toast-out 0.18s ease both; }
+      @keyframes gpa-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes gpa-toast-out { from { opacity: 1; } to { opacity: 0; } }
+      /* Simple skeleton blocks, replacing plain "Thinking…"/"Loading…" text */
+      .gpa-skeleton { display: flex; flex-direction: column; gap: 7px; padding: 2px 0; }
+      .gpa-skeleton-line {
+        height: 11px; border-radius: 6px;
+        background: linear-gradient(90deg, ${t.field} 25%, ${t.border} 50%, ${t.field} 75%);
+        background-size: 200% 100%; animation: gpa-skeleton-sweep 1.3s ease-in-out infinite;
+      }
+      @keyframes gpa-skeleton-sweep { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
       .gpa-cursor {
         display: inline-block; width: 2px; height: 1em;
         background: ${t.accent}; margin-left: 1px; vertical-align: text-bottom;
@@ -1243,7 +1431,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-grid-q { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; color: ${t.sub}; }
       .gpa-grid-a {
         font-size: 16px; font-weight: 800; color: ${t.accent};
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       @keyframes gpa-cell-in {
         from { opacity: 0; transform: scale(0.82) translateY(5px); }
@@ -1255,16 +1443,24 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-confidence-line { margin-top: 8px; }
       /* ---- Chat ---- */
       .gpa-chat-log {
-        flex: 1; min-height: 120px; max-height: 260px; overflow-y: auto;
-        display: flex; flex-direction: column; gap: 5px; padding: 6px;
-        background: ${t.field}; border: 1px solid ${t.border}; border-radius: 7px;
+        flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;
+        display: flex; flex-direction: column; gap: 7px; padding: 12px;
+        background: ${t.panel}; border: 1px solid ${t.border}; border-radius: 14px;
       }
-      .gpa-chat-msg { font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
-      .gpa-chat-msg .who { font-weight: 700; color: ${t.accent}; margin-right: 4px; }
-      .gpa-chat-msg.mine .who { color: #22c55e; }
+      .gpa-chat-msg { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; }
+      .gpa-chat-msg .avatar {
+        flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 11px; font-weight: 700; margin-top: 1px;
+      }
+      .gpa-chat-msg .col { flex: 1; min-width: 0; }
+      .gpa-chat-msg .head { display: flex; align-items: baseline; gap: 6px; }
+      .gpa-chat-msg .who { font-weight: 600; color: ${t.text}; }
+      .gpa-chat-msg.mine .who { color: ${t.accent}; }
       .gpa-chat-msg.owner .who::after { content: ' 👑'; }
-      .gpa-chat-msg .when { font-size: 9px; color: ${t.sub}; margin-left: 5px; }
-      .gpa-chat-empty { color: ${t.sub}; font-size: 11px; text-align: center; padding: 14px 0; }
+      .gpa-chat-msg .when { font-size: 10px; color: ${t.sub}; font-variant-numeric: tabular-nums; }
+      .gpa-chat-msg .body { line-height: 1.5; overflow-wrap: anywhere; }
+      .gpa-chat-empty { color: ${t.sub}; font-size: 12px; text-align: center; padding: 16px 0; }
       /* ---- Announcement modal ---- */
       .gpa-ann-backdrop {
         position: absolute; inset: 0; z-index: 2147482000; display: flex;
@@ -1308,9 +1504,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         flex: 1; min-height: 80px; overflow-y: auto; margin-bottom: 8px;
         display: flex; flex-direction: column; gap: 6px;
       }
-      .gpa-msg { padding: 7px 9px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; }
-      .gpa-msg.user { background: ${t.accent}; color: #fff; align-self: flex-end; max-width: 85%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-      .gpa-msg.ai { background: ${t.field}; border: 1px solid ${t.border}; align-self: flex-start; max-width: 90%; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace; }
+      .gpa-msg { padding: 8px 12px; border-radius: 14px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; }
+      .gpa-msg.user { background: ${t.accent}; color: ${t.accentFg}; align-self: flex-end; max-width: 85%; border-bottom-right-radius: 4px; font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      .gpa-msg.ai { background: ${t.field}; border: 1px solid ${t.border}; align-self: flex-start; max-width: 90%; border-bottom-left-radius: 4px; font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace; }
       .gpa-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
       .gpa-swatch {
         width: 56px; height: 34px; border-radius: 8px; border: 2px solid transparent;
@@ -1339,7 +1535,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         background: ${t.accent}; cursor: pointer;
       }
       .gpa-font-system .gpa-output, .gpa-font-system .gpa-msg.ai {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+        font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
       }
       .gpa-mini {
         position: relative;
@@ -1348,7 +1544,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         color: #fff; display: flex;
         align-items: center; justify-content: center; font-size: 16px;
         font-weight: 800; cursor: grab; overflow: visible;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
         box-shadow: 0 0 14px 2px ${t.accent}88, 0 8px 20px rgba(0,0,0,0.45);
         animation: gpa-orb-pulse 2.4s ease-in-out infinite;
       }
@@ -1412,7 +1608,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .game-btn { flex: 1 1 auto; min-width: 64px; font-size: 9.5px; }
       .gpa-game-stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
       .gpa-game-viewport {
-        flex: 1; min-height: 0; overflow: hidden; margin-top: 8px;
+        flex: 1; min-height: 0; overflow: auto; margin-top: 8px;
         display: flex; flex-direction: column; align-items: center;
         justify-content: flex-start;
         padding: 6px 2px;
@@ -1428,7 +1624,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         padding: 3px 8px; border-radius: 3px; pointer-events: none;
         background: ${t.field}cc; border: 1px solid ${t.accent}66; color: ${t.accent};
         font-size: 11px; font-weight: 800; letter-spacing: 0.8px;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .gpa-pause-menu {
         position: absolute; inset: 0; z-index: 10;
@@ -1437,43 +1633,27 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         animation: gpa-pane-in 0.18s ease both;
       }
       .gpa-pause-card {
-        width: 100%; max-width: 260px; padding: 14px;
-        background: ${t.panel}; border: 1px solid ${t.accent}66;
-        clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
-        box-shadow: 0 0 26px ${t.accent}44;
+        width: 100%; max-width: 340px; padding: 18px;
+        background: ${t.panel}; border: 1px solid ${t.border};
+        border-radius: 16px;
+        box-shadow: 0 10px 34px rgba(0,0,0,0.35);
       }
       .gpa-pause-title {
-        text-align: center; font-size: 13px; font-weight: 800; letter-spacing: 1.2px;
-        text-transform: uppercase; color: ${t.accent}; margin-bottom: 10px;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        text-align: center; font-size: 14px; font-weight: 600;
+        color: ${t.text}; margin-bottom: 12px;
       }
-      /* Login screen deliberately ignores the app theme — it's plain,
-         corporate and boring by design, so it reads as an ordinary
-         internal work portal rather than part of the console UI. */
-      /* Collapsed: the panel is just a backdrop for the round button, so
-         strip every HUD element that would otherwise clip or outline it. */
+      /* Collapsed: the panel is just a backdrop for the round button. */
       .gpa-panel.gpa-minimized {
-        clip-path: none !important;
         border: none !important;
         background: transparent !important;
         box-shadow: none !important;
         border-radius: 50% !important;
         overflow: visible !important;
       }
-      .gpa-panel.gpa-minimized .gpa-corner,
-      .gpa-panel.gpa-minimized .gpa-scanline { display: none !important; }
-      /* While signed out the panel drops its angular HUD silhouette for
-         plain rounded corners, and the HUD chrome (brackets, scanline) is
-         hidden so the login reads as an ordinary window. */
-      .gpa-panel.gpa-locked {
-        clip-path: none !important;
-        border-radius: 14px !important;
-        border-color: #d6d9de !important;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.28) !important;
-      }
-      .gpa-panel.gpa-locked .gpa-corner,
-      .gpa-panel.gpa-locked .gpa-scanline { display: none !important; }
-      .gpa-panel.gpa-locked .gpa-login { border-radius: 14px; }
+      /* Signed out uses the exact same themed panel chrome as signed in —
+         the login screen is part of the same design system, not a
+         separately-styled disguise. */
+      .gpa-panel.gpa-locked { }
       /* Neutral, quiet button while signed out — no accent glow or rings. */
       .gpa-mini.gpa-mini-locked {
         width: 42px; height: 42px; border-radius: 50% !important;
@@ -1487,89 +1667,87 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-mini.gpa-mini-locked::after { display: none !important; }
       .gpa-login {
         position: absolute; inset: 0; z-index: 40;
-        background: #f4f5f7;
-        display: flex; align-items: flex-start; justify-content: center; padding: 16px;
-        font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+        background: ${t.bg};
+        display: flex; align-items: center; justify-content: center; padding: 16px;
         overflow-y: auto; overscroll-behavior: contain;
-        scrollbar-width: thin; scrollbar-color: #b9c0ca transparent;
+        scrollbar-width: thin; scrollbar-color: ${t.border} transparent;
       }
       .gpa-login::-webkit-scrollbar { width: 8px; }
       .gpa-login::-webkit-scrollbar-track { background: transparent; }
       .gpa-login::-webkit-scrollbar-thumb {
-        background: #c3cad3; border-radius: 99px;
-        border: 2px solid #f4f5f7; background-clip: padding-box;
+        background: ${t.border}; border-radius: 99px;
+        border: 2px solid ${t.bg}; background-clip: padding-box;
       }
-      .gpa-login::-webkit-scrollbar-thumb:hover { background: #9aa3af; background-clip: padding-box; }
       .gpa-login-card { margin: auto 0; }
       .gpa-login-card {
-        width: 100%; max-width: 300px; background: #ffffff;
-        border: 1px solid #d6d9de; border-radius: 2px; padding: 20px 18px;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+        width: 100%; max-width: 320px; background: ${t.panel};
+        border: 1px solid ${t.border}; border-radius: 16px; padding: 24px 20px;
+        box-shadow: 0 12px 34px rgba(0,0,0,0.3);
       }
-      .gpa-login-brand { display: flex; align-items: center; gap: 10px; cursor: grab; }
+      .gpa-login-brand { display: flex; align-items: center; gap: 12px; cursor: grab; }
+      .gpa-panel.gpa-fullpage .gpa-login-brand { cursor: default; }
       .gpa-login-brand:active { cursor: grabbing; }
       .gpa-login-brandtext { flex: 1; min-width: 0; }
       .gpa-login-winbtns { display: flex; gap: 4px; flex-shrink: 0; }
       .gpa-login-winbtn {
-        width: 20px; height: 20px; border: 1px solid #c4c9d0; background: #fff;
-        color: #4b5563; border-radius: 3px; cursor: pointer; line-height: 1;
+        width: 22px; height: 22px; border: 1px solid transparent; background: transparent;
+        color: ${t.sub}; border-radius: 7px; cursor: pointer; line-height: 1;
         font-size: 13px; display: flex; align-items: center; justify-content: center;
-        font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+        transition: background 0.15s ease, color 0.15s ease;
       }
-      .gpa-login-winbtn:hover { background: #eef1f5; color: #1f2933; }
-      #gpa-login-close:hover { background: #b42318; border-color: #b42318; color: #fff; }
+      .gpa-login-winbtn:hover { background: ${t.field}; color: ${t.text}; }
+      #gpa-login-close:hover { background: #e5453a; color: #fff; }
       .gpa-login-logo {
-        width: 34px; height: 34px; flex-shrink: 0; background: #1f4e8c; color: #fff;
+        width: 36px; height: 36px; flex-shrink: 0; background: ${t.accent}; color: ${t.accentFg};
         display: flex; align-items: center; justify-content: center;
-        font-size: 13px; font-weight: 700; letter-spacing: 0.5px; border-radius: 2px;
+        font-size: 16px; font-weight: 600; border-radius: 10px;
         border: none; padding: 0; cursor: pointer;
-        font-family: "Segoe UI", Arial, Helvetica, sans-serif;
-        transition: background 0.15s ease, box-shadow 0.15s ease;
+        transition: transform 0.1s ease, box-shadow 0.15s ease;
       }
-      .gpa-login-logo:hover { background: #17406f; box-shadow: 0 0 0 3px rgba(31,78,140,0.18); }
-      .gpa-login-logo:active { background: #12325a; }
-      .gpa-login-company { font-size: 13px; font-weight: 600; color: #1f2933; line-height: 1.2; }
-      .gpa-login-dept { font-size: 10px; color: #6b7280; margin-top: 2px; }
-      .gpa-login-divider { height: 1px; background: #e4e6ea; margin: 14px 0; }
-      .gpa-login-heading { font-size: 12px; font-weight: 600; color: #1f2933; margin-bottom: 12px; }
+      .gpa-login-logo:hover { box-shadow: 0 0 0 3px ${t.accent}33; }
+      .gpa-login-logo:active { transform: scale(0.94); }
+      .gpa-login-company { font-size: 15px; font-weight: 600; color: ${t.text}; line-height: 1.2; }
+      .gpa-login-dept { font-size: 11px; color: ${t.sub}; margin-top: 2px; }
+      .gpa-login-divider { height: 1px; background: ${t.border}; margin: 16px 0; }
+      .gpa-login-heading { font-size: 13px; font-weight: 600; color: ${t.text}; margin-bottom: 14px; }
       .gpa-login-label {
-        display: block; font-size: 10.5px; color: #4b5563; margin-bottom: 4px; font-weight: 600;
+        display: block; font-size: 11px; color: ${t.sub}; margin-bottom: 5px; font-weight: 500;
       }
       .gpa-login-input {
-        width: 100%; padding: 7px 9px; margin-bottom: 12px;
-        border: 1px solid #c4c9d0; border-radius: 2px; background: #fff;
-        font-size: 12px; color: #1f2933; outline: none;
-        font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+        width: 100%; padding: 8px 11px; margin-bottom: 14px;
+        border: 1px solid ${t.border}; border-radius: 9px; background: ${t.field};
+        font-size: 13px; color: ${t.text}; outline: none;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
       }
-      .gpa-login-input:focus { border-color: #1f4e8c; box-shadow: 0 0 0 2px rgba(31,78,140,0.12); }
+      .gpa-login-input:focus { border-color: ${t.accent}; box-shadow: 0 0 0 3px ${t.accent}2a; }
       .gpa-login-primary {
-        width: 100%; padding: 8px; background: #1f4e8c; color: #fff;
-        border: 1px solid #1a4278; border-radius: 2px; cursor: pointer;
-        font-size: 12px; font-weight: 600;
-        font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+        width: 100%; padding: 9px; background: ${t.accent}; color: ${t.accentFg};
+        border: none; border-radius: 9px; cursor: pointer;
+        font-size: 13px; font-weight: 600;
+        transition: box-shadow 0.15s ease, transform 0.1s ease;
       }
-      .gpa-login-primary:hover { background: #1a4278; }
-      .gpa-login-msg { font-size: 10.5px; min-height: 14px; margin-bottom: 6px; color: #1f4e8c; }
-      .gpa-login-msg.error { color: #b42318; }
-      .gpa-login-actions { margin-top: 10px; text-align: center; }
+      .gpa-login-primary:hover { box-shadow: 0 0 0 3px ${t.accent}33; }
+      .gpa-login-primary:active { transform: scale(0.98); }
+      .gpa-login-msg { font-size: 11px; min-height: 14px; margin-bottom: 6px; color: ${t.accent}; }
+      .gpa-login-msg.error { color: #e5453a; }
+      .gpa-login-actions { margin-top: 12px; text-align: center; }
       .gpa-login-link {
         background: none; border: none; padding: 0; cursor: pointer;
-        color: #1f4e8c; font-size: 10.5px; text-decoration: underline;
-        font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+        color: ${t.accent}; font-size: 11px; text-decoration: underline;
+        text-underline-offset: 2px;
       }
-      .gpa-login-sep { color: #c4c9d0; font-size: 10.5px; margin: 0 6px; }
+      .gpa-login-sep { color: ${t.border}; font-size: 11px; margin: 0 6px; }
       .gpa-login-footer {
-        margin-top: 16px; padding-top: 12px; border-top: 1px solid #e4e6ea;
-        font-size: 9px; color: #6b7280; line-height: 1.5;
+        margin-top: 18px; padding-top: 14px; border-top: 1px solid ${t.border};
+        font-size: 10.5px; color: ${t.sub}; line-height: 1.5;
       }
-      .gpa-login-legal { margin-top: 6px; color: #8a919c; }
-      .gpa-login-copyright { margin-top: 8px; color: #9aa1ac; }
+      .gpa-login-legal { color: ${t.sub}; }
       .gpa-sync-box {
         width: 100%; min-height: 54px; margin-top: 6px; padding: 7px;
         background: ${t.field}; border: 1px solid ${t.border}; border-radius: 5px;
         color: ${t.text}; font-size: 9.5px; resize: vertical; outline: none;
         word-break: break-all;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .gpa-sync-box:focus { border-color: ${t.accent}; }
       /* ---- Admin console ---- */
@@ -1616,7 +1794,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         display: flex; justify-content: space-between; align-items: center; gap: 10px;
         padding: 5px 8px; background: ${t.field}; border: 1px solid ${t.border}; border-radius: 5px;
         font-size: 11px;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .gpa-pause-options { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
       .gpa-pause-options:empty { display: none; }
@@ -1626,18 +1804,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-pause-optlabel {
         color: ${t.sub}; text-transform: uppercase; letter-spacing: 0.5px; font-size: 9.5px;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .gpa-pause-optselect {
         background: ${t.panel}; color: ${t.accent}; border: 1px solid ${t.accent}55;
         border-radius: 4px; font-size: 10px; font-weight: 700; padding: 3px 5px;
         cursor: pointer; outline: none; max-width: 110px;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .gpa-pause-optbtn {
         background: ${t.panel}; color: ${t.accent}; border: 1px solid ${t.accent}55;
         border-radius: 4px; font-size: 10px; font-weight: 700; padding: 3px 9px; cursor: pointer;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .gpa-pause-stat-label { color: ${t.sub}; text-transform: uppercase; letter-spacing: 0.5px; font-size: 9.5px; }
       .gpa-pause-stat-value { color: ${t.accent}; font-weight: 800; }
@@ -1652,20 +1830,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-game-stage:-webkit-full-screen .gpa-game-viewport {
         justify-content: center;
       }
-      /* In fullscreen the viewport centers the game, so the scaled wrapper
-         must scale from its center too — anchoring at the top pushes the
-         bottom of the game off-screen (the "bottom half cut off" bug). */
-      .gpa-game-stage:fullscreen .gpa-game-fit,
-      .gpa-game-stage:-webkit-full-screen .gpa-game-fit {
-        transform-origin: center center;
-      }
       .gpa-game-stage:fullscreen .game-canvas,
       .gpa-game-stage:-webkit-full-screen .game-canvas {
         image-rendering: pixelated;
       }
+      /* Fullscreening the whole console (header, sidebar and all) rather
+         than just one game — the panel itself becomes the fullscreen
+         element, so it needs to actually fill that space edge-to-edge
+         instead of keeping its small floating-widget footprint. */
+      .gpa-panel:fullscreen,
+      .gpa-panel:-webkit-full-screen {
+        width: 100% !important; height: 100% !important;
+        border-radius: 0; border: none;
+        background: ${t.bg};
+      }
       .gpa-game-status {
         font-size: 12px; font-weight: 700; color: ${t.text}; text-align: center;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .ttt-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; width: 180px; }
       .ttt-cell {
@@ -1706,12 +1887,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .hangman-letter {
         font-size: 10px; padding: 5px 0; background: ${t.field}; border: 1px solid ${t.accent}44;
         border-radius: 4px; cursor: pointer; text-align: center;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .hangman-letter:disabled { opacity: 0.35; cursor: default; }
       .hangman-word {
         font-size: 22px; letter-spacing: 5px; font-weight: 800;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
         color: ${t.accent};
       }
       .wordle-grid { display: flex; flex-direction: column; gap: 5px; margin: 6px 0; }
@@ -1720,7 +1901,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
         font-weight: 800; font-size: 16px; border: 1px solid ${t.accent}44; border-radius: 4px;
         background: ${t.field}; color: ${t.text};
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .wordle-tile.correct { background: #22c55e; border-color: #22c55e; color: #fff; }
       .wordle-tile.present { background: #eab308; border-color: #eab308; color: #111; }
@@ -1756,7 +1937,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         width: 100%; max-width: 240px; height: 120px; border-radius: 10px;
         display: flex; align-items: center; justify-content: center; text-align: center;
         font-weight: 800; font-size: 13px; cursor: pointer; padding: 10px; color: #fff;
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .reaction-box.waiting { background: #e5453a; }
       .reaction-box.ready { background: #22c55e; }
@@ -1777,7 +1958,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
         font-size: 13px; font-weight: 700; background: ${t.field}; border: 1px solid ${t.border};
         cursor: pointer; color: ${t.text};
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .sudoku-cell.given { color: ${t.accent}; font-weight: 800; cursor: default; background: ${t.panel}; }
       .sudoku-cell.selected { background: ${t.accent}33; }
@@ -1878,6 +2059,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     let dragging = null, offX = 0, offY = 0;
 
     function start(e) {
+      // Full-page mode fills the viewport by design — there's nowhere
+      // meaningful to drag it to, so dragging is disabled while expanded.
+      if (!isMin && panelSizeKey === 'full') return;
       dragging = host;
       host.classList.remove('gpa-settling'); // grabbing mid-flight should feel instant, not laggy
       const rect = host.getBoundingClientRect();
@@ -1921,6 +2105,25 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   host.addEventListener('gpa-toggle', () => setMinimized(!isMin));
   panel.querySelector('#gpa-close').addEventListener('click', () => host.remove());
 
+  // ---- Fullscreen the whole console (header, sidebar, everything) --------
+  const consoleFsBtn = panel.querySelector('#gpa-console-fullscreen');
+  consoleFsBtn.addEventListener('click', () => {
+    const isConsoleFs = document.fullscreenElement === panel || document.webkitFullscreenElement === panel;
+    if (isConsoleFs) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      const req = panel.requestFullscreen || panel.webkitRequestFullscreen;
+      if (req) req.call(panel).catch(() => { /* page may block fullscreen */ });
+    }
+  });
+  function syncConsoleFullscreenLabel() {
+    const active = document.fullscreenElement === panel || document.webkitFullscreenElement === panel;
+    consoleFsBtn.textContent = active ? '⤢' : '⛶';
+    consoleFsBtn.title = active ? 'Exit fullscreen' : 'Fullscreen the whole console';
+  }
+  onDoc('fullscreenchange', syncConsoleFullscreenLabel);
+  onDoc('webkitfullscreenchange', syncConsoleFullscreenLabel);
+
   let isMin = false;
   function setMinimized(v) {
     const prevRect = host.getBoundingClientRect(); // capture BEFORE resizing anything below
@@ -1944,8 +2147,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // dot. Drop the class while minimized, restore it on expand if signed out.
     panel.classList.toggle('gpa-locked', !v && !signedInNow);
     panel.classList.toggle('gpa-minimized', v);
-    panel.style.width = v ? 'auto' : (PANEL_SIZES[panelSizeKey] || PANEL_SIZES.normal).w + 'px';
-    panel.style.height = v ? 'auto' : (PANEL_SIZES[panelSizeKey] || PANEL_SIZES.normal).h + 'px';
+    panel.classList.toggle('gpa-fullpage', !v && panelSizeKey === 'full');
+    panel.style.width = v ? 'auto' : sizeFor(panelSizeKey).w + 'px';
+    panel.style.height = v ? 'auto' : sizeFor(panelSizeKey).h + 'px';
     panel.style.background = v ? 'transparent' : THEMES[theme].panel;
     panel.style.boxShadow = v ? 'none' : '';
     panel.style.border = v ? 'none' : '';
@@ -1961,6 +2165,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       host.style.left = targetLeft + 'px';
       host.style.top = targetTop + 'px';
       host.addEventListener('transitionend', () => host.classList.remove('gpa-settling'), { once: true });
+    } else if (panelSizeKey === 'full') {
+      // Full-page mode always re-centers on the current viewport rather than
+      // expanding from wherever the mini dot happened to be resting — there's
+      // no meaningful "corner" to grow from when the target fills the screen.
+      host.classList.remove('gpa-settling');
+      host.style.left = FULL_MARGIN + 'px';
+      host.style.top = FULL_MARGIN + 'px';
     } else {
       host.classList.remove('gpa-settling');
       // Expand from the SAME corner the mini dot was resting at (so it
@@ -1968,7 +2179,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       // instead of keeping the old top-left pinned and letting the
       // now-much-bigger panel spill off the right/bottom of the screen.
       // Clamped afterward as a safety net for any resting position.
-      const { w: newW, h: newH } = PANEL_SIZES[panelSizeKey] || PANEL_SIZES.normal;
+      const { w: newW, h: newH } = sizeFor(panelSizeKey);
       let newLeft = prevRect.right - newW;
       let newTop = prevRect.bottom - newH;
       newLeft = Math.max(0, Math.min(window.innerWidth - newW, newLeft));
@@ -1987,6 +2198,42 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       particleCanvas.style.display = 'block';
       if (!particleAnimId) stepParticles();
     }
+
+    // Expanding back onto an already-active Chat tab counts as reading it.
+    if (!v) {
+      const chatPane = panel.querySelector('.gpa-pane[data-pane="chat"]');
+      if (chatPane && chatPane.classList.contains('active') && typeof clearChatUnread === 'function') clearChatUnread();
+    }
+  }
+
+  // ---- Sidebar collapse ------------------------------------------------
+  // Hides the tool list entirely so only the active tool's own content
+  // shows, full width — the header button (always visible, never hidden
+  // along with the sidebar) brings it back. Persisted like every other
+  // layout preference.
+  const SIDEBAR_HIDDEN_KEY = 'gpa_sidebar_hidden';
+  const sidebarToggleBtn = panel.querySelector('#gpa-sidebar-toggle');
+  function setSidebarHidden(hidden) {
+    panel.classList.toggle('gpa-sidebar-hidden', hidden);
+    sidebarToggleBtn.classList.toggle('active', hidden);
+    sidebarToggleBtn.title = hidden ? 'Show the sidebar' : 'Hide the sidebar';
+    localStorage.setItem(SIDEBAR_HIDDEN_KEY, hidden ? '1' : '0');
+    if (typeof fitGameToStage === 'function') requestAnimationFrame(fitGameToStage);
+  }
+  setSidebarHidden(localStorage.getItem(SIDEBAR_HIDDEN_KEY) === '1');
+  sidebarToggleBtn.addEventListener('click', () => setSidebarHidden(!panel.classList.contains('gpa-sidebar-hidden')));
+
+  // Tracks the panel's actual rendered width (not the browser viewport's —
+  // a windowed size preset can be narrow in an otherwise wide browser) so
+  // layouts like Page Insights' two-column rail can stack instead of
+  // squeezing themselves unreadable.
+  if (typeof ResizeObserver !== 'undefined') {
+    const narrowObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        panel.classList.toggle('gpa-narrow', entry.contentRect.width < 640);
+      }
+    });
+    narrowObserver.observe(panel);
   }
 
   // ---- Dropdown section switcher -----------------------------------------
@@ -2008,10 +2255,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       panel.querySelectorAll('.gpa-pane').forEach((p) => p.classList.remove('active'));
       item.classList.add('active');
       panel.querySelector(`.gpa-pane[data-pane="${item.dataset.tab}"]`).classList.add('active');
-      dropdownLabel.textContent = item.textContent;
+      // item.textContent would also pull in the chat unread badge's digits.
+      const badge = item.querySelector('.gpa-chat-badge');
+      dropdownLabel.textContent = badge ? item.textContent.replace(badge.textContent, '').trim() : item.textContent;
       dropdown.classList.remove('open');
       if (item.dataset.tab !== 'games') stopActiveGame();
-      if (item.dataset.tab === 'chat' && typeof startChatPolling === 'function') startChatPolling();
+      if (item.dataset.tab === 'chat') {
+        if (typeof startChatPolling === 'function') startChatPolling();
+        if (typeof clearChatUnread === 'function') clearChatUnread();
+        if (window.Notification && Notification.permission === 'default') {
+          try { Notification.requestPermission(); } catch (e) { /* optional */ }
+        }
+      }
       if (item.dataset.tab === 'saved') renderSavedInsights();
       if (item.dataset.tab === 'study') renderDeck();
       // A hidden pane measures as zero, so games can only be sized once
@@ -2040,9 +2295,79 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }));
   setTimeout(refresh, 0);
 })();
+  // ---- Language ---------------------------------------------------------
+  // Partial localization: covers the chrome a user sees before they've even
+  // signed in or picked a tool (nav, header, login), not the whole app —
+  // translating every one of the thousands of strings across all 10 panes
+  // and the admin console is a much larger job than this covers today.
+  const LANG_KEY = 'gpa_language';
+  const NAV_LABELS_EN = {
+    scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat', music: 'Music',
+    browser: 'Browser', games: 'Games', study: 'Study', notes: 'Notes',
+    saved: 'Saved', theme: 'Settings'
+  };
+  const I18N = {
+    es: {
+      'Page Insights': 'Información de la página', 'Ask AI': 'Preguntar a la IA',
+      'Chat': 'Chat', 'Music': 'Música', 'Browser': 'Navegador', 'Games': 'Juegos',
+      'Study': 'Estudio', 'Notes': 'Notas', 'Saved': 'Guardado', 'Settings': 'Ajustes',
+      'Agent Console': 'Consola del Agente',
+      'Sign in to continue': 'Inicia sesión para continuar',
+      'Welcome back': 'Bienvenido de nuevo',
+      'Username': 'Usuario', 'PIN': 'PIN', 'Sign in': 'Iniciar sesión',
+      'Transfer access code': 'Transferir código de acceso'
+    }
+  };
+  function currentLang() { return localStorage.getItem(LANG_KEY) || 'en'; }
+  function t(text) {
+    const dict = I18N[currentLang()];
+    return (dict && dict[text]) || text;
+  }
+  function applyLanguage() {
+    panel.querySelectorAll('.gpa-dropdown-item[data-tab]').forEach((item) => {
+      const label = item.querySelector('.gpa-nav-label');
+      const en = NAV_LABELS_EN[item.dataset.tab];
+      if (label && en) label.textContent = t(en);
+    });
+    const titleEl = panel.querySelector('.gpa-title');
+    // Only translate the built-in name — an owner-set brand name (see
+    // applyBrandName) always wins and is left exactly as the owner typed it.
+    if (titleEl && (titleEl.textContent === 'Agent Console' || titleEl.textContent === t('Agent Console'))) {
+      titleEl.textContent = t('Agent Console');
+    }
+    const map = {
+      '.gpa-login-heading': 'Welcome back',
+      '.gpa-login-label[for="gpa-login-user"]': 'Username',
+      '.gpa-login-label[for="gpa-login-pin"]': 'PIN',
+      '#gpa-login-btn': 'Sign in',
+      '#gpa-login-restore': 'Transfer access code',
+      '.gpa-login-dept': 'Sign in to continue'
+    };
+    Object.keys(map).forEach((sel) => {
+      const el = panel.querySelector(sel);
+      if (el) el.textContent = t(map[sel]);
+    });
+  }
+  panel.querySelectorAll('.lang-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      localStorage.setItem(LANG_KEY, btn.dataset.lang);
+      panel.querySelectorAll('.lang-btn').forEach((b) => b.classList.toggle('primary', b === btn));
+      applyLanguage();
+    });
+  });
+  (function initLangUI() {
+    const lang = currentLang();
+    panel.querySelectorAll('.lang-btn').forEach((b) => b.classList.toggle('primary', b.dataset.lang === lang));
+    applyLanguage();
+  })();
+
   // ---- Theme swatches -----------------------------------------------------
+  const THEME_USER_SET_KEY = 'gpa_theme_user_set';
   panel.querySelectorAll('.gpa-swatch').forEach((btn) => {
-    btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
+    btn.addEventListener('click', () => {
+      localStorage.setItem(THEME_USER_SET_KEY, '1');
+      applyTheme(btn.dataset.theme);
+    });
   });
 
   const customColorInput = panel.querySelector('#gpa-custom-color');
@@ -2056,15 +2381,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   panel.querySelector('#gpa-clear-key').addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
-    alert('Saved Gemini API key cleared for this site.');
+    showToast('Saved Gemini API key cleared for this site.');
   });
   panel.querySelector('#gpa-clear-openai-key').addEventListener('click', () => {
     localStorage.removeItem(OPENAI_STORAGE_KEY);
-    alert('Saved OpenAI API key cleared for this site.');
+    localStorage.removeItem(OPENAI_KEY_SKIP);
+    showToast('Saved OpenAI API key cleared. You\'ll be asked for one again next time (an owner-assigned key, if you have one, still works regardless).');
   });
   panel.querySelector('#gpa-clear-yt-key').addEventListener('click', () => {
     localStorage.removeItem(YT_STORAGE_KEY);
-    alert('Saved YouTube API key cleared for this site.');
+    showToast('Saved YouTube API key cleared for this site.');
   });
 
   // ---- AI provider toggle (Gemini / OpenAI) ------------------------------
@@ -2072,7 +2398,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function setProviderUI(p) {
     providerBtns.forEach((b) => b.classList.toggle('primary', b.dataset.provider === p));
   }
-  setProviderUI(localStorage.getItem(PROVIDER_KEY) || 'gemini');
+  setProviderUI(localStorage.getItem(PROVIDER_KEY) || 'openai');
   providerBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       localStorage.setItem(PROVIDER_KEY, btn.dataset.provider);
@@ -2100,7 +2426,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function setLookUI(l) {
     lookBtns.forEach((b) => b.classList.toggle('primary', b.dataset.look === l));
   }
-  setLookUI(localStorage.getItem(ICON_LOOK_KEY) || 'futuristic');
+  setLookUI(localStorage.getItem(ICON_LOOK_KEY) || 'minimal');
   lookBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       localStorage.setItem(ICON_LOOK_KEY, btn.dataset.look);
@@ -2114,7 +2440,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function setColorModeUI(m) {
     colorModeBtns.forEach((b) => b.classList.toggle('primary', b.dataset.colormode === m));
   }
-  setColorModeUI(localStorage.getItem(ICON_COLOR_MODE_KEY) || 'theme');
+  setColorModeUI(localStorage.getItem(ICON_COLOR_MODE_KEY) || 'page');
   colorModeBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       localStorage.setItem(ICON_COLOR_MODE_KEY, btn.dataset.colormode);
@@ -2383,19 +2709,27 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   });
 
   // ---- Interface size presets ---------------------------------------------
-  let panelSizeKey = localStorage.getItem(PANEL_SIZE_KEY) || 'normal';
-  if (!PANEL_SIZES[panelSizeKey]) panelSizeKey = 'normal';
+  // Defaults to the full-page "app" surface now rather than the small
+  // windowed panel — the windowed presets are still there for anyone who
+  // wants the old floating-widget footprint back.
+  let panelSizeKey = localStorage.getItem(PANEL_SIZE_KEY) || 'full';
+  if (!PANEL_SIZES[panelSizeKey] && panelSizeKey !== 'full') panelSizeKey = 'full';
   const sizeBtns = panel.querySelectorAll('.size-btn');
   function setSizeUI(s) {
     sizeBtns.forEach((b) => b.classList.toggle('primary', b.dataset.size === s));
   }
   function applyPanelSize(key) {
-    panelSizeKey = PANEL_SIZES[key] ? key : 'normal';
+    panelSizeKey = (PANEL_SIZES[key] || key === 'full') ? key : 'full';
     localStorage.setItem(PANEL_SIZE_KEY, panelSizeKey);
-    const { w, h } = PANEL_SIZES[panelSizeKey];
+    const { w, h } = sizeFor(panelSizeKey);
     if (!isMin) {
       panel.style.width = w + 'px';
       panel.style.height = h + 'px';
+      panel.classList.toggle('gpa-fullpage', panelSizeKey === 'full');
+      if (panelSizeKey === 'full') {
+        host.style.left = FULL_MARGIN + 'px';
+        host.style.top = FULL_MARGIN + 'px';
+      }
     }
     // Keep the ambient particle field sized to whatever the panel is now.
     PARTICLE_PANEL_W = w;
@@ -2407,6 +2741,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   setSizeUI(panelSizeKey);
   applyPanelSize(panelSizeKey);
+  // A page that injects this script before its own layout has settled (or an
+  // embedding iframe still mid-resize) can report a too-small window size at
+  // this exact instant, which "full" would otherwise floor to a cramped
+  // fallback forever. One re-apply next frame — after layout has caught up —
+  // self-corrects it; it's a harmless no-op if the size was already right.
+  requestAnimationFrame(() => applyPanelSize(panelSizeKey));
+  // Full-page mode is the one size that should actually track the window —
+  // it's meant to fill it, not just have filled it once at some past moment.
+  onWin('resize', () => { if (panelSizeKey === 'full' && !isMin) applyPanelSize('full'); });
   sizeBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       setSizeUI(btn.dataset.size);
@@ -2481,11 +2824,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     LOGS: 'gpa_admin_logs',
     TELE_TOKEN: 'gpa_admin_tele_token',      // admin secret (owner's device only)
     TELE_ENDPOINT: 'gpa_admin_tele_endpoint', // worker base URL override
-    TELE_NOTICE_SEEN: 'gpa_tele_notice_seen'
+    TELE_NOTICE_SEEN: 'gpa_tele_notice_seen',
+    OWNER_CODE: 'gpa_owner_code'              // proves this device is really the owner (see worker.js OWNER_CODE)
   };
   function admGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
-  function autoUpgradeOn() { return admGet(ADMIN_KEYS.AUTO_UPGRADE) === 'on'; }
-  function smartModel() { return (admGet(ADMIN_KEYS.SMART_MODEL) || '').trim(); }
+  // Defaults to ON with gpt-6-astra as the smart model until the owner
+  // explicitly sets either value — an explicit 'off' or a different smart
+  // model always wins over these defaults.
+  function autoUpgradeOn() { const v = admGet(ADMIN_KEYS.AUTO_UPGRADE); return v === null ? true : v === 'on'; }
+  function smartModel() { return (admGet(ADMIN_KEYS.SMART_MODEL) || '').trim() || 'gpt-6-astra'; }
   // The model for a request. On a task flagged `hard`, when auto-upgrade is on
   // and a smart model is set, escalate to it; otherwise use the base override,
   // else the provider default.
@@ -2509,20 +2856,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function effectiveMaxPageChars() { const n = parseInt(admGet(ADMIN_KEYS.MAXCHARS), 10); return (n && n >= 1000) ? n : MAX_PAGE_CHARS; }
   function effectiveTemp() { const v = parseFloat(admGet(ADMIN_KEYS.TEMP)); return isNaN(v) ? null : Math.max(0, Math.min(2, v)); }
   function adminSysPrefix() { const p = (admGet(ADMIN_KEYS.SYSPREFIX) || '').trim(); return p ? p + '\n\n' : ''; }
-
-  // The signed-in account's chosen reply language, as a standing instruction
-  // prepended to every AI call. Returns '' for English/unset (no behaviour
-  // change at all), and always keeps JSON keys, code and URLs intact so the
-  // structured callers (quiz grids, tutor cards) are unaffected.
-  function languageDirective() {
-    const code = localStorage.getItem(LANG_KEY) || '';
-    if (!code || code === 'en') return '';
-    const lang = LANGUAGES.find((l) => l.code === code);
-    if (!lang) return '';
-    return 'ALWAYS write your reply to the user in ' + lang.label + ' (' + lang.native + '), '
-      + 'no matter what language the question or the page is in. '
-      + 'Translate only the human-readable text; keep any JSON keys, field names, code and URLs exactly as specified.\n\n';
-  }
 
   // ---- Gemini API helpers -----------------------------------------------
   function getApiKey() {
@@ -2570,13 +2903,22 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // ---- OpenAI API helpers -------------------------------------------------
   function getOpenAiKey() {
     let key = readStoredKey(OPENAI_STORAGE_KEY);
+    // Already asked once and they had nothing of their own to give — an
+    // owner-assigned key (if any) is applied server-side regardless, so
+    // there's no reason to keep interrupting them with the same prompt.
+    if (!key && localStorage.getItem(OPENAI_KEY_SKIP)) return null;
     if (!key) {
-      key = sanitizeKey(prompt('Paste your OpenAI API key (starts with "sk-"):'));
+      const prompted = OPENAI_PROXY
+        ? 'Paste your OpenAI API key (starts with "sk-") — or leave blank if your admin assigned you one:'
+        : 'Paste your OpenAI API key (starts with "sk-"):';
+      key = sanitizeKey(prompt(prompted));
       if (key) {
         if (!key.startsWith('sk-')) {
-          alert('That doesn\'t look like an OpenAI key — they normally start with "sk-". Saving it anyway; double-check if requests fail.');
+          showToast('That doesn\'t look like an OpenAI key — they normally start with "sk-". Saving it anyway; double-check if requests fail.', { type: 'danger' });
         }
         localStorage.setItem(OPENAI_STORAGE_KEY, key);
+      } else if (OPENAI_PROXY) {
+        localStorage.setItem(OPENAI_KEY_SKIP, '1');
       }
     }
     return key || null;
@@ -2730,7 +3072,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   async function callOpenAI(userText, systemText, imageDataUrls, hard) {
     const key = getOpenAiKey();
-    if (!key) throw new Error('No OpenAI API key provided.');
+    // Without the proxy there's no server in the middle to supply a key on
+    // your behalf, so a local key is mandatory. With the proxy, a missing
+    // key here just means "maybe the owner assigned me one" — let the
+    // request go through and let the worker decide.
+    if (!key && !OPENAI_PROXY) throw new Error('No OpenAI API key provided.');
 
     const content = [];
     if (userText) content.push({ type: 'text', text: userText });
@@ -2743,12 +3089,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (systemText) messages.push({ role: 'system', content: systemText });
     messages.push({ role: 'user', content });
 
-    assertHeaderSafe(key, 'OpenAI');
+    if (key) assertHeaderSafe(key, 'OpenAI');
 
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`
-    };
+    const headers = { 'Content-Type': 'application/json' };
+    if (key) headers['Authorization'] = `Bearer ${key}`;
     const payload = { model: OPENAI_MODEL, messages };
     // Backup channels for pages whose wrappers strip the Authorization header
     // in transit: (1) the X-GPA-Key custom header, (2) a _gpa_key field in the
@@ -2763,11 +3107,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // screenshot of the network tab — a query-string key should be considered
     // burned the moment it is used. Request bodies are logged by none of that.
     if (OPENAI_PROXY) {
-      headers['X-GPA-Key'] = key;
-      payload._gpa_key = key;
-      // Tells the worker who is asking, so it can refuse a blocked user. Only
-      // an identifier — never the key. Best-effort: a modified client could
-      // omit it, which is why blocking is "soft"; see the admin console note.
+      if (key) { headers['X-GPA-Key'] = key; payload._gpa_key = key; }
+      // Tells the worker who is asking, so it can refuse a blocked user and
+      // apply an owner-assigned key (see /admin/assignkey) if this user has
+      // one — that lookup happens purely server-side and needs nothing more
+      // than this identifier. Only an identifier — never the key. Best-effort:
+      // a modified client could omit it, which is why blocking is "soft";
+      // see the admin console note.
       if (typeof currentUser !== 'undefined' && currentUser) headers['X-GPA-User'] = currentUser;
     }
     const endpoint = OPENAI_PROXY
@@ -2831,11 +3177,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // Dispatches to whichever provider is selected in the Theme tab.
   async function callAI(userText, systemText, imageDataUrls, hard) {
     if (aiBlocked) throw new Error('Access to this tool has been blocked by the owner.');
-    const provider = localStorage.getItem(PROVIDER_KEY) || 'gemini';
+    const provider = localStorage.getItem(PROVIDER_KEY) || 'openai';
     // Order matters: admin standing instructions, then saved context, then the
     // caller's own system text LAST — the JSON-only rules several callers rely
     // on have to be the final word, or the model narrates instead of obeying.
-    const sys = adminSysPrefix() + languageDirective() + buildContextMemory() + (systemText || '');
+    const sys = adminSysPrefix() + buildContextMemory() + (systemText || '');
     return provider === 'openai'
       ? callOpenAI(userText, sys, imageDataUrls, hard)
       : callGemini(userText, sys, imageDataUrls, hard);
@@ -2899,7 +3245,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   function currentProviderLabel() {
-    return (localStorage.getItem(PROVIDER_KEY) || 'gemini') === 'openai' ? 'OpenAI' : 'Gemini';
+    return (localStorage.getItem(PROVIDER_KEY) || 'openai') === 'openai' ? 'OpenAI' : 'Gemini';
   }
 
   // ---- Typewriter effect for AI responses ---------------------------------
@@ -3970,7 +4316,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   async function autoFillForm() {
     const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), textarea, select'));
-    if (!inputs.length) { alert('No form fields found on this page.'); return; }
+    if (!inputs.length) { showToast('No form fields found on this page.'); return; }
 
     const fieldInfo = inputs.map((el, i) => {
       const label = el.closest('label')?.textContent || el.getAttribute('aria-label') || el.placeholder || el.name || `Field ${i+1}`;
@@ -4341,7 +4687,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         ? 'Summarize the provided content in plain, everyday sentences — the shortest version that still covers the essentials. No markdown formatting (no asterisks, headers, or numbered/bulleted lists) since this is shown as plain text. If both page text and a screenshot are provided, use both together. Then, on its own line, write exactly "CONFIDENCE: NN" where NN (0-100) is how confident you are that this summary faithfully and accurately represents the source content.'
         : 'Give a brief, plain-language read on the provided content: what it\'s about, the main point, and anything notable — a few sentences, not a breakdown. No markdown formatting (no asterisks, headers, or numbered/bulleted lists) since this is shown as plain text. If both page text and a screenshot are provided, use both together. Then, on its own line, write exactly "CONFIDENCE: NN" where NN (0-100) is how confident you are that this analysis is accurate.'
       ) + highlightNote;
-      scanOutput.textContent = 'Thinking…';
+      scanOutput.innerHTML = SKELETON_HTML;
       try {
         const textPart = pageText ? `PAGE TEXT:\n${pageText}` : '(no page text captured — use the screenshot)';
         const out = await callAI(textPart, sys, screenshotDataUrl ? [screenshotDataUrl] : null);
@@ -4374,7 +4720,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const q = input.value.trim();
     if (!q) return;
     if (!pageText && !screenshotDataUrl) { scanOutput.textContent = 'Scan the page or capture the screen first.'; return; }
-    scanOutput.textContent = 'Thinking…';
+    scanOutput.innerHTML = SKELETON_HTML;
     try {
       const sys = 'You are the AI inside the user\'s "Agent Console" panel, answering about the web page they are viewing. ' + CAPABILITIES_BRIEF + ' Answer the question using ONLY the provided context (page text and/or screenshot). Before finalizing, double-check your answer against the context. If — and only if — the question is asking for answers to multiple numbered items (like a quiz, worksheet, or multiple-choice list), respond with ONLY a JSON array and nothing else, in exactly this shape: [{"q":"1","a":"B","c":90,"h":"exact verbatim phrase from PAGE TEXT near this question"}] — "q" is the item number/label as a string, "a" is the short answer, "c" is your confidence (0-100), "h" is a short exact quote (copied verbatim from PAGE TEXT, not paraphrased) that pinpoints where that question/answer appears, one object per item, no extra commentary. For any other kind of question, answer in brief plain sentences with no markdown formatting (no asterisks, headers, or lists), then two more lines: first exactly "CONFIDENCE: NN" (0-100, your confidence the answer is correct), then exactly "HIGHLIGHT: " followed by a short exact verbatim quote from PAGE TEXT that contains or supports the answer (empty if none applies). If the answer is not in the content, say so in one short sentence and use a low confidence number.';
       const textPart = `${pageText ? `PAGE TEXT:\n${pageText}\n\n` : ''}QUESTION:\n${q}`;
@@ -5001,10 +5347,51 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const chatLog = panel.querySelector('#gpa-chat-log');
   const chatInput = panel.querySelector('#gpa-chat-input');
   const chatNote = panel.querySelector('#gpa-chat-note');
+  const chatBadge = panel.querySelector('#gpa-chat-badge');
   let chatRoom = 'public';
   let chatSince = 0;
   let chatTimer = null;
   let chatSeen = new Set();
+  let chatUnread = 0;
+  // True for the poll right after (re)joining a room, so loading its history
+  // doesn't get counted as a pile of new unread messages / mentions.
+  let chatBootstrap = true;
+
+  function updateChatBadge() {
+    if (!chatBadge) return;
+    chatBadge.textContent = chatUnread > 99 ? '99+' : String(chatUnread);
+    chatBadge.style.display = chatUnread > 0 ? 'inline-flex' : 'none';
+  }
+  function clearChatUnread() {
+    if (!chatUnread) return;
+    chatUnread = 0;
+    updateChatBadge();
+  }
+  // "Open" means the Chat tab is the active pane, the panel isn't minimized,
+  // and the browser tab itself is actually in front — matches what a user
+  // means by "I have chat open".
+  function chatIsOpenAndVisible() {
+    if (isMin) return false;
+    const pane = panel.querySelector('.gpa-pane[data-pane="chat"]');
+    if (!pane || !pane.classList.contains('active')) return false;
+    if (typeof document !== 'undefined' && document.hidden) return false;
+    return true;
+  }
+  function mentionsUser(text, user) {
+    if (!text || !user) return false;
+    const escaped = String(user).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('(^|\\s)@' + escaped + '(?![\\w-])', 'i').test(text);
+  }
+  function notifyMention(m) {
+    try {
+      if (!window.Notification || Notification.permission !== 'granted') return;
+      const n = new Notification(`${m.u} mentioned you in #${chatRoom}`, { body: String(m.t || '').slice(0, 140) });
+      n.onclick = () => { try { window.focus(); } catch (e) {} };
+    } catch (e) { /* optional */ }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && chatIsOpenAndVisible()) clearChatUnread();
+  });
 
   function joinedRooms() {
     try { return JSON.parse(localStorage.getItem(CHAT_ROOMS_KEY) || '{}') || {}; } catch (e) { return {}; }
@@ -5020,20 +5407,40 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (chatRoomSel.value !== chatRoom) { chatRoom = 'public'; chatRoomSel.value = 'public'; }
   }
 
+  // A deterministic color per username (same idea as Discord/Slack's
+  // per-user avatar tint) so people are visually distinguishable at a
+  // glance in a busy room, without needing real uploaded avatars.
+  function avatarColor(name) {
+    let hash = 0;
+    const s = String(name || '?');
+    for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+    return `hsl(${hash % 360}, 55%, 45%)`;
+  }
   function chatMsgEl(m) {
     const div = document.createElement('div');
     div.className = 'gpa-chat-msg'
       + (currentUser && m.u === currentUser ? ' mine' : '')
       + (m.owner ? ' owner' : '');
+    const avatar = document.createElement('span');
+    avatar.className = 'avatar';
+    avatar.textContent = String(m.u || '?').trim().charAt(0).toUpperCase();
+    avatar.style.background = avatarColor(m.u);
+    const col = document.createElement('div');
+    col.className = 'col';
+    const head = document.createElement('div');
+    head.className = 'head';
     const who = document.createElement('span');
     who.className = 'who';
-    who.textContent = m.u + ':';
-    const body = document.createElement('span');
-    body.textContent = ' ' + m.t;
+    who.textContent = m.u;
     const when = document.createElement('span');
     when.className = 'when';
     when.textContent = new Date(m.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    div.appendChild(who); div.appendChild(body); div.appendChild(when);
+    head.appendChild(who); head.appendChild(when);
+    const body = document.createElement('div');
+    body.className = 'body';
+    body.textContent = m.t;
+    col.appendChild(head); col.appendChild(body);
+    div.appendChild(avatar); div.appendChild(col);
     return div;
   }
 
@@ -5043,12 +5450,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const params = new URLSearchParams({ room: chatRoom, since: String(chatSince) });
     const code = chatCodeFor(chatRoom);
     if (code) params.set('code', code);
+    // Snapshot before the request: this poll's messages should only count
+    // toward unread/mentions if the room was already loaded when it started.
+    const wasBootstrap = chatBootstrap;
+    chatBootstrap = false;
     try {
       const res = await fetch(base + '/chat/poll?' + params.toString(), { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       if (!data.ok) { chatNote.textContent = data.error || 'Could not load messages.'; return; }
       chatNote.textContent = '';
       const atBottom = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 40;
+      const visible = chatIsOpenAndVisible();
       let added = 0;
       (data.messages || []).forEach((m) => {
         const id = m.ts + '|' + m.u + '|' + m.t;
@@ -5057,13 +5469,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         chatLog.appendChild(chatMsgEl(m));
         chatSince = Math.max(chatSince, m.ts);
         added++;
+        const isMine = currentUser && m.u === currentUser;
+        if (!wasBootstrap && !isMine && !visible) {
+          chatUnread++;
+          if (currentUser && mentionsUser(m.t, currentUser)) notifyMention(m);
+        }
       });
       const empty = chatLog.querySelector('.gpa-chat-empty');
       if (chatLog.children.length && empty) empty.remove();
       if (!chatLog.children.length) chatLog.innerHTML = '<div class="gpa-chat-empty">No messages yet — say something.</div>';
       // Only auto-scroll if they were already at the bottom, so reading back
       // through history isn't yanked away by an incoming message.
-      if (added && atBottom) chatLog.scrollTop = chatLog.scrollHeight;
+      if (added && atBottom && visible) chatLog.scrollTop = chatLog.scrollHeight;
+      if (added) updateChatBadge();
     } catch (e) {
       chatNote.textContent = 'Offline — messages will load when you reconnect.';
     }
@@ -5073,17 +5491,29 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     chatRoom = id;
     chatSince = 0;
     chatSeen = new Set();
+    chatBootstrap = true;
     chatLog.innerHTML = '<div class="gpa-chat-empty">Loading…</div>';
     chatPoll();
   }
 
+  // Keeps polling regardless of which tab is open or whether the panel is
+  // minimized, so unread counts and @mention notifications stay live even
+  // while the user isn't looking at Chat. Polls fast (near-instant) while
+  // Chat is actually the thing on screen, and backs off while it's just
+  // running in the background so it isn't hammering the worker all day.
+  const CHAT_POLL_ACTIVE_MS = 1500;
+  const CHAT_POLL_BACKGROUND_MS = 8000;
+  function scheduleChatPoll() {
+    const delay = chatIsOpenAndVisible() ? CHAT_POLL_ACTIVE_MS : CHAT_POLL_BACKGROUND_MS;
+    chatTimer = setTimeout(async () => {
+      await chatPoll();
+      scheduleChatPoll();
+    }, delay);
+  }
   function startChatPolling() {
     if (chatTimer) return;
     chatPoll();
-    chatTimer = setInterval(() => {
-      const pane = panel.querySelector('.gpa-pane[data-pane="chat"]');
-      if (pane && pane.classList.contains('active')) chatPoll();
-    }, 6000);
+    scheduleChatPoll();
   }
 
   async function chatSend() {
@@ -5093,8 +5523,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!telemetryOn()) { chatNote.textContent = 'Chat needs the worker to be set up.'; return; }
     chatInput.value = '';
     try {
+      // See sendBeat() for why this header is conditional: only present at
+      // all on the owner's own device, so nobody else's request shape changes.
+      const ownerCode = admGet(ADMIN_KEYS.OWNER_CODE);
+      const sendHeaders = { 'Content-Type': 'text/plain' };
+      if (ownerCode) sendHeaders['X-GPA-Owner'] = ownerCode;
       const res = await fetch(telemetryEndpoint() + '/chat/send', {
-        method: 'POST', headers: { 'Content-Type': 'text/plain' },
+        method: 'POST', headers: sendHeaders,
         body: JSON.stringify({ room: chatRoom, user: currentUser, text, code: chatCodeFor(chatRoom) })
       });
       const data = await res.json().catch(() => ({}));
@@ -5588,7 +6023,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           localStorage.setItem(SCRATCH_KEY, scratch.value);
         }
       } catch (e) {
-        alert('AI error: ' + (e && e.message || e));
+        showToast('AI error: ' + (e && e.message || e), { type: 'danger' });
       }
       tidyBtn.disabled = false;
       tidyBtn.textContent = '✨ Tidy notes with AI';
@@ -5963,20 +6398,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const savedCustom = localStorage.getItem(CUSTOM_COLOR_KEY);
       if (savedCustom) THEMES.custom = { ...THEMES.dark, accent: savedCustom };
       applyTheme(THEMES[savedTheme] ? savedTheme : 'matte');
-      if (typeof setProviderUI === 'function') setProviderUI(localStorage.getItem(PROVIDER_KEY) || 'gemini');
+      if (typeof setProviderUI === 'function') setProviderUI(localStorage.getItem(PROVIDER_KEY) || 'openai');
       if (typeof setSpeedUI === 'function') setSpeedUI(localStorage.getItem(SPEED_KEY) || 'normal');
       if (typeof setFontUI === 'function') setFontUI(localStorage.getItem(FONT_KEY) || 'mono');
       if (typeof setIconUI === 'function') setIconUI(localStorage.getItem(ICON_KEY) || 'dot');
-      if (typeof setLookUI === 'function') setLookUI(localStorage.getItem(ICON_LOOK_KEY) || 'futuristic');
-      if (typeof setColorModeUI === 'function') setColorModeUI(localStorage.getItem(ICON_COLOR_MODE_KEY) || 'theme');
+      if (typeof setLookUI === 'function') setLookUI(localStorage.getItem(ICON_LOOK_KEY) || 'minimal');
+      if (typeof setColorModeUI === 'function') setColorModeUI(localStorage.getItem(ICON_COLOR_MODE_KEY) || 'page');
       if (typeof renderMiniIcon === 'function') renderMiniIcon();
       if (typeof applyMiniLook === 'function') applyMiniLook();
       if (typeof applyMiniColorMode === 'function') applyMiniColorMode();
       if (typeof setParticleUI === 'function') setParticleUI(localStorage.getItem(PARTICLE_KEY) || 'off');
       if (typeof setParticleStyle === 'function') setParticleStyle(localStorage.getItem(PARTICLE_KEY) || 'off');
       if (typeof setSizeUI === 'function' && typeof applyPanelSize === 'function') {
-        const sz = localStorage.getItem(PANEL_SIZE_KEY) || 'normal';
-        setSizeUI(PANEL_SIZES[sz] ? sz : 'normal');
+        const sz = localStorage.getItem(PANEL_SIZE_KEY) || 'full';
+        setSizeUI((PANEL_SIZES[sz] || sz === 'full') ? sz : 'full');
         applyPanelSize(sz);
       }
     } catch (e) { /* a restored-but-odd value shouldn't block sign-in */ }
@@ -6002,6 +6437,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // telemetry bin if the owner turned that on. Wrapped so a logging hiccup
     // can never block a sign-in.
     try { logUsageEvent('open', user); startHeartbeat(); } catch (e) { /* logging is best-effort */ }
+    try { if (typeof startChatPolling === 'function') startChatPolling(); } catch (e) { /* chat is best-effort */ }
     loginOverlay.style.display = 'none';
     setLockedChrome(false);
     refreshAccountUI();
@@ -6015,92 +6451,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const cloudKey = panel.querySelector('#gpa-cloud-key');
     if (cloudBin) cloudBin.value = localStorage.getItem(CLOUD_BIN_KEY) || '';
     if (cloudKey) cloudKey.value = localStorage.getItem(CLOUD_SECRET_KEY) || '';
-    // First sign-in for this account with no language chosen yet -> ask, once.
-    // Deferred a tick so the popup lands on the freshly-shown console rather
-    // than the login screen still fading out. Only fires after sign-in, and
-    // only inside this console panel (never a page/browser notification).
-    try {
-      if (!localStorage.getItem(LANG_KEY) && typeof showLanguagePicker === 'function') {
-        setTimeout(() => {
-          if (currentUser && !localStorage.getItem(LANG_KEY)) showLanguagePicker(true);
-        }, 350);
-      }
-    } catch (e) { /* the language prompt is non-essential */ }
   }
-
-  // ---- Language picker (per-account) ---------------------------------------
-  // A modal centered INSIDE the console panel (not a page/browser popup). It
-  // is shown right after sign-in when the account has no language yet, and can
-  // be reopened any time from Settings. Picking one saves it to this account
-  // (gpa_language, part of the profile snapshot) and the assistant then replies
-  // in that language everywhere. firstRun hides the Close button so a brand-new
-  // account makes a choice (English is one of the choices, so nobody is stuck).
-  function showLanguagePicker(firstRun) {
-    const prev = panel.querySelector('.gpa-lang-backdrop');
-    if (prev) prev.remove();
-    const t = THEMES[theme] || THEMES.dark;
-    if (getComputedStyle(panel).position === 'static') panel.style.position = 'relative';
-    const current = localStorage.getItem(LANG_KEY) || '';
-
-    const back = document.createElement('div');
-    back.className = 'gpa-lang-backdrop';
-    back.style.cssText = 'position:absolute;inset:0;z-index:2147482500;display:flex;'
-      + 'align-items:center;justify-content:center;padding:18px;'
-      + 'background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);';
-
-    const card = document.createElement('div');
-    card.style.cssText = `width:100%;max-width:300px;max-height:calc(100% - 24px);overflow-y:auto;`
-      + `background:${t.panel};color:${t.text};border:1px solid ${t.accent};border-radius:14px;`
-      + `padding:16px;box-shadow:0 16px 44px rgba(0,0,0,0.6);text-align:center;`;
-
-    const title = document.createElement('div');
-    title.style.cssText = `font:800 14px/1.3 'JetBrains Mono',ui-monospace,monospace;color:${t.accent};letter-spacing:0.5px;`;
-    title.textContent = '\uD83C\uDF10 Choose your language';
-    const sub = document.createElement('div');
-    sub.style.cssText = `font:11px/1.5 ui-monospace,monospace;color:${t.sub};margin:6px 0 12px;`;
-    sub.textContent = 'Pick the language the assistant should reply in. It is saved to your account.';
-
-    const grid = document.createElement('div');
-    grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;';
-    LANGUAGES.forEach((l) => {
-      const b = document.createElement('button');
-      const on = l.code === current;
-      b.style.cssText = `padding:8px 6px;border-radius:8px;cursor:pointer;text-align:center;`
-        + `font-family:ui-monospace,monospace;border:1px solid ${on ? t.accent : t.border};`
-        + `background:${on ? t.accent : t.field};color:${on ? '#fff' : t.text};`;
-      b.innerHTML = `<div style="font-weight:800;font-size:11px;">${l.native}</div>`
-        + `<div style="opacity:0.65;font-size:9.5px;margin-top:2px;">${l.label}</div>`;
-      b.addEventListener('click', () => {
-        localStorage.setItem(LANG_KEY, l.code);
-        try { if (typeof saveProgress === 'function') saveProgress(); } catch (e) { /* not signed in */ }
-        card.innerHTML = '';
-        const ok = document.createElement('div');
-        ok.style.cssText = `font:12px/1.6 ui-monospace,monospace;color:${t.text};padding:16px 6px;`;
-        ok.innerHTML = `\u2705 Saved. The assistant will reply in <b style="color:${t.accent}">${l.native}</b>.`;
-        card.appendChild(ok);
-        setTimeout(() => back.remove(), 1100);
-      });
-      grid.appendChild(b);
-    });
-
-    card.appendChild(title);
-    card.appendChild(sub);
-    card.appendChild(grid);
-    if (!firstRun) {
-      const close = document.createElement('button');
-      close.className = 'gpa-btn';
-      close.textContent = 'Close';
-      close.style.cssText = 'margin-top:12px;width:100%;';
-      close.addEventListener('click', () => back.remove());
-      card.appendChild(close);
-    }
-    back.appendChild(card);
-    panel.appendChild(back);
-  }
-  (function wireLanguageButton() {
-    const b = panel.querySelector('#gpa-lang-btn');
-    if (b) b.addEventListener('click', () => showLanguagePicker(false));
-  })();
 
   // Login-screen window controls (the panel header is covered while locked).
   panel.querySelector('#gpa-login-min').addEventListener('click', () => setMinimized(true));
@@ -6200,6 +6551,24 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const scale = Math.min(maxScale, availW / natW, availH / natH);
     gameFit.style.transform = scale < 0.999 || scale > 1.001 ? `scale(${scale})` : 'none';
   }
+  // A ResizeObserver reacts the instant the viewport's real size settles —
+  // fullscreen transitions, sidebar collapse/expand, and window resizes all
+  // land here without guessing how long the browser needs to finish
+  // laying out. This is the primary trigger; the setTimeout retries in
+  // syncFullscreenLabel() remain as a fallback for browsers where the
+  // observer fires a frame late.
+  let gameResizeRAF = null;
+  const gameResizeObserver = (typeof ResizeObserver !== 'undefined' && gameViewport) ? new ResizeObserver(() => {
+    if (gameResizeRAF) return;
+    gameResizeRAF = requestAnimationFrame(() => {
+      gameResizeRAF = null;
+      fitGameToStage();
+      if (activeGameControls && typeof activeGameControls.redraw === 'function') {
+        try { activeGameControls.redraw(); } catch (e) { /* ignore */ }
+      }
+    });
+  }) : null;
+  if (gameResizeObserver) gameResizeObserver.observe(gameViewport);
   const gameBtns = panel.querySelectorAll('.game-btn');
   let activeGameControls = null;
   let gameStartedAt = 0;
@@ -6598,6 +6967,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         lastStep = performance.now(); // don't let paused time cause a jump
         raf = requestAnimationFrame(loop);
       },
+      redraw: () => draw(1),
       stats: () => [
         { label: 'Score', value: score },
         { label: 'Length', value: snake.length },
@@ -7446,6 +7816,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       cleanup: () => { cancelAnimationFrame(raf); canvas.removeEventListener('mousemove', onMove); canvas.removeEventListener('touchmove', onMove); },
       pause: () => { cancelAnimationFrame(raf); paused = true; },
       resume: () => { paused = false; if (!over) raf = requestAnimationFrame(step); },
+      redraw: draw,
       stats: () => [
         { label: 'Score', value: score },
         { label: 'Lives', value: lives },
@@ -7559,6 +7930,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       cleanup: () => { cancelAnimationFrame(raf); canvas.removeEventListener('click', flap); },
       pause: () => { cancelAnimationFrame(raf); paused = true; },
       resume: () => { paused = false; if (!over && started) raf = requestAnimationFrame(step); },
+      redraw: draw,
       stats: () => [
         { label: 'Score', value: score },
         { label: 'Pipes passed', value: pipes.filter((p) => p.passed).length },
@@ -7866,6 +8238,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       cleanup: () => { clearTimeout(dropTimer); window.removeEventListener('keydown', onKey); },
       pause: () => { clearTimeout(dropTimer); dropTimer = null; paused = true; },
       resume: () => { paused = false; if (!over) scheduleTick(); },
+      redraw: draw,
       stats: () => [
         { label: 'Score', value: score },
         { label: 'Level', value: level },
@@ -8253,6 +8626,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return {
       cleanup: () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); },
       pause: () => { paused = true; }, resume: () => { paused = false; },
+      redraw: draw,
       stats: () => [{ label: 'You', value: you }, { label: 'CPU', value: cpu }],
       options: () => [{
         key: 'speed', label: 'Ball speed', value: getGameOpt('pong', 'speed', 'normal'), restart: true,
@@ -8811,6 +9185,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     root.appendChild(status); root.appendChild(canvas);
     return {
       cleanup: () => window.removeEventListener('keydown', onKey),
+      redraw: draw,
       stats: () => [{ label: 'Steps', value: steps }, { label: 'Escaped', value: won ? 'Yes' : 'No' }],
       options: () => [{
         key: 'size', label: 'Maze size', value: String(N), restart: true,
@@ -8903,7 +9278,521 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return {
       cleanup: () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onUp); },
       pause: () => { paused = true; }, resume: () => { paused = false; },
+      redraw: draw,
       stats: () => [{ label: 'Score', value: score }, { label: 'Wave', value: wave }, { label: 'Lives', value: Math.max(0, lives) }]
+    };
+  }
+
+  // ---- Crusade (original vertical shmup: waves, a shield pickup, boss fights) ----
+  function initCrusade(root) {
+    const W = 200, H = 260;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'game-canvas';
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const status = document.createElement('div');
+    status.className = 'gpa-sub';
+    status.style.cssText = 'text-align:center;margin-bottom:6px;';
+
+    let ship, bullets, ebullets, drones, boss, shieldPickup, shieldTime, lives, score, wave, over, paused = false, raf, tick;
+    const keys = {};
+
+    function reset() {
+      ship = { x: W / 2, y: H - 20 };
+      bullets = []; ebullets = []; drones = []; boss = null; shieldPickup = null; shieldTime = 0;
+      lives = 3; score = 0; wave = 0; over = false; tick = 0;
+      spawnWave();
+      status.textContent = `Wave ${wave} · Score ${score} · Lives ${lives}`;
+    }
+    function spawnWave() {
+      wave++;
+      if (wave % 5 === 0) {
+        boss = { x: W / 2, y: 34, hp: 24 + wave * 2, maxHp: 24 + wave * 2, dir: 1, fireCd: 0 };
+        drones = [];
+        return;
+      }
+      const cols = 5, rows = Math.min(3, 1 + Math.floor(wave / 3));
+      drones = [];
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        drones.push({ x: 22 + c * 38, y: 20 + r * 22, baseY: 20 + r * 22, alive: true, fireCd: 60 + Math.random() * 120, drift: Math.random() * Math.PI * 2 });
+      }
+    }
+    function draw() {
+      const t = THEMES[theme] || THEMES.dark;
+      ctx.fillStyle = t.bg; ctx.fillRect(0, 0, W, H);
+      // starfield
+      ctx.fillStyle = t.border;
+      for (let i = 0; i < 30; i++) ctx.fillRect((i * 53 + tick * 0.4) % W, (i * 97) % H, 1, 1);
+      // shield pickup
+      if (shieldPickup) {
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath(); ctx.arc(shieldPickup.x, shieldPickup.y, 5, 0, Math.PI * 2); ctx.fill();
+      }
+      // drones
+      drones.forEach((d) => {
+        if (!d.alive) return;
+        ctx.fillStyle = '#a855f7';
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y - 7); ctx.lineTo(d.x + 7, d.y); ctx.lineTo(d.x, d.y + 7); ctx.lineTo(d.x - 7, d.y);
+        ctx.closePath(); ctx.fill();
+      });
+      // boss
+      if (boss) {
+        ctx.fillStyle = '#e5453a';
+        ctx.fillRect(boss.x - 22, boss.y - 12, 44, 24);
+        ctx.fillStyle = t.sub;
+        ctx.fillRect(W / 2 - 30, 6, 60, 4);
+        ctx.fillStyle = '#e5453a';
+        ctx.fillRect(W / 2 - 30, 6, 60 * (boss.hp / boss.maxHp), 4);
+      }
+      // bullets
+      ctx.fillStyle = '#22c55e';
+      bullets.forEach((b) => ctx.fillRect(b.x - 1, b.y, 2, 7));
+      ctx.fillStyle = '#f97316';
+      ebullets.forEach((b) => ctx.fillRect(b.x - 1, b.y, 2, 7));
+      // ship
+      ctx.fillStyle = shieldTime > 0 ? '#38bdf8' : (THEMES[theme] || THEMES.dark).accent;
+      ctx.beginPath();
+      ctx.moveTo(ship.x, ship.y - 9); ctx.lineTo(ship.x + 8, ship.y + 8); ctx.lineTo(ship.x - 8, ship.y + 8);
+      ctx.closePath(); ctx.fill();
+      if (shieldTime > 0) {
+        ctx.strokeStyle = '#38bdf8aa';
+        ctx.beginPath(); ctx.arc(ship.x, ship.y, 13, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    function hurtPlayer() {
+      if (shieldTime > 0) return;
+      lives--;
+      if (lives <= 0) {
+        over = true;
+        const best = setBestIfHigher('crusade', score);
+        status.textContent = `Game over! Score ${score}   Best: ${best}   (Space to retry)`;
+      } else status.textContent = `Hit! Lives ${lives} · Score ${score}`;
+    }
+    function step() {
+      if (over || paused) { draw(); raf = requestAnimationFrame(step); return; }
+      tick++;
+      if (keys.ArrowLeft) ship.x = Math.max(10, ship.x - 2.4);
+      if (keys.ArrowRight) ship.x = Math.min(W - 10, ship.x + 2.4);
+      if (keys.Fire && tick % 9 === 0) bullets.push({ x: ship.x, y: ship.y - 10 });
+      bullets = bullets.filter((b) => (b.y -= 4.2) > -8);
+      ebullets = ebullets.filter((b) => (b.y += 2.6) < H + 8);
+      if (shieldTime > 0) shieldTime--;
+      // shield pickup spawn/collect
+      if (!shieldPickup && Math.random() < 0.0025) shieldPickup = { x: 20 + Math.random() * (W - 40), y: -10 };
+      if (shieldPickup) {
+        shieldPickup.y += 1.2;
+        if (shieldPickup.y > H + 10) shieldPickup = null;
+        else if (Math.abs(shieldPickup.x - ship.x) < 10 && Math.abs(shieldPickup.y - ship.y) < 12) {
+          shieldTime = 360; shieldPickup = null;
+          status.textContent = `🛡 Shield up! Score ${score} · Lives ${lives}`;
+        }
+      }
+      // drones
+      let anyAlive = false;
+      drones.forEach((d) => {
+        if (!d.alive) return;
+        anyAlive = true;
+        d.drift += 0.03;
+        d.x += Math.sin(d.drift) * 0.5;
+        d.y = d.baseY + Math.sin(tick / 40 + d.baseY) * 4 + Math.min(40, wave * 1.5);
+        d.fireCd--;
+        if (d.fireCd <= 0 && Math.random() < 0.02) { ebullets.push({ x: d.x, y: d.y }); d.fireCd = 90; }
+        if (Math.abs(d.x - ship.x) < 9 && Math.abs(d.y - ship.y) < 9) { d.alive = false; hurtPlayer(); }
+      });
+      bullets.forEach((b) => drones.forEach((d) => {
+        if (d.alive && Math.abs(d.x - b.x) < 8 && Math.abs(d.y - b.y) < 8) { d.alive = false; b.y = -99; score += 10; status.textContent = `Score ${score} · Lives ${lives}`; }
+      }));
+      // boss
+      if (boss) {
+        boss.x += boss.dir * (1 + wave * 0.05);
+        if (boss.x < 30 || boss.x > W - 30) boss.dir *= -1;
+        boss.fireCd--;
+        if (boss.fireCd <= 0) {
+          ebullets.push({ x: boss.x - 12, y: boss.y + 12 }, { x: boss.x, y: boss.y + 12 }, { x: boss.x + 12, y: boss.y + 12 });
+          boss.fireCd = 55;
+        }
+        bullets.forEach((b) => {
+          if (Math.abs(b.x - boss.x) < 22 && Math.abs(b.y - boss.y) < 12) {
+            boss.hp--; b.y = -99; score += 3;
+            if (boss.hp <= 0) { score += 100; boss = null; status.textContent = `Boss down! Score ${score} · Lives ${lives}`; spawnWave(); }
+          }
+        });
+        if (boss && Math.abs(boss.x - ship.x) < 20 && Math.abs(boss.y - ship.y) < 16) hurtPlayer();
+      }
+      ebullets.forEach((b) => {
+        if (Math.abs(b.x - ship.x) < 7 && Math.abs(b.y - ship.y) < 9) { b.y = H + 99; hurtPlayer(); }
+      });
+      if (!boss && !anyAlive && drones.length) { score += 20; spawnWave(); status.textContent = `Wave ${wave} · Score ${score} · Lives ${lives}`; }
+      draw();
+      if (!over) raf = requestAnimationFrame(step);
+      else raf = requestAnimationFrame(step);
+    }
+    function onKey(e) {
+      if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = true;
+      if (e.key === 'ArrowRight') keys.ArrowRight = true;
+      if (e.key === ' ') keys.Fire = true;
+      if (over && e.key === ' ') reset();
+    }
+    function onUp(e) {
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = false;
+      if (e.key === 'ArrowRight') keys.ArrowRight = false;
+      if (e.key === ' ') keys.Fire = false;
+    }
+    onWin('keydown', onKey); onWin('keyup', onUp);
+
+    reset();
+    draw();
+    raf = requestAnimationFrame(step);
+
+    const hint = document.createElement('div');
+    hint.className = 'gpa-sub';
+    hint.textContent = 'Arrows to move, hold Space to fire — grab the blue orb for a temporary shield, watch for the boss every 5th wave.';
+    root.appendChild(status);
+    root.appendChild(canvas);
+    root.appendChild(hint);
+
+    return {
+      cleanup: () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onUp); },
+      pause: () => { paused = true; }, resume: () => { paused = false; },
+      redraw: draw,
+      stats: () => [
+        { label: 'Score', value: score }, { label: 'Wave', value: wave },
+        { label: 'Lives', value: Math.max(0, lives) }, { label: 'Shield', value: shieldTime > 0 ? 'Up' : 'Down' }
+      ]
+    };
+  }
+
+  // ---- Racer (original neon anti-gravity lane-dodger) ----
+  function initRacer(root) {
+    const W = 200, H = 260;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'game-canvas';
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const status = document.createElement('div');
+    status.className = 'gpa-sub';
+    status.style.cssText = 'text-align:center;margin-bottom:6px;';
+
+    const TRACK_L = 30, TRACK_R = W - 30;
+    let shipX, obstacles, boosts, speed, dist, lives, invuln, over, paused = false, raf, tick, stripeOffset;
+    const keys = {};
+
+    function reset() {
+      shipX = W / 2; obstacles = []; boosts = []; speed = 1.6; dist = 0; lives = 3; invuln = 0; over = false; tick = 0; stripeOffset = 0;
+      status.textContent = `Distance 0m · Lives ${lives}`;
+    }
+    function spawnStuff() {
+      if (Math.random() < 0.035 + Math.min(0.05, speed * 0.006)) {
+        obstacles.push({ x: TRACK_L + 10 + Math.random() * (TRACK_R - TRACK_L - 20), y: -10, w: 14 });
+      }
+      if (Math.random() < 0.006) {
+        boosts.push({ x: TRACK_L + 10 + Math.random() * (TRACK_R - TRACK_L - 20), y: -10 });
+      }
+    }
+    function draw() {
+      const t = THEMES[theme] || THEMES.dark;
+      ctx.fillStyle = t.bg; ctx.fillRect(0, 0, W, H);
+      // track edges (neon)
+      ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(TRACK_L, 0); ctx.lineTo(TRACK_L, H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(TRACK_R, 0); ctx.lineTo(TRACK_R, H); ctx.stroke();
+      // scrolling lane stripes
+      ctx.strokeStyle = t.border; ctx.lineWidth = 1; ctx.setLineDash([10, 14]);
+      ctx.lineDashOffset = -stripeOffset;
+      ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke();
+      ctx.setLineDash([]);
+      // obstacles
+      ctx.fillStyle = '#f97316';
+      obstacles.forEach((o) => ctx.fillRect(o.x - o.w / 2, o.y - 6, o.w, 12));
+      // boosts
+      ctx.fillStyle = '#22c55e';
+      boosts.forEach((b) => { ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI * 2); ctx.fill(); });
+      // ship
+      const flash = invuln > 0 && Math.floor(tick / 4) % 2 === 0;
+      ctx.fillStyle = flash ? '#ffffff88' : t.accent;
+      ctx.beginPath();
+      ctx.moveTo(shipX, H - 30); ctx.lineTo(shipX - 8, H - 14); ctx.lineTo(shipX, H - 19); ctx.lineTo(shipX + 8, H - 14);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(shipX - 2, H - 14, 4, 6 + Math.min(10, speed * 2));
+    }
+    function step() {
+      if (over || paused) { draw(); raf = requestAnimationFrame(step); return; }
+      tick++;
+      if (keys.ArrowLeft) shipX = Math.max(TRACK_L + 8, shipX - 2.6);
+      if (keys.ArrowRight) shipX = Math.min(TRACK_R - 8, shipX + 2.6);
+      speed = Math.min(6, speed + 0.0015);
+      dist += speed;
+      stripeOffset += speed * 2;
+      if (invuln > 0) invuln--;
+      spawnStuff();
+      obstacles.forEach((o) => { o.y += speed * 2.2; });
+      boosts.forEach((b) => { b.y += speed * 2.2; });
+      obstacles = obstacles.filter((o) => {
+        if (o.y > H + 10) return false;
+        if (invuln <= 0 && Math.abs(o.y - (H - 20)) < 10 && Math.abs(o.x - shipX) < o.w / 2 + 7) {
+          lives--; invuln = 70; speed = Math.max(1.4, speed - 1.2);
+          if (lives <= 0) {
+            over = true;
+            const best = setBestIfHigher('racer', Math.floor(dist));
+            status.textContent = `Crashed! Distance ${Math.floor(dist)}m   Best: ${best}m   (Space to retry)`;
+          } else status.textContent = `Crashed! Lives ${lives} · Distance ${Math.floor(dist)}m`;
+          return false;
+        }
+        return true;
+      });
+      boosts = boosts.filter((b) => {
+        if (b.y > H + 10) return false;
+        if (Math.abs(b.y - (H - 20)) < 10 && Math.abs(b.x - shipX) < 12) {
+          speed = Math.min(7, speed + 1.4);
+          status.textContent = `Boost! Distance ${Math.floor(dist)}m · Lives ${lives}`;
+          return false;
+        }
+        return true;
+      });
+      if (!over && tick % 30 === 0) status.textContent = `Distance ${Math.floor(dist)}m · Lives ${lives}`;
+      draw();
+      raf = requestAnimationFrame(step);
+    }
+    function onKey(e) {
+      if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = true;
+      if (e.key === 'ArrowRight') keys.ArrowRight = true;
+      if (over && e.key === ' ') reset();
+    }
+    function onUp(e) {
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = false;
+      if (e.key === 'ArrowRight') keys.ArrowRight = false;
+    }
+    onWin('keydown', onKey); onWin('keyup', onUp);
+
+    reset();
+    draw();
+    raf = requestAnimationFrame(step);
+
+    const hint = document.createElement('div');
+    hint.className = 'gpa-sub';
+    hint.textContent = 'Arrows to steer — dodge the orange barriers, grab green orbs to boost. Speed climbs the longer you survive.';
+    root.appendChild(status);
+    root.appendChild(canvas);
+    root.appendChild(hint);
+
+    return {
+      cleanup: () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onUp); },
+      pause: () => { paused = true; }, resume: () => { paused = false; },
+      redraw: draw,
+      stats: () => [
+        { label: 'Distance', value: Math.floor(dist) + 'm' }, { label: 'Speed', value: speed.toFixed(1) },
+        { label: 'Lives', value: Math.max(0, lives) }
+      ]
+    };
+  }
+
+  // ---- Platformer (original run/jump/stomp arcade platformer) ----
+  function initPlatformer(root) {
+    const W = 260, H = 150, GROUND_Y = H - 18;
+    const GRAVITY = 0.5, JUMP_V = -8.4, MOVE_SPEED = 2.2, STOMP_BOUNCE = -5.5;
+    const LEVEL_LENS = [1300, 1800, 2300];
+    const SKINS = { teal: '#14b8a6', coral: '#fb7185', amber: '#f59e0b', violet: '#8b5cf6' };
+    const skinKey = getGameOpt('platformer', 'skin', 'teal');
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'game-canvas';
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const status = document.createElement('div');
+    status.className = 'gpa-game-status';
+
+    let levelIndex, levelLen, grounds, platforms, coins, enemies, flagX;
+    let px, py, pvx, pvy, onGround, facing, lives, score, over, won, paused = false, raf, checkpointX;
+    const keys = {};
+
+    function buildLevel(len) {
+      grounds = []; platforms = []; coins = []; enemies = [];
+      let x = 0;
+      while (x < len) {
+        const runLen = 120 + Math.random() * 160;
+        grounds.push({ x1: x, x2: Math.min(len, x + runLen) });
+        x += runLen;
+        if (x < len - 200 && Math.random() < 0.45) x += 30 + Math.random() * 40;
+      }
+      for (let gx = 80; gx < len - 100; gx += 90 + Math.random() * 60) {
+        const py2 = GROUND_Y - (30 + Math.random() * 50);
+        const pw = 40 + Math.random() * 30;
+        platforms.push({ x: gx, y: py2, w: pw });
+        if (Math.random() < 0.8) coins.push({ x: gx + pw / 2, y: py2 - 10, taken: false });
+      }
+      for (let gx = 60; gx < len - 60; gx += 70 + Math.random() * 90) {
+        if (Math.random() < 0.5) coins.push({ x: gx, y: GROUND_Y - 14, taken: false });
+      }
+      grounds.forEach((g) => {
+        if (g.x2 - g.x1 > 140 && Math.random() < 0.7) {
+          enemies.push({
+            x: g.x1 + (g.x2 - g.x1) / 2, y: GROUND_Y - 10,
+            x1: g.x1 + 20, x2: g.x2 - 20, dir: 1, alive: true,
+            speed: 0.6 + levelIndex * 0.25
+          });
+        }
+      });
+      flagX = len - 30;
+    }
+    function isOverGround(x) { return grounds.some((g) => x >= g.x1 && x <= g.x2); }
+    function loadLevel(i) {
+      levelIndex = i;
+      levelLen = LEVEL_LENS[i] || LEVEL_LENS[LEVEL_LENS.length - 1];
+      buildLevel(levelLen);
+      px = 20; py = GROUND_Y - 10; pvx = 0; pvy = 0; onGround = true; facing = 1; checkpointX = 20;
+      status.textContent = `Level ${i + 1}/${LEVEL_LENS.length} · Score ${score} · Lives ${lives}`;
+    }
+    function reset() { lives = 3; score = 0; over = false; won = false; loadLevel(0); }
+    function respawn() { px = checkpointX; py = GROUND_Y - 10; pvx = 0; pvy = 0; }
+    function loseLife() {
+      lives--;
+      if (lives <= 0) {
+        over = true;
+        const best = setBestIfHigher('platformer', score);
+        status.textContent = `Game over! Score ${score}   Best: ${best}   (Space to retry)`;
+      } else {
+        respawn();
+        status.textContent = `Ouch! Lives ${lives} · Score ${score}`;
+      }
+    }
+    function update() {
+      if (over || paused) return;
+      pvx = 0;
+      if (keys.ArrowLeft) { pvx = -MOVE_SPEED; facing = -1; }
+      if (keys.ArrowRight) { pvx = MOVE_SPEED; facing = 1; }
+      pvy = Math.min(10, pvy + GRAVITY);
+      let nx = px + pvx, ny = py + pvy;
+      let landedY = isOverGround(nx) && ny + 10 >= GROUND_Y ? GROUND_Y - 10 : null;
+      platforms.forEach((p) => {
+        if (nx + 6 > p.x && nx - 6 < p.x + p.w && py + 10 <= p.y && ny + 10 >= p.y) {
+          if (landedY === null || p.y - 10 < landedY) landedY = p.y - 10;
+        }
+      });
+      onGround = false;
+      if (landedY !== null && pvy >= 0) { ny = landedY; pvy = 0; onGround = true; }
+      if (keys.Jump && onGround) { pvy = JUMP_V; onGround = false; keys.Jump = false; }
+      px = Math.max(6, Math.min(levelLen - 6, nx));
+      py = ny;
+      if (py > H + 30) { loseLife(); return; }
+      if (onGround && px > checkpointX + 40) checkpointX = px - 20;
+      coins.forEach((c) => {
+        if (!c.taken && Math.abs(c.x - px) < 10 && Math.abs(c.y - py) < 10) {
+          c.taken = true; score += 10;
+          status.textContent = `Score ${score} · Lives ${lives}`;
+        }
+      });
+      enemies.forEach((e) => {
+        if (!e.alive) return;
+        e.x += e.dir * e.speed;
+        if (e.x < e.x1 || e.x > e.x2) e.dir *= -1;
+        const dx = Math.abs(e.x - px), dy = e.y - py;
+        if (dx < 10 && dy > -4 && dy < 12) {
+          if (pvy > 0 && py < e.y - 4) {
+            e.alive = false; pvy = STOMP_BOUNCE; score += 20;
+            status.textContent = `Score ${score} · Lives ${lives}`;
+          } else loseLife();
+        }
+      });
+      if (over) return;
+      if (px >= flagX) {
+        if (levelIndex + 1 < LEVEL_LENS.length) { score += 50; loadLevel(levelIndex + 1); }
+        else {
+          won = true; over = true;
+          score += 100;
+          const best = setBestIfHigher('platformer', score);
+          status.textContent = `🎉 You made it! Score ${score}   Best: ${best}`;
+        }
+      }
+    }
+    function draw() {
+      const t = THEMES[theme] || THEMES.dark;
+      const cam = Math.max(0, Math.min(levelLen - W, px - W / 2));
+      ctx.fillStyle = t.bg;
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = t.border;
+      grounds.forEach((g) => {
+        const x1 = g.x1 - cam, x2 = g.x2 - cam;
+        if (x2 < 0 || x1 > W) return;
+        ctx.fillRect(x1, GROUND_Y, x2 - x1, H - GROUND_Y);
+      });
+      ctx.fillStyle = t.sub;
+      platforms.forEach((p) => {
+        const x = p.x - cam;
+        if (x + p.w < 0 || x > W) return;
+        ctx.fillRect(x, p.y, p.w, 8);
+      });
+      ctx.fillStyle = '#fbbf24';
+      coins.forEach((c) => {
+        if (c.taken) return;
+        const x = c.x - cam;
+        if (x < -10 || x > W + 10) return;
+        ctx.beginPath(); ctx.arc(x, c.y, 4, 0, Math.PI * 2); ctx.fill();
+      });
+      enemies.forEach((e) => {
+        if (!e.alive) return;
+        const x = e.x - cam;
+        if (x < -14 || x > W + 14) return;
+        ctx.fillStyle = '#e5453a';
+        ctx.fillRect(x - 6, e.y - 8, 12, 10);
+      });
+      const fx = flagX - cam;
+      if (fx > -20 && fx < W + 20) {
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(fx, GROUND_Y - 50, 3, 50);
+        ctx.beginPath(); ctx.moveTo(fx + 3, GROUND_Y - 50); ctx.lineTo(fx + 18, GROUND_Y - 44); ctx.lineTo(fx + 3, GROUND_Y - 38); ctx.fill();
+      }
+      const psx = px - cam;
+      ctx.fillStyle = SKINS[skinKey] || SKINS.teal;
+      ctx.beginPath(); ctx.ellipse(psx, py, 8, 10, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(psx + facing * 3, py - 2, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#111';
+      ctx.beginPath(); ctx.arc(psx + facing * 4, py - 2, 1.3, 0, Math.PI * 2); ctx.fill();
+    }
+    function loop() { update(); draw(); raf = requestAnimationFrame(loop); }
+    function onKey(e) {
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', ' '].includes(e.key)) e.preventDefault();
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = true;
+      if (e.key === 'ArrowRight') keys.ArrowRight = true;
+      if (e.key === 'ArrowUp' || e.key === ' ') keys.Jump = true;
+      if (over && (e.key === ' ' || e.key === 'Enter')) reset();
+    }
+    function onKeyUp(e) {
+      if (e.key === 'ArrowLeft') keys.ArrowLeft = false;
+      if (e.key === 'ArrowRight') keys.ArrowRight = false;
+    }
+    onWin('keydown', onKey); onWin('keyup', onKeyUp);
+
+    reset();
+    draw();
+    raf = requestAnimationFrame(loop);
+
+    const hint = document.createElement('div');
+    hint.className = 'gpa-sub';
+    hint.textContent = 'Arrows to move, Up/Space to jump — stomp enemies from above, grab coins, reach the flag.';
+    root.appendChild(status);
+    root.appendChild(canvas);
+    root.appendChild(hint);
+
+    return {
+      cleanup: () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKeyUp); },
+      pause: () => { paused = true; },
+      resume: () => { paused = false; },
+      redraw: draw,
+      stats: () => [
+        { label: 'Score', value: score },
+        { label: 'Lives', value: Math.max(0, lives) },
+        { label: 'Level', value: levelIndex + 1 },
+        { label: 'Status', value: over ? (won ? 'Cleared!' : 'Game over') : 'Playing' }
+      ],
+      options: () => [
+        { key: 'skin', label: 'Color', value: skinKey, restart: true,
+          choices: Object.keys(SKINS).map((k) => ({ value: k, label: k[0].toUpperCase() + k.slice(1) })) }
+      ]
     };
   }
 
@@ -8917,7 +9806,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     pong: initPong, lightsout: initLightsOut, fifteen: initFifteen,
     hanoi: initHanoi, mastermind: initMastermind, blackjack: initBlackjack,
     typing: initTyping, mathsprint: initMathSprint, maze: initMaze,
-    invaders: initInvaders
+    invaders: initInvaders, platformer: initPlatformer, crusade: initCrusade, racer: initRacer
   };
 
   const GAME_LABELS = {
@@ -8928,7 +9817,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     tetris: 'Tetris', checkers: 'Checkers', sudoku: 'Sudoku',
     pong: 'Pong', lightsout: 'Lights Out', fifteen: '15-Puzzle', hanoi: 'Tower of Hanoi',
     mastermind: 'Mastermind', blackjack: 'Blackjack', typing: 'Typing Test',
-    mathsprint: 'Math Sprint', maze: 'Maze', invaders: 'Space Invaders'
+    mathsprint: 'Math Sprint', maze: 'Maze', invaders: 'Space Invaders', platformer: 'Platformer',
+    crusade: 'Crusade', racer: 'Racer'
   };
 
   const gameStage = panel.querySelector('#gpa-game-stage');
@@ -9120,13 +10010,37 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (req) req.call(gameStage).catch(() => { /* page may block fullscreen */ });
     }
   });
+  // Some canvas games only repaint on their own tick/interval or on user
+  // input (Tetris ticks every 600ms+, Maze/Flappy-before-first-click don't
+  // redraw at all until moved). Chrome can blank a canvas's backing store
+  // when its containing element is promoted into the fullscreen "top
+  // layer" (a real, documented compositor quirk on some GPU/driver
+  // combos) — those idle games would then sit blank until their next
+  // tick/keypress, which for Maze or a paused game may never come. Force
+  // an explicit repaint on every fullscreen transition so this can't
+  // leave the canvas looking empty.
+  function forceRedrawActiveGame() {
+    if (activeGameControls && typeof activeGameControls.redraw === 'function') {
+      try { activeGameControls.redraw(); } catch (e) { /* ignore */ }
+    }
+  }
   function syncFullscreenLabel() {
     const active = !!(document.fullscreenElement || document.webkitFullscreenElement);
     fullscreenBtn.textContent = active ? '⛶ Exit Fullscreen' : '⛶ Fullscreen';
-    // Entering/leaving fullscreen changes the available area — refit.
-    requestAnimationFrame(fitGameToStage);
+    // Entering/leaving fullscreen changes the available area — refit. Chrome
+    // doesn't always finish laying out the fullscreen element within a single
+    // frame, so one rAF could measure a stale (pre-transition) size and scale
+    // the game too large, cutting off the bottom. Retry a few times over the
+    // next ~300ms so it settles on the real, final dimensions regardless of
+    // how long that particular transition takes.
+    let tries = 0;
+    (function refit() {
+      fitGameToStage();
+      forceRedrawActiveGame();
+      if (++tries < 6) setTimeout(() => requestAnimationFrame(refit), 60);
+    })();
   }
-  onWin('resize', () => requestAnimationFrame(fitGameToStage));
+  onWin('resize', () => requestAnimationFrame(() => { fitGameToStage(); forceRedrawActiveGame(); }));
   onDoc('fullscreenchange', syncFullscreenLabel);
   onDoc('webkitfullscreenchange', syncFullscreenLabel);
 
@@ -9338,10 +10252,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     });
     try {
       // text/plain = CORS-safelisted = no preflight. keepalive lets a beat
-      // sent as the tab closes still go out.
+      // sent as the tab closes still go out. X-GPA-Owner is only added when
+      // an owner code is actually configured (Data tab) — for everyone else
+      // this stays header-free so the no-preflight fast path is untouched;
+      // only the owner's own device pays a preflight, to prove nobody else
+      // can post beats/messages under the owner's username (see worker.js).
+      const ownerCode = admGet(ADMIN_KEYS.OWNER_CODE);
+      const beatHeaders = { 'Content-Type': 'text/plain' };
+      if (ownerCode) beatHeaders['X-GPA-Owner'] = ownerCode;
       fetch(telemetryEndpoint() + '/track', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
+        headers: beatHeaders,
         body: payload,
         keepalive: true,
         mode: 'cors'
@@ -9382,8 +10303,56 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     } catch (e) { /* best-effort */ }
   }
 
+  // Delivered by /track and /status when the owner has assigned this user a
+  // key remotely (admin console → Control → Assign API key, to one person,
+  // several, or everyone). Written straight into this browser's own
+  // localStorage so it's picked up by the normal getOpenAiKey()/getApiKey()
+  // flow with no paste required, and re-applied on every poll so a change on
+  // the owner's end reaches this device within one heartbeat. Clearing an
+  // assignment on the owner's side does not retroactively erase a key
+  // already written here — the user can still clear it themselves in
+  // Settings.
+  let lastAppliedOpenaiKey = null, lastAppliedGeminiKey = null;
+  function applyAssignedKeys(keys) {
+    const openai = sanitizeKey(keys.openai || '');
+    if (openai && openai !== lastAppliedOpenaiKey) {
+      lastAppliedOpenaiKey = openai;
+      localStorage.setItem(OPENAI_STORAGE_KEY, openai);
+      localStorage.removeItem(OPENAI_KEY_SKIP);
+    }
+    const gemini = sanitizeKey(keys.gemini || '');
+    if (gemini && gemini !== lastAppliedGeminiKey) {
+      lastAppliedGeminiKey = gemini;
+      localStorage.setItem(STORAGE_KEY, gemini);
+    }
+  }
+  // Owner-set brand name (admin console → Control → Branding) replaces the
+  // built-in "Agent Console" name in the header and login screen. Not
+  // persisted locally — like the broadcast banner, it just reapplies from
+  // the next poll, so clearing it on the owner's end reverts everyone.
+  function applyBrandName(name) {
+    const n = (name || '').trim() || (typeof t === 'function' ? t('Agent Console') : 'Agent Console');
+    const title = panel.querySelector('.gpa-title');
+    const loginCompany = panel.querySelector('.gpa-login-company');
+    if (title) title.textContent = n;
+    if (loginCompany) loginCompany.textContent = n;
+  }
+  // Owner-set default theme (same admin section) applies once for anyone who
+  // has never actually picked a theme themselves — it never overrides a
+  // theme the user chose, even if the owner sets a different default later.
+  let appliedServerTheme = null;
+  function maybeApplyServerDefaultTheme(defaultTheme) {
+    if (!defaultTheme || !THEMES[defaultTheme]) return;
+    if (localStorage.getItem(THEME_USER_SET_KEY) === '1') return;
+    if (appliedServerTheme === defaultTheme) return;
+    appliedServerTheme = defaultTheme;
+    applyTheme(defaultTheme);
+  }
   function applyModeration(s) {
     if (!s || typeof s !== 'object') return;
+    if (s.assignedKeys && typeof s.assignedKeys === 'object') applyAssignedKeys(s.assignedKeys);
+    if (typeof s.brandName === 'string') applyBrandName(s.brandName);
+    if (typeof s.defaultTheme === 'string') maybeApplyServerDefaultTheme(s.defaultTheme);
     if (typeof s.kickNonce === 'number') {
       // Baseline on the first status we see, so an old kick doesn't fire on
       // load — only a kick issued while this session is live boots them.
@@ -9500,7 +10469,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
     });
     // Quiz/tutor can be switched off without hiding the whole tab.
-    [['quiz', '#gpa-quiz-btn'], ['tutor', '#gpa-tutor-btn']].forEach(([flag, sel]) => {
+    [
+      ['quiz', '#gpa-quiz-btn'], ['tutor', '#gpa-tutor-btn'],
+      ['watch', '#gpa-watch-btn'], ['autofill', '[data-action="autofill"]'],
+      ['research', '#gpa-research-btn']
+    ].forEach(([flag, sel]) => {
       const btn = panel.querySelector(sel);
       if (!btn) return;
       const on = ownerMode || featureOn(flag);
@@ -9665,7 +10638,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const pin = prompt('Enter admin PIN:');
         if (pin === null) return;
         if (pin.trim() === ADMIN_PIN) { adminUnlocked = true; openAdmin(); }
-        else alert('Incorrect PIN.');
+        else showToast('Incorrect PIN.', { type: 'danger' });
       }
     });
 
@@ -9741,7 +10714,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     panel.querySelector('#gpa-admin-export-logs').addEventListener('click', () => {
       const blob = JSON.stringify(readLogs(), null, 2);
       navigator.clipboard.writeText(blob).then(
-        () => alert('Usage log copied to clipboard as JSON.'),
+        () => showToast('Usage log copied to clipboard as JSON.'),
         () => { const w = window.open('', '_blank'); if (w) w.document.write('<pre>' + escapeHtml(blob) + '</pre>'); }
       );
     });
@@ -9774,6 +10747,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const h = Math.round(m / 60);
       return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
     }
+    function timeLeft(untilMs) {
+      const s = Math.max(0, Math.round((untilMs - Date.now()) / 1000));
+      if (s < 60) return s + 's left';
+      const m = Math.round(s / 60);
+      if (m < 60) return m + 'm left';
+      const h = Math.round(m / 60);
+      return h < 24 ? h + 'h left' : Math.round(h / 24) + 'd left';
+    }
     function stateBadge(state, owner) {
       if (owner) return '<span style="color:#22c55e;font-weight:700;">👑 OWNER · immune</span>';
       if (state === 'blocked') return '<span style="color:#ff6b6b;font-weight:700;">⛔ blocked</span>';
@@ -9781,8 +10762,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       return '';
     }
     // The moderation buttons for one user, keyed by username via data-attrs.
-    function modButtons(user, state, owner) {
+    function modButtons(user, state, owner, hasKey, extra) {
       if (owner) return '';   // the owner can't be moderated
+      extra = extra || {};
       const b = (action, label, title) =>
         `<button class="gpa-btn gpa-mod-btn" data-mod-user="${escapeHtml(user)}" data-mod-action="${action}" title="${title}"`
         + ` style="font-size:9px;padding:2px 6px;">${label}</button>`;
@@ -9795,7 +10777,21 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       if (state === 'locked') parts.push(b('unlock', '🔓 Unlock', 'Remove the lock'));
       else if (state !== 'blocked') parts.push(b('lock', '🔒 Lock', 'Temporarily freeze their panel'));
+      parts.push(b('assignkey', hasKey ? '🔑 Change key' : '🔑 Assign key', 'Give this OpenAI key to this user only — applied server-side, they never see it. Leave blank to remove it.'));
       parts.push(b('kick', '👢 Kick', 'Force a one-time sign-out'));
+      // Timed mute / strikes
+      parts.push(b('mute', extra.muted ? '🔇 Mute again' : '🔇 Mute', 'Block them for N hours, then auto-restore — no manual unblock needed'));
+      if (extra.muted) parts.push(b('unmute', '🔈 Unmute', 'Lift the timed mute early'));
+      parts.push(b('warn', `⚠️ Warn${extra.strikes ? ` (${extra.strikes}/3)` : ''}`, '3 warnings auto-applies a 24h mute and resets the count'));
+      if (extra.strikes) parts.push(b('clearstrikes', '🧹 Clear strikes', 'Reset their warning count to 0'));
+      // Approval queue
+      if (extra.pending) parts.push(b('approve', '✅ Approve', 'Let them use AI features — they were held for approval'));
+      else parts.push(b('unapprove', '⏸ Hold for approval', 'Re-flag them as pending — cuts off AI until approved again'));
+      // AI freeze (chat/read still work)
+      parts.push(b(extra.aiFrozen ? 'unfreezeai' : 'freezeai', extra.aiFrozen ? '🧊 Unfreeze AI' : '🧊 Freeze AI', 'Cuts off only AI features — chat and page-reading keep working'));
+      // Shadow mute
+      parts.push(b(extra.shadowMuted ? 'unshadowmute' : 'shadowmute', extra.shadowMuted ? '👻 Unshadow' : '👻 Shadow-mute', 'Their chat messages appear to send but nobody (including them, on another device) ever sees them'));
+      parts.push(b('setfeatures', '🎛 Features…', 'Per-user feature overrides — turn a specific tool on/off for just this person'));
       return `<div class="gpa-row" style="gap:4px;margin-top:4px;flex-wrap:wrap;">${parts.join('')}</div>`;
     }
     function updatePrivateBtn(on) {
@@ -9809,18 +10805,29 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const users = data.users || [];
       updatePrivateBtn(!!data.privateMode);
       const dot = '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;margin-right:5px;box-shadow:0 0 6px #22c55e;"></span>';
-      const row = (name, meta, state, owner) =>
+      const extraBadges = (x) => {
+        const bits = [];
+        if (x.pending) bits.push('<span title="Awaiting approval" style="color:#eab308;">⏸ pending</span>');
+        if (x.muted) bits.push(`<span title="Timed mute">🔇 muted${x.mutedUntil ? ' (' + timeLeft(x.mutedUntil) + ')' : ''}</span>`);
+        if (x.strikes) bits.push(`<span title="Warning strikes">⚠️ ${x.strikes}/3</span>`);
+        if (x.aiFrozen) bits.push('<span title="AI access frozen">🧊 AI frozen</span>');
+        if (x.shadowMuted) bits.push('<span title="Shadow muted">👻 shadow</span>');
+        return bits.length ? ' ' + bits.join(' ') : '';
+      };
+      const row = (name, meta, state, owner, hasKey, extra) =>
         `<div class="gpa-admin-userrow" style="flex-direction:column;align-items:stretch;">`
         + `<div class="gpa-row" style="justify-content:space-between;gap:8px;">`
-        + `<span>${dot}<b>${escapeHtml(name)}</b> ${stateBadge(state, owner)}</span>`
+        + `<span>${dot}<b>${escapeHtml(name)}</b> ${stateBadge(state, owner)}${hasKey ? ' <span title="Has an owner-assigned OpenAI key" style="opacity:0.85;">🔑</span>' : ''}${extraBadges(extra || {})}</span>`
         + `<span style="opacity:0.8;">${escapeHtml(meta)}</span></div>`
-        + modButtons(name, state, owner) + `</div>`;
+        + modButtons(name, state, owner, hasKey, extra) + `</div>`;
+      const quotaSuffix = (n, cap) => cap ? ` · ${n || 0}/${cap} today` : (n ? ` · ${n} today` : '');
       const activeRows = active.map((s) =>
-        row(s.user, [s.host, s.region, s.country].filter(Boolean).join(' · ') + ' · ' + ago(s.lastSeen), s.state, s.owner)).join('');
+        row(s.user, [s.host, s.region, s.country].filter(Boolean).join(' · ') + ' · ' + ago(s.lastSeen) + quotaSuffix(s.requestsToday, data.dailyQuota), s.state, s.owner, s.hasOpenAiKey, s)).join('');
       const userRows = users.map((u) =>
-        row(u.user, (u.opens || 0) + '× · ' + [u.country, u.region].filter(Boolean).join(' · ') + ' · last ' + ago(u.lastSeen), u.state, u.owner)).join('');
+        row(u.user, (u.opens || 0) + '× · ' + [u.country, u.region].filter(Boolean).join(' · ') + ' · last ' + ago(u.lastSeen) + quotaSuffix(u.requestsToday, data.dailyQuota), u.state, u.owner, u.hasOpenAiKey, u)).join('');
       teleLive.innerHTML =
         `<div class="gpa-admin-statcard" style="margin-bottom:8px;"><span class="n">${data.activeCount || 0}</span><div class="l">active right now</div></div>`
+        + (data.dailyQuota ? `<div class="gpa-sub" style="margin:4px 0;">Daily request cap: ${data.dailyQuota}/user${data.allOpenaiKeyed ? ' · 🔑 OpenAI key assigned to everyone' : ''}</div>` : (data.allOpenaiKeyed ? `<div class="gpa-sub" style="margin:4px 0;">🔑 OpenAI key assigned to everyone</div>` : ''))
         + `<div class="gpa-sub" style="margin:4px 0;">Active now</div>`
         + `<div class="gpa-admin-users">${activeRows || '<div class="gpa-sub">Nobody active in the last few minutes.</div>'}</div>`
         + `<div class="gpa-sub" style="margin:10px 0 4px;">Everyone who has ever opened it (${users.length})</div>`
@@ -9848,9 +10855,34 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
     }
 
+    // Assigns (or clears, on a blank entry) a specific OpenAI key to one
+    // user. Stored server-side only — it's applied to that user's proxied
+    // OpenAI calls regardless of what key (if any) their own browser has,
+    // and their browser never receives or stores the value itself.
+    async function assignKey(user) {
+      const token = teleToken.value.trim();
+      const base = (teleEndpoint.value.trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
+      if (!token || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
+      const key = (prompt(`Paste the OpenAI API key to assign to ${user} (leave blank to remove their assigned key):`, '') || '').trim();
+      teleMsg.textContent = (key ? 'Assigning key to ' : 'Removing key from ') + user + '…';
+      try {
+        const res = await fetch(base + '/admin/assignkey?token=' + encodeURIComponent(token), {
+          method: 'POST', headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ user, key })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        teleMsg.textContent = data.assigned ? `${user} now has an assigned OpenAI key.` : `Removed ${user}'s assigned OpenAI key.`;
+        loadLive();
+      } catch (e) {
+        teleMsg.textContent = 'Could not assign key: ' + e.message;
+      }
+    }
+
     // One delegated handler for every moderation button.
     async function moderate(user, action) {
       if (action === 'code') { genUnlockCode(user); return; }
+      if (action === 'assignkey') { assignKey(user); return; }
       const token = teleToken.value.trim();
       const base = (teleEndpoint.value.trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
       if (!token || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
@@ -9858,11 +10890,30 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (action === 'block' || action === 'lock' || action === 'kick') {
         reason = prompt(`Message to show ${user} (optional):`, '') || '';
       }
+      let extraBody = {};
+      if (action === 'mute') {
+        const hoursStr = prompt(`Mute ${user} for how many hours? (e.g. 1, 0.5, 24)`, '1');
+        if (hoursStr === null) return;
+        const hours = parseFloat(hoursStr);
+        if (!(hours > 0)) { teleMsg.textContent = 'Enter a positive number of hours.'; return; }
+        extraBody.hours = hours;
+        reason = prompt(`Reason to show ${user} (optional):`, '') || '';
+      } else if (action === 'setfeatures') {
+        const raw = prompt(
+          `Per-user feature overrides for ${user}, as JSON (true/false per key — quiz, tutor, games, music, browser, notes, study, watch, autofill, research). Example: {"quiz":false,"games":false}`,
+          '{}'
+        );
+        if (raw === null) return;
+        let features;
+        try { features = JSON.parse(raw); } catch (e) { teleMsg.textContent = 'That was not valid JSON.'; return; }
+        if (!features || typeof features !== 'object' || Array.isArray(features)) { teleMsg.textContent = 'Expected a JSON object like {"quiz":false}.'; return; }
+        extraBody.features = features;
+      }
       teleMsg.textContent = `${action} ${user}…`;
       try {
         const res = await fetch(base + '/admin/moderate?token=' + encodeURIComponent(token), {
           method: 'POST', headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ user, action, reason })
+          body: JSON.stringify({ user, action, reason, ...extraBody })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
@@ -9960,7 +11011,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     const FLAGS = [
       ['quiz', 'Quiz solver'], ['tutor', 'Tutor mode'], ['games', 'Games'],
-      ['music', 'Music'], ['browser', 'Browser'], ['notes', 'Notes'], ['study', 'Study']
+      ['music', 'Music'], ['browser', 'Browser'], ['notes', 'Notes'], ['study', 'Study'],
+      ['watch', 'Page watcher'], ['autofill', 'Form auto-fill'], ['research', 'Research mode']
     ];
     let knownFlags = {};
     function renderFlags() {
@@ -10001,6 +11053,147 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       await postConfig({ announcement: null }, 'Announcement cleared.');
     });
 
+    panel.querySelector('#gpa-adm-brand-save').addEventListener('click', async () => {
+      const brandName = panel.querySelector('#gpa-adm-brand').value.trim();
+      const defaultTheme = panel.querySelector('#gpa-adm-def-theme').value;
+      const dailyQuota = parseInt(panel.querySelector('#gpa-adm-quota').value, 10) || 0;
+      await postConfig({ brandName, defaultTheme, dailyQuota }, 'Saved — takes effect for everyone within ~15s.');
+    });
+
+    // ---- Chat & access controls (read-only, approval queue, country/model/token/origin limits) ----
+    const readOnlyBtn = panel.querySelector('#gpa-adm-readonly');
+    const approvalBtn = panel.querySelector('#gpa-adm-approval');
+    function toggleBtnState(btn, on, onLabel, offLabel) {
+      btn.textContent = on ? onLabel : offLabel;
+      btn.classList.toggle('primary', on);
+      btn.dataset.on = on ? '1' : '0';
+    }
+    toggleBtnState(readOnlyBtn, false, '📢 Read-only chat: ON', '📢 Read-only chat: OFF');
+    toggleBtnState(approvalBtn, false, '🚪 Approval queue: ON', '🚪 Approval queue: OFF');
+    readOnlyBtn.addEventListener('click', async () => {
+      const turningOn = readOnlyBtn.dataset.on !== '1';
+      if (turningOn && !confirm('Make chat read-only for everyone except you?')) return;
+      const cfg = await postConfig({ readOnly: turningOn }, turningOn ? 'Chat is now read-only for everyone but you.' : 'Chat is open again.');
+      if (cfg) toggleBtnState(readOnlyBtn, !!cfg.readOnly, '📢 Read-only chat: ON', '📢 Read-only chat: OFF');
+    });
+    approvalBtn.addEventListener('click', async () => {
+      const turningOn = approvalBtn.dataset.on !== '1';
+      const cfg = await postConfig({ approvalMode: turningOn }, turningOn ? 'New usernames will now be held for approval.' : 'New usernames no longer need approval.');
+      if (cfg) toggleBtnState(approvalBtn, !!cfg.approvalMode, '🚪 Approval queue: ON', '🚪 Approval queue: OFF');
+    });
+    panel.querySelector('#gpa-adm-access-save').addEventListener('click', async () => {
+      const csvList = (id) => panel.querySelector(id).value.split(',').map((s) => s.trim()).filter(Boolean);
+      const blockedCountries = csvList('#gpa-adm-blockedcountries');
+      const allowedModels = csvList('#gpa-adm-allowedmodels');
+      const allowedOrigins = csvList('#gpa-adm-allowedorigins');
+      const maxTokens = parseInt(panel.querySelector('#gpa-adm-maxtokens').value, 10) || 0;
+      await postConfig({ blockedCountries, allowedModels, allowedOrigins, maxTokens }, 'Access controls saved — takes effect within ~15s.');
+    });
+
+    // ---- Audit log ----
+    panel.querySelector('#gpa-adm-audit-load').addEventListener('click', async () => {
+      const out = panel.querySelector('#gpa-adm-audit');
+      const token = teleToken.value.trim();
+      const base = adminBase();
+      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      out.innerHTML = '<div class="gpa-sub">Loading…</div>';
+      try {
+        const res = await fetch(base + '/admin/audit?token=' + encodeURIComponent(token));
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        out.innerHTML = data.entries.length ? data.entries.map((e) =>
+          `<div class="gpa-admin-logrow"><span class="t">${escapeHtml(new Date(e.ts).toLocaleString())}</span>`
+          + `<span class="ev"><b>${escapeHtml(e.admin || '?')}</b> → ${escapeHtml(e.action)} on ${escapeHtml(e.route)}${e.target ? ' (' + escapeHtml(String(e.target)) + ')' : ''}</span></div>`
+        ).join('') : '<div class="gpa-sub">No admin actions logged yet.</div>';
+      } catch (e) {
+        out.innerHTML = '';
+        controlMsg.textContent = 'Could not load audit log: ' + e.message;
+      }
+    });
+
+    // ---- Full backup / restore ----
+    panel.querySelector('#gpa-adm-backup-dl').addEventListener('click', async () => {
+      const token = teleToken.value.trim();
+      const base = adminBase();
+      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      controlMsg.textContent = 'Preparing backup…';
+      try {
+        const res = await fetch(base + '/admin/backup?token=' + encodeURIComponent(token));
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `agent-console-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        controlMsg.textContent = 'Backup downloaded.';
+      } catch (e) {
+        controlMsg.textContent = 'Backup failed: ' + e.message;
+      }
+    });
+    const restoreFileInput = panel.querySelector('#gpa-adm-restore-file');
+    panel.querySelector('#gpa-adm-restore-btn').addEventListener('click', () => restoreFileInput.click());
+    restoreFileInput.addEventListener('change', async () => {
+      const file = restoreFileInput.files && restoreFileInput.files[0];
+      restoreFileInput.value = '';
+      if (!file) return;
+      if (!confirm(`Restore from "${file.name}"? This overwrites any matching records currently on the worker.`)) return;
+      const token = teleToken.value.trim();
+      const base = adminBase();
+      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      try {
+        const text = await file.text();
+        const payload = JSON.parse(text);
+        const res = await fetch(base + '/admin/restore?token=' + encodeURIComponent(token), {
+          method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        controlMsg.textContent = `Restored ${data.restored} record(s).`;
+        loadLive();
+      } catch (e) {
+        controlMsg.textContent = 'Restore failed: ' + e.message;
+      }
+    });
+
+    // ---- Assign an API key remotely (one person, several, or everyone) ----
+    const keyTargetSel = panel.querySelector('#gpa-adm-key-target');
+    const keyUsersRow = panel.querySelector('#gpa-adm-key-users-row');
+    function syncKeyTargetUI() { keyUsersRow.style.display = keyTargetSel.value === 'all' ? 'none' : 'flex'; }
+    syncKeyTargetUI();
+    keyTargetSel.addEventListener('change', syncKeyTargetUI);
+    async function assignKeyRemote(removing) {
+      const msg = panel.querySelector('#gpa-adm-key-msg');
+      const token = teleToken.value.trim();
+      const base = adminBase();
+      if (!token || !base) { msg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      const provider = panel.querySelector('#gpa-adm-key-provider').value;
+      const all = keyTargetSel.value === 'all';
+      const users = all ? [] : panel.querySelector('#gpa-adm-key-users').value.split(',').map((u) => u.trim()).filter(Boolean);
+      if (!all && !users.length) { msg.textContent = 'Enter at least one username, or switch the target to Everyone.'; return; }
+      const key = removing ? '' : panel.querySelector('#gpa-adm-key-value').value.trim();
+      if (!removing && !key) { msg.textContent = 'Paste the key to assign, or use "Remove instead".'; return; }
+      msg.textContent = (removing ? 'Removing' : 'Assigning') + '…';
+      try {
+        const res = await fetch(base + '/admin/assignkey?token=' + encodeURIComponent(token), {
+          method: 'POST', headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ provider, all, users, key })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        const who = all ? 'everyone' : users.join(', ');
+        msg.textContent = removing
+          ? `Removed ${provider} key from ${who}.`
+          : `${provider} key assigned to ${who} — reaches their browser within ~15s.`;
+        if (!removing) panel.querySelector('#gpa-adm-key-value').value = '';
+      } catch (e) {
+        msg.textContent = 'Failed: ' + e.message;
+      }
+    }
+    panel.querySelector('#gpa-adm-key-assign').addEventListener('click', () => assignKeyRemote(false));
+    panel.querySelector('#gpa-adm-key-remove').addEventListener('click', () => assignKeyRemote(true));
+
     // ---- Private chat rooms ----
     async function roomsApi(body) {
       const token = teleToken.value.trim();
@@ -10015,19 +11208,69 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         return data;
       } catch (e) { controlMsg.textContent = 'Room action failed: ' + e.message; return null; }
     }
+    // Slow mode + ban/unban buttons shared by the public row and every
+    // private room row.
+    function addRoomModButtons(btns, id, label) {
+      const slow = document.createElement('button');
+      slow.className = 'gpa-btn'; slow.style.fontSize = '9px'; slow.textContent = '⏱ Slow mode';
+      slow.title = 'Seconds between messages per user in this room (0 = off)';
+      slow.addEventListener('click', async () => {
+        const secStr = prompt(`Slow mode for ${label} — seconds between messages (0 = off):`, '0');
+        if (secStr === null) return;
+        const seconds = Math.max(0, parseInt(secStr, 10) || 0);
+        const d = await roomsApi({ action: 'slowmode', id, seconds });
+        if (!d) return;
+        controlMsg.textContent = seconds ? `${label}: slow mode set to ${seconds}s.` : `${label}: slow mode off.`;
+      });
+      const ban = document.createElement('button');
+      ban.className = 'gpa-btn'; ban.style.fontSize = '9px'; ban.textContent = '🚫 Ban…';
+      ban.title = 'Ban a username from this room only — they can still use every other room';
+      ban.addEventListener('click', async () => {
+        const target = (prompt(`Ban which username from ${label}?`, '') || '').trim();
+        if (!target) return;
+        const d = await roomsApi({ action: 'banuser', id, user: target });
+        if (!d) return;
+        controlMsg.textContent = `Banned ${target} from ${label}.`;
+      });
+      const unban = document.createElement('button');
+      unban.className = 'gpa-btn'; unban.style.fontSize = '9px'; unban.textContent = '✅ Unban…';
+      unban.addEventListener('click', async () => {
+        const target = (prompt(`Unban which username from ${label}?`, '') || '').trim();
+        if (!target) return;
+        const d = await roomsApi({ action: 'unbanuser', id, user: target });
+        if (!d) return;
+        controlMsg.textContent = `Unbanned ${target} from ${label}.`;
+      });
+      btns.appendChild(slow); btns.appendChild(ban); btns.appendChild(unban);
+    }
     async function renderRooms() {
       const wrap = panel.querySelector('#gpa-adm-rooms');
       const data = await roomsApi({ action: 'list' });
       if (!data) return;
       wrap.innerHTML = '';
-      if (!data.rooms.length) { wrap.innerHTML = '<div class="gpa-sub">No private rooms yet.</div>'; return; }
+      // Public room: always exists, gets the same moderation tools as a
+      // private room, just no code/delete (it can't be deleted).
+      const publicRow = document.createElement('div');
+      publicRow.className = 'gpa-admin-userrow';
+      publicRow.style.flexDirection = 'column'; publicRow.style.alignItems = 'stretch'; publicRow.style.gap = '4px';
+      const publicHead = document.createElement('span');
+      publicHead.innerHTML = '# <b>public</b>';
+      const publicBtns = document.createElement('div');
+      publicBtns.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
+      addRoomModButtons(publicBtns, 'public', '# public');
+      publicRow.appendChild(publicHead); publicRow.appendChild(publicBtns);
+      wrap.appendChild(publicRow);
+      if (!data.rooms.length) return;
       data.rooms.forEach((r) => {
         const row = document.createElement('div');
         row.className = 'gpa-admin-userrow';
+        row.style.flexDirection = 'column'; row.style.alignItems = 'stretch'; row.style.gap = '4px';
+        const head = document.createElement('div');
+        head.style.cssText = 'display:flex;justify-content:space-between;gap:8px;';
         const left = document.createElement('span');
         left.innerHTML = `🔒 <b>${escapeHtml(r.name)}</b> <span style="opacity:0.6">${escapeHtml(r.id)}</span>`;
         const btns = document.createElement('span');
-        btns.style.cssText = 'display:flex;gap:4px;';
+        btns.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
         const code = document.createElement('button');
         code.className = 'gpa-btn'; code.style.fontSize = '9px'; code.textContent = '🔑 New code';
         code.addEventListener('click', async () => {
@@ -10047,7 +11290,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           renderRooms();
         });
         btns.appendChild(code); btns.appendChild(del);
-        row.appendChild(left); row.appendChild(btns);
+        head.appendChild(left); head.appendChild(btns);
+        const modBtns = document.createElement('div');
+        modBtns.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
+        addRoomModButtons(modBtns, r.id, r.name);
+        row.appendChild(head); row.appendChild(modBtns);
         wrap.appendChild(row);
       });
     }
@@ -10168,9 +11415,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // Binds a <select> + custom <input> pair to one storage key, saving on
     // change. Custom… reveals the input; a stored id not in the list shows as
     // Custom with the input pre-filled.
-    function wireModelPicker(sel, input, key) {
+    function wireModelPicker(sel, input, key, displayDefault) {
       const refresh = () => {
-        const v = admGet(key) || '';
+        const v = admGet(key) || (displayDefault || '');
         const known = MODEL_OPTIONS.some((o) => o[0] === v);
         if (v && !known) { sel.value = '__custom__'; input.style.display = 'block'; input.value = v; }
         else { sel.value = v; input.style.display = 'none'; input.value = ''; }
@@ -10193,8 +11440,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const smartSel = panel.querySelector('#gpa-adm-smart-sel');
     fillModelSelect(modelSel);
     fillModelSelect(smartSel);
-    const refreshBase = wireModelPicker(modelSel, panel.querySelector('#gpa-adm-model'), ADMIN_KEYS.MODEL);
-    const refreshSmart = wireModelPicker(smartSel, panel.querySelector('#gpa-adm-smart'), ADMIN_KEYS.SMART_MODEL);
+    const refreshBase = wireModelPicker(modelSel, panel.querySelector('#gpa-adm-model'), ADMIN_KEYS.MODEL, OPENAI_MODEL);
+    const refreshSmart = wireModelPicker(smartSel, panel.querySelector('#gpa-adm-smart'), ADMIN_KEYS.SMART_MODEL, 'gpt-6-astra');
 
     const autoUpgradeBtn = panel.querySelector('#gpa-adm-autoupgrade');
     function refreshAutoUpgrade() {
@@ -10258,7 +11505,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (!wrap) return;
       wrap.innerHTML = '';
       [['Gemini', STORAGE_KEY], ['OpenAI', OPENAI_STORAGE_KEY], ['YouTube', YT_STORAGE_KEY],
-       ['Admin token', ADMIN_KEYS.TELE_TOKEN]].forEach(([label, key]) => {
+       ['Admin token', ADMIN_KEYS.TELE_TOKEN], ['Owner code', ADMIN_KEYS.OWNER_CODE]].forEach(([label, key]) => {
         const v = localStorage.getItem(key) || '';
         const row = document.createElement('div');
         row.className = 'gpa-admin-userrow';
@@ -10402,9 +11649,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       (0, eval)(code);
     } catch (e) {
       setBusy(false);
-      alert('Reload failed: ' + ((e && e.message) || e)
-        + '\n\nThe version you have is still running.'
-        + (navigator.onLine === false ? '\n(You appear to be offline.)' : ''));
+      showToast('Reload failed: ' + ((e && e.message) || e)
+        + ' — the version you have is still running.'
+        + (navigator.onLine === false ? ' (You appear to be offline.)' : ''), { type: 'danger' });
     }
   }
 
