@@ -8,12 +8,29 @@
 //                        gets a response that doesn't allow the Authorization
 //                        header, and the browser then blocks the real request.
 //   /v1/*              — forwards to api.openai.com (chat completions etc.)
-//   /read?url=…        — fetches a web page server-side and returns its HTML
-//                        so research mode can read pages the browser itself
-//                        is not allowed to fetch (CORS). HTML/text only.
+//   /gemini/*          — forwards to generativelanguage.googleapis.com, with
+//                        the key attached server-side as x-goog-api-key.
+//   /read?url=…        — fetches a public web page server-side and returns it
+//                        as inert text so research mode can read pages the
+//                        browser itself is not allowed to fetch (CORS).
+//   Anything else      — 404. Unrouted paths are never forwarded anywhere.
+//
+// SECURITY MODEL (read this before changing a route):
+//   * The worker is the ONLY enforcement point. script.js runs inside whatever
+//     page the user loaded it on; every check there is a convenience, and
+//     anyone with DevTools can turn it off. Nothing may be trusted because the
+//     client said so.
+//   * Admin credentials travel in `Authorization: Bearer <token>`, never in
+//     the URL, and are compared in constant time. Every /admin/* path must be
+//     listed in ADMIN_ROUTES with the role it needs or it 404s.
+//   * API keys assigned by the owner never leave this worker. They are
+//     attached to the upstream request here; the browser is told only whether
+//     a key exists for it (a boolean), never its value.
+//   * Anything written to KV or handed to the admin console is scrubbed first
+//     (URLs lose their query strings; tokens and guesses are never logged).
 //
 // Env vars: TELEMETRY (KV binding), ADMIN_TOKEN (owner secret), OWNER
-// (username, defaults 'viztrrx'). Optional, both off unless set:
+// (username, defaults 'viztrrx'). Optional, all off unless set:
 //   OWNER_CODE     — a shared secret a client must send as the X-GPA-Owner
 //                    header to post to /track or /chat/send as the OWNER
 //                    username. Prevents anyone else from claiming that name.
@@ -22,6 +39,9 @@
 //                    /admin/clearchat, /admin/setunlock, /admin/summary, but
 //                    gets 403 on /admin/assignkey, /admin/config,
 //                    /admin/clear, /admin/audit, /admin/backup, /admin/restore.
+//   ALLOW_QUERY_TOKEN — set to "1" ONLY to let an old client keep passing the
+//                    admin token as ?token=… while it is being updated. Off by
+//                    default; every use is recorded in the audit trail.
 //
 // Moderation additions on top of the existing block/lock/kick (all via
 // /admin/moderate action, all reversible, all no-ops until used):
@@ -53,9 +73,20 @@ export default {
       'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key, X-GPA-User, X-GPA-Owner',
       'Access-Control-Max-Age': '86400'
     };
+    // Applied to every response this worker generates itself. no-store keeps
+    // admin payloads and per-user state out of shared caches; no-referrer
+    // stops the URL of a request (which may carry a room code) from being
+    // handed to the next site; nosniff stops a text response being re-read as
+    // something executable.
+    const SECURITY_HEADERS = {
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Cache-Control': 'no-store',
+      'Vary': 'Origin'
+    };
     const json = (obj, status) => new Response(JSON.stringify(obj), {
       status: status || 200,
-      headers: { ...cors, 'Content-Type': 'application/json' }
+      headers: { ...cors, ...SECURITY_HEADERS, 'Content-Type': 'application/json' }
     });
 
     // Moderation state for one user: active (default), blocked, or locked,
@@ -71,39 +102,111 @@ export default {
       return m || { state: 'active', reason: '', kickNonce: 0 };
     };
 
-    // ---- Auth levels: owner (?token=ADMIN_TOKEN) vs an optional co-admin
-    // (?token=COADMIN_TOKEN). A co-admin may moderate day-to-day (mute, kick,
-    // room management, unlock codes) but never touch billing-sensitive or
-    // whole-system state (keys, global config, wipes, audit, backup/restore).
-    // Neither token is set by default, so nothing here changes behavior until
-    // the owner opts in by setting COADMIN_TOKEN.
-    const authLevel = (url, env) => {
-      const token = url.searchParams.get('token') || '';
+    // ---- Roles ------------------------------------------------------------
+    // Two roles, defined once here rather than re-derived per route:
+    //   owner   — full control, including anything that can spend money or
+    //             read/alter whole-system state (keys, config, wipes, audit,
+    //             backup/restore).
+    //   coadmin — day-to-day moderation only (mute, kick, rooms, unlock
+    //             codes, the summary they need to know who to moderate).
+    // COADMIN_TOKEN is unset by default, so the co-admin role simply doesn't
+    // exist until the owner opts in.
+    const ROLE_RANK = { coadmin: 1, owner: 2 };
+    const roleAllows = (level, need) => !!level && (ROLE_RANK[level] || 0) >= (ROLE_RANK[need] || 0);
+
+    // The admin credential travels in the Authorization header, never the URL:
+    // a token in a query string ends up in request logs, Referer headers,
+    // browser history and screenshots. `?token=` is refused unless the owner
+    // deliberately re-enables it with ALLOW_QUERY_TOKEN=1 while migrating an
+    // old client, and even then it is flagged in the audit trail.
+    const presentedToken = (req, url, env) => {
+      const m = /^Bearer\s+(.+)$/i.exec((req.headers.get('Authorization') || '').trim());
+      if (m) return { token: m[1].trim(), viaQuery: false };
+      if (env && env.ALLOW_QUERY_TOKEN === '1') {
+        const q = url.searchParams.get('token') || '';
+        if (q) return { token: q, viaQuery: true };
+      }
+      return { token: '', viaQuery: false };
+    };
+    // Set by guard() so audit entries can record who acted without every call
+    // site re-running the comparison.
+    let authedLevel = null;
+    let authedViaQuery = false;
+    const authLevel = async (req, url, env) => {
+      const { token, viaQuery } = presentedToken(req, url, env);
+      if (!token) return null;
       const ADMIN = (env && env.ADMIN_TOKEN) || '';
       const COADMIN = (env && env.COADMIN_TOKEN) || '';
-      if (ADMIN && token === ADMIN) return 'owner';
-      if (COADMIN && token === COADMIN) return 'coadmin';
-      return null;
+      // Both comparisons always run: returning early on the first match would
+      // leak which token was presented through the response time.
+      const isOwner = ADMIN ? await timingSafeEqualStr(token, ADMIN) : false;
+      const isCoadmin = COADMIN ? await timingSafeEqualStr(token, COADMIN) : false;
+      const level = isOwner ? 'owner' : (isCoadmin ? 'coadmin' : null);
+      if (level) authedViaQuery = viaQuery;
+      return level;
     };
-    // Owner-only route guard. Returns a Response to send back immediately, or
-    // null if the caller may proceed.
-    const requireOwner = (url, env) => {
+
+    // ---- Failed-auth throttling -------------------------------------------
+    // Guessing an admin token or an unlock code should get slower, not stay
+    // free. Counters live in KV keyed by a hash of the client IP, so the raw
+    // address is never written down. KV reads are eventually consistent (up to
+    // ~60s), so this slows sustained brute force rather than being an exact
+    // per-request counter — it is a speed bump layered under a real secret,
+    // not the only thing standing in the way.
+    const clientIp = (req) => req.headers.get('CF-Connecting-IP') || req.headers.get('X-Real-IP') || '';
+    const FAIL_LIMITS = { admin: { max: 10, windowSec: 900 }, unlock: { max: 8, windowSec: 900 } };
+    const failKey = async (scope, ip) => `fail:${scope}:${(await sha256hex(String(ip || 'unknown'))).slice(0, 32)}`;
+    const isLockedOut = async (kv, scope, ip) => {
+      if (!kv) return false;
+      try {
+        const n = parseInt(await kv.get(await failKey(scope, ip)), 10) || 0;
+        return n >= FAIL_LIMITS[scope].max;
+      } catch (e) { return false; }
+    };
+    const noteFailure = async (kv, scope, ip) => {
+      if (!kv) return;
+      try {
+        const k = await failKey(scope, ip);
+        const n = parseInt(await kv.get(k), 10) || 0;
+        await kv.put(k, String(n + 1), { expirationTtl: FAIL_LIMITS[scope].windowSec });
+      } catch (e) { /* throttling must never break the route itself */ }
+    };
+    const clearFailures = async (kv, scope, ip) => {
+      if (!kv) return;
+      try { await kv.delete(await failKey(scope, ip)); } catch (e) { /* best-effort */ }
+    };
+
+    // Single gate for every admin route. Returns a Response to send back
+    // immediately, or null when the caller holds `need` or better.
+    const guard = async (req, url, env, need) => {
+      const kv = env && env.TELEMETRY;
+      const ip = clientIp(req);
+      if (await isLockedOut(kv, 'admin', ip)) {
+        return json({ error: 'too many failed attempts — try again later' }, 429);
+      }
       const ADMIN = (env && env.ADMIN_TOKEN) || '';
       if (!ADMIN) return json({ error: 'ADMIN_TOKEN not set on the worker' }, 500);
-      const level = authLevel(url, env);
-      if (!level) return json({ error: 'unauthorized' }, 401);
-      if (level !== 'owner') return json({ error: 'forbidden — owner only' }, 403);
+      const level = await authLevel(req, url, env);
+      if (!level) {
+        await noteFailure(kv, 'admin', ip);
+        // Never record the presented token — an audit trail is not a place to
+        // collect guesses at your own secret.
+        await logAudit(kv, { route: url.pathname, action: 'auth_failed', target: null, admin: null });
+        return json({ error: 'unauthorized' }, 401);
+      }
+      authedLevel = level;
+      await clearFailures(kv, 'admin', ip);
+      if (!roleAllows(level, need)) {
+        await logAudit(kv, { route: url.pathname, action: 'forbidden', target: null, admin: level });
+        return json({ error: `forbidden — ${need} only` }, 403);
+      }
+      if (authedViaQuery) {
+        await logAudit(kv, { route: url.pathname, action: 'legacy_query_token', target: null, admin: level });
+      }
       return null;
     };
-    // Owner-or-co-admin route guard, for the handful of day-to-day moderation
-    // routes a co-admin is allowed to use.
-    const requireStaff = (url, env) => {
-      const ADMIN = (env && env.ADMIN_TOKEN) || '';
-      if (!ADMIN) return json({ error: 'ADMIN_TOKEN not set on the worker' }, 500);
-      const level = authLevel(url, env);
-      if (!level) return json({ error: 'unauthorized' }, 401);
-      return null;
-    };
+    const requireOwner = (req, url, env) => guard(req, url, env, 'owner');
+    const requireStaff = (req, url, env) => guard(req, url, env, 'coadmin');
     // Hashes both sides to a fixed-length digest before comparing, so neither
     // the comparison time nor an early-exit reveals how much of the guess was
     // right or how long the real value is. Used only for OWNER_CODE, the
@@ -164,27 +267,92 @@ export default {
       return { state: 'active', reason: '', kickNonce: mod.kickNonce || 0 };
     };
     const resolve = async (kv, user) => resolveState(await getMod(kv, user), await getConfig(kv), user);
-    // Resolves both providers' assigned keys for one user: a key aimed at
-    // this exact username wins; otherwise an "assign to everyone" key (see
-    // /admin/assignkey) applies. Delivered to the client via /track and
-    // /status so it lands in their own localStorage without them ever
-    // pasting it — see the client-side handling in script.js.
-    const getAssignedKeys = async (kv, user) => {
-      if (!kv || !user) return {};
+    // Resolves one provider's assigned key for one user: a key aimed at this
+    // exact username wins; otherwise an "assign to everyone" key (see
+    // /admin/assignkey) applies.
+    //
+    // SERVER-SIDE ONLY. An earlier version handed these keys back to the
+    // browser on every /track and /status so the client could stash them in
+    // localStorage — which meant anyone could read another user's API key by
+    // calling /status?user=<name>, unauthenticated. Keys now never leave the
+    // worker: both providers are proxied (/v1/* for OpenAI, /gemini/* for
+    // Google) and the key is attached here, in flight.
+    const getAssignedKey = async (kv, provider, user) => {
+      if (!kv || !user) return '';
       const u = String(user).toLowerCase();
-      const out = {};
-      for (const provider of ['openai', 'gemini']) {
-        const specific = await kv.get(`key:${provider}:${u}`, 'json');
-        const wildcard = specific ? null : await kv.get(`key:${provider}:*`, 'json');
-        const rec = specific || wildcard;
-        if (rec && rec.key) out[provider] = rec.key;
-      }
-      return out;
+      const specific = await kv.get(`key:${provider}:${u}`, 'json');
+      const rec = specific || await kv.get(`key:${provider}:*`, 'json');
+      return (rec && rec.key) ? String(rec.key) : '';
     };
+    // What the client is allowed to know: whether a key exists for it, never
+    // the key. This is what stops the "paste your API key" prompt for users
+    // the owner has already covered.
+    const assignedKeyFlags = async (kv, user) => ({
+      openai: !!(await getAssignedKey(kv, 'openai', user)),
+      gemini: !!(await getAssignedKey(kv, 'gemini', user))
+    });
     const sha256hex = async (str) => {
       const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
       return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
     };
+    // Reduces a URL to origin + path: everything after "?" or "#" is dropped
+    // before anything is written to storage or shown in the admin console.
+    const scrubUrl = (raw) => {
+      const s = String(raw == null ? '' : raw);
+      if (!s) return '';
+      try {
+        const u = new URL(s);
+        if (u.username || u.password) return u.origin + u.pathname;  // drop embedded credentials
+        return u.origin + u.pathname;
+      } catch (e) {
+        return s.split(/[?#]/)[0].slice(0, 200);
+      }
+    };
+
+    // ---- SSRF guard for /read ----------------------------------------------
+    // /read fetches a URL on the server's behalf, which makes it an obvious
+    // lever for reaching things the caller cannot reach directly: cloud
+    // metadata endpoints, private RFC1918 addresses, loopback, and internal
+    // hostnames resolvable only from inside a network the worker can see.
+    // Only public http(s) hosts are allowed, and every redirect hop is
+    // re-checked rather than trusted.
+    const PRIVATE_HOST_RE = /^(localhost|.*\.local|.*\.internal|.*\.localdomain|metadata(\..*)?|instance-data(\..*)?)$/i;
+    const isPrivateIPv4 = (host) => {
+      const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+      if (!m) return false;
+      const [a, b] = [Number(m[1]), Number(m[2])];
+      if ([a, Number(m[2]), Number(m[3]), Number(m[4])].some((n) => n > 255)) return true;  // malformed: refuse
+      if (a === 10 || a === 127 || a === 0) return true;
+      if (a === 169 && b === 254) return true;          // link-local, incl. 169.254.169.254
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
+      if (a === 192 && b === 0) return true;             // 192.0.0.0/24 + 192.0.2.0/24
+      if (a >= 224) return true;                         // multicast / reserved
+      return false;
+    };
+    const isPrivateIPv6 = (host) => {
+      const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+      if (!h.includes(':')) return false;
+      if (h === '::1' || h === '::') return true;
+      if (/^f[cd]/.test(h)) return true;                 // unique local fc00::/7
+      if (h.startsWith('fe80')) return true;             // link-local
+      if (h.startsWith('::ffff:')) return isPrivateIPv4(h.slice(7));  // IPv4-mapped
+      return false;
+    };
+    // Returns a URL object to fetch, or null when the target must be refused.
+    const safeTargetUrl = (raw) => {
+      let u;
+      try { u = new URL(String(raw)); } catch (e) { return null; }
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      if (u.username || u.password) return null;
+      const host = u.hostname.toLowerCase();
+      if (!host) return null;
+      if (PRIVATE_HOST_RE.test(host)) return null;
+      if (isPrivateIPv4(host) || isPrivateIPv6(host)) return null;
+      return u;
+    };
+
     // Human-friendly code: uppercase, no 0/O/1/I/L ambiguity.
     const genCode = () => {
       const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -193,10 +361,37 @@ export default {
     };
 
     if (req.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: cors });
+      return new Response(null, { status: 204, headers: { ...cors, ...SECURITY_HEADERS } });
     }
 
     const url = new URL(req.url);
+
+    // ---- Admin surface: default deny ---------------------------------------
+    // Every /admin/* path must be named here with the role and method it
+    // accepts, and is checked BEFORE any handler runs. A new admin route that
+    // nobody remembered to guard therefore 404s instead of being wide open,
+    // and the per-handler guards further down stay as a second layer.
+    const ADMIN_ROUTES = {
+      '/admin/summary':   { method: 'GET',  role: 'coadmin' },
+      '/admin/moderate':  { method: 'POST', role: 'coadmin' },
+      '/admin/setunlock': { method: 'POST', role: 'coadmin' },
+      '/admin/clearchat': { method: 'POST', role: 'coadmin' },
+      '/admin/rooms':     { method: 'POST', role: 'coadmin' },
+      '/admin/config':    { method: 'POST', role: 'owner' },
+      '/admin/assignkey': { method: 'POST', role: 'owner' },
+      '/admin/clear':     { method: 'POST', role: 'owner' },
+      '/admin/audit':     { method: 'GET',  role: 'owner' },
+      '/admin/backup':    { method: 'GET',  role: 'owner' },
+      '/admin/restore':   { method: 'POST', role: 'owner' }
+    };
+    if (url.pathname.startsWith('/admin/')) {
+      const spec = Object.prototype.hasOwnProperty.call(ADMIN_ROUTES, url.pathname)
+        ? ADMIN_ROUTES[url.pathname] : null;
+      if (!spec) return json({ error: 'not found' }, 404);
+      if (req.method !== spec.method) return json({ error: 'method not allowed' }, 405);
+      const denied = await guard(req, url, env, spec.role);
+      if (denied) return denied;
+    }
 
     // ==== Usage telemetry (Cloudflare KV) ================================
     //
@@ -233,7 +428,7 @@ export default {
         telemetryReady: !!kv && !!(env && env.ADMIN_TOKEN),
         privateMode: !!cfg.privateMode,
         routes: [
-          '/v1/*', '/read', '/track', '/status', '/health',
+          '/v1/*', '/gemini/*', '/read', '/track', '/status', '/health',
           '/chat/poll', '/chat/send',
           '/admin/summary', '/admin/moderate', '/admin/setunlock', '/unlock',
           '/admin/config', '/admin/clear', '/admin/clearchat', '/admin/rooms',
@@ -266,7 +461,12 @@ export default {
       const rec = {
         user,
         host: clip(body.host, 120),
-        url: clip(body.url, 300),
+        // Origin + path only. A full URL routinely carries session tokens,
+        // password-reset codes, search terms and document ids in its query
+        // string — none of which the owner needs in order to see who is
+        // active, and all of which would then sit in KV and in every admin
+        // console that loads the summary.
+        url: clip(scrubUrl(body.url), 200),
         country: cf.country || '??',
         region: clip(cf.region || cf.city || '', 60),
         lastSeen: now
@@ -304,13 +504,13 @@ export default {
       // even without the separate /status poll.
       const r = await resolve(kv, user);
       const mod = await getMod(kv, user);
-      const assignedKeys = await getAssignedKeys(kv, user);
+      const assignedKeys = await assignedKeyFlags(kv, user);
       return json({
         ok: true, state: r.state, reason: r.reason, kickNonce: r.kickNonce,
         owner: !!r.owner, private: !!r.private,
         broadcast: cfg.broadcast || '', reloadVersion: cfg.reloadVersion || 0,
         features: { ...(cfg.features || {}), ...(mod.features || {}) },
-        announcement: cfg.announcement || null, assignedKeys,
+        announcement: cfg.announcement || null, assignedKeys,   // booleans only — see assignedKeyFlags
         brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || ''
       });
     }
@@ -323,13 +523,13 @@ export default {
       const r = await resolve(kv, statusUser);
       const cfg = await getConfig(kv);
       const mod = await getMod(kv, statusUser);
-      const assignedKeys = await getAssignedKeys(kv, statusUser);
+      const assignedKeys = await assignedKeyFlags(kv, statusUser);
       return json({
         state: r.state, reason: r.reason, kickNonce: r.kickNonce,
         owner: !!r.owner, private: !!r.private,
         broadcast: cfg.broadcast || '', reloadVersion: cfg.reloadVersion || 0,
         features: { ...(cfg.features || {}), ...(mod.features || {}) },
-        announcement: cfg.announcement || null, assignedKeys,
+        announcement: cfg.announcement || null, assignedKeys,   // booleans only — see assignedKeyFlags
         brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || ''
       });
     }
@@ -338,7 +538,7 @@ export default {
     if (url.pathname === '/admin/moderate' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'telemetry KV not bound' }, 500);
-      const denied = requireStaff(url, env);
+      const denied = await requireStaff(req, url, env);
       if (denied) return denied;
       let body = {};
       try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
@@ -383,7 +583,7 @@ export default {
       cur.reason = String(body.reason || '').slice(0, 300);
       cur.updatedAt = Date.now();
       await kv.put(key, JSON.stringify(cur));
-      await logAudit(kv, { route: '/admin/moderate', action, target: user, admin: authLevel(url, env) });
+      await logAudit(kv, { route: '/admin/moderate', action, target: user, admin: authedLevel });
       return json({ ok: true, user, mod: cur });
     }
 
@@ -391,7 +591,7 @@ export default {
     if (url.pathname === '/admin/config' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'telemetry KV not bound' }, 500);
-      const denied = requireOwner(url, env);
+      const denied = await requireOwner(req, url, env);
       if (denied) return denied;
       let body = {};
       try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
@@ -458,7 +658,7 @@ export default {
       const room = await kv.get(roomKey(id), 'json');
       if (!room) return { ok: false, error: 'no such room' };
       const h = await sha256hex(id + '|' + String(code || '').trim().toUpperCase());
-      if (h !== room.codeHash) return { ok: false, error: 'wrong room code' };
+      if (!(await timingSafeEqualStr(h, room.codeHash))) return { ok: false, error: 'wrong room code' };
       return { ok: true, id, room };
     };
 
@@ -545,10 +745,10 @@ export default {
     if (url.pathname === '/admin/clearchat' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'chat storage not configured' }, 500);
-      const denied = requireStaff(url, env);
+      const denied = await requireStaff(req, url, env);
       if (denied) return denied;
       const deleted = await clearAllChatMessages(kv);
-      await logAudit(kv, { route: '/admin/clearchat', action: 'clearchat', target: null, admin: authLevel(url, env) });
+      await logAudit(kv, { route: '/admin/clearchat', action: 'clearchat', target: null, admin: authedLevel });
       return json({ ok: true, deleted });
     }
 
@@ -557,12 +757,12 @@ export default {
     if (url.pathname === '/admin/rooms' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'chat storage not configured' }, 500);
-      const denied = requireStaff(url, env);
+      const denied = await requireStaff(req, url, env);
       if (denied) return denied;
       let body = {};
       try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
       const action = body.action || 'list';
-      const admin = authLevel(url, env);
+      const admin = authedLevel;
 
       if (action === 'create') {
         const name = String(body.name || '').trim().slice(0, 40);
@@ -649,7 +849,7 @@ export default {
     if (url.pathname === '/admin/assignkey' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'telemetry KV not bound' }, 500);
-      const denied = requireOwner(url, env);
+      const denied = await requireOwner(req, url, env);
       if (denied) return denied;
       let body = {};
       try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
@@ -675,7 +875,7 @@ export default {
     if (url.pathname === '/admin/setunlock' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'telemetry KV not bound' }, 500);
-      const denied = requireStaff(url, env);
+      const denied = await requireStaff(req, url, env);
       if (denied) return denied;
       let body = {};
       try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
@@ -687,7 +887,7 @@ export default {
       cur.unlock = await sha256hex(user + '|' + code);   // only the hash is stored
       cur.unlockAt = Date.now();
       await kv.put(key, JSON.stringify(cur));
-      await logAudit(kv, { route: '/admin/setunlock', action: 'setunlock', target: user, admin: authLevel(url, env) });
+      await logAudit(kv, { route: '/admin/setunlock', action: 'setunlock', target: user, admin: authedLevel });
       return json({ ok: true, user, code });
     }
 
@@ -702,11 +902,24 @@ export default {
       const user = String(body.user || '').toLowerCase().slice(0, 80);
       const code = String(body.code || '').trim().toUpperCase();
       if (!user || !code) return json({ ok: false, error: 'missing user or code' }, 200);
+      // An unlock code is short enough to be worth guessing, and this route is
+      // deliberately unauthenticated, so failed attempts are counted per IP
+      // and cut off for a while.
+      const unlockIp = clientIp(req);
+      if (await isLockedOut(kv, 'unlock', unlockIp)) {
+        return json({ ok: false, error: 'too many attempts — try again later' }, 429);
+      }
       const key = 'mod:' + user;
       const cur = await kv.get(key, 'json');
-      if (!cur || !cur.unlock) return json({ ok: false, error: 'no unlock code set for this user' }, 200);
-      const h = await sha256hex(user + '|' + code);
-      if (h !== cur.unlock) return json({ ok: false, error: 'invalid code' }, 200);
+      if (!cur || !cur.unlock) {
+        await noteFailure(kv, 'unlock', unlockIp);
+        return json({ ok: false, error: 'invalid code' }, 200);
+      }
+      if (!(await timingSafeEqualStr(await sha256hex(user + '|' + code), cur.unlock))) {
+        await noteFailure(kv, 'unlock', unlockIp);
+        return json({ ok: false, error: 'invalid code' }, 200);
+      }
+      await clearFailures(kv, 'unlock', unlockIp);
       cur.state = 'active';
       cur.reason = '';
       cur.allow = true;             // also exempts them from private mode
@@ -720,7 +933,7 @@ export default {
     if (url.pathname === '/admin/summary' && req.method === 'GET') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'telemetry KV not bound on the worker' }, 500);
-      const denied = requireStaff(url, env);   // a co-admin needs this to know who to moderate
+      const denied = await requireStaff(req, url, env);   // a co-admin needs this to know who to moderate
       if (denied) return denied;
 
       const active = [];
@@ -790,7 +1003,7 @@ export default {
     if (url.pathname === '/admin/clear' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'telemetry KV not bound' }, 500);
-      const denied = requireOwner(url, env);
+      const denied = await requireOwner(req, url, env);
       if (denied) return denied;
       let deleted = 0;
       for (const prefix of ['session:', 'user:']) {
@@ -808,7 +1021,7 @@ export default {
     if (url.pathname === '/admin/audit' && req.method === 'GET') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'telemetry KV not bound' }, 500);
-      const denied = requireOwner(url, env);
+      const denied = await requireOwner(req, url, env);
       if (denied) return denied;
       const listed = await kv.list({ prefix: 'audit:', limit: 1000 });
       const entries = [];
@@ -827,7 +1040,7 @@ export default {
     if (url.pathname === '/admin/backup' && req.method === 'GET') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'telemetry KV not bound' }, 500);
-      const denied = requireOwner(url, env);
+      const denied = await requireOwner(req, url, env);
       if (denied) return denied;
       const cfg = await getConfig(kv);
       const dumpPrefix = async (prefix) => {
@@ -860,69 +1073,120 @@ export default {
     if (url.pathname === '/admin/restore' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ error: 'telemetry KV not bound' }, 500);
-      const denied = requireOwner(url, env);
+      const denied = await requireOwner(req, url, env);
       if (denied) return denied;
       let body = {};
       try { body = JSON.parse(await req.text()); } catch (e) { return json({ error: 'invalid JSON body' }, 400); }
+      // A backup file is just JSON someone hands us, so its keys decide what
+      // gets written unless we say otherwise. Each group may only write its
+      // own namespace — notably NOT key:* (assigned API keys) and not the
+      // throttling counters, so a doctored backup cannot plant a key or
+      // quietly lift a lockout.
       let restored = 0;
+      let rejected = 0;
+      const putChecked = async (group, prefix, opts) => {
+        if (!group || typeof group !== 'object') return;
+        for (const [key, val] of Object.entries(group)) {
+          if (typeof key !== 'string' || !key.startsWith(prefix) || key.length > 512) { rejected++; continue; }
+          await kv.put(key, JSON.stringify(val), opts);
+          restored++;
+        }
+      };
       if (body.config && typeof body.config === 'object') { await kv.put('config', JSON.stringify(body.config)); restored++; }
-      for (const group of [body.mods, body.rooms, body.roomCfgs]) {
-        if (!group || typeof group !== 'object') continue;
-        for (const [key, val] of Object.entries(group)) { await kv.put(key, JSON.stringify(val)); restored++; }
-      }
+      await putChecked(body.mods, 'mod:');
+      await putChecked(body.rooms, 'room:');
+      await putChecked(body.roomCfgs, 'roomcfg:');
       if (Array.isArray(body.audit)) {
         for (const item of body.audit) {
-          if (!item || !item.key || !item.entry) continue;
+          if (!item || typeof item.key !== 'string' || !item.entry) { rejected++; continue; }
+          if (!item.key.startsWith('audit:') || item.key.length > 512) { rejected++; continue; }
           await kv.put(item.key, JSON.stringify(item.entry), { expirationTtl: AUDIT_TTL });
           restored++;
         }
       }
       await logAudit(kv, { route: '/admin/restore', action: 'restore', target: null, admin: 'owner' });
-      return json({ ok: true, restored });
+      return json({ ok: true, restored, rejected });
     }
 
     // ---- /read?url=… : server-side page fetch for research mode ----
+    // Public http(s) pages only (see safeTargetUrl), redirects followed by
+    // hand so each hop is re-checked, and the result is returned as inert
+    // text: the client parses it, and nobody can turn this route into a page
+    // that executes attacker HTML on the worker's own origin.
     if (url.pathname === '/read') {
       const target = url.searchParams.get('url');
-      if (!target || !/^https?:\/\//i.test(target)) {
-        return new Response(JSON.stringify({ error: 'missing or bad ?url=' }), {
-          status: 400,
-          headers: { ...cors, 'Content-Type': 'application/json' }
-        });
+      let safe = safeTargetUrl(target);
+      if (!safe) {
+        return json({ error: 'missing, malformed, or non-public ?url= (only public http/https pages can be fetched)' }, 400);
       }
-      let upstream;
+      // A blocked user loses research mode too, not just the model.
+      const readUser = req.headers.get('X-GPA-User');
+      if (readUser && env && env.TELEMETRY) {
+        const rs = await resolve(env.TELEMETRY, readUser);
+        if (rs.state === 'blocked') return json({ error: 'blocked by the owner' }, 403);
+      }
+      const MAX_HOPS = 4;
+      const MAX_BYTES = 3000000;
+      let upstream = null;
       try {
-        upstream = await fetch(target, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AgentConsole/1.0; research reader)' },
-          redirect: 'follow'
-        });
+        for (let hop = 0; hop < MAX_HOPS; hop++) {
+          upstream = await fetch(safe.toString(), {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; AgentConsole/1.0; research reader)',
+              'Accept': 'text/html, text/plain;q=0.9'
+            },
+            redirect: 'manual',
+            signal: AbortSignal.timeout(15000)
+          });
+          if (upstream.status < 300 || upstream.status > 399) break;
+          const loc = upstream.headers.get('location');
+          if (!loc) break;
+          const next = safeTargetUrl(new URL(loc, safe).toString());
+          if (!next) return json({ error: 'refused: redirect pointed at a non-public address' }, 400);
+          safe = next;
+          upstream = null;
+        }
       } catch (e) {
-        return new Response(JSON.stringify({ error: 'fetch failed' }), {
-          status: 502,
-          headers: { ...cors, 'Content-Type': 'application/json' }
-        });
+        return json({ error: 'fetch failed' }, 502);
       }
+      if (!upstream) return json({ error: 'too many redirects' }, 502);
+      if (upstream.status >= 400) return json({ error: `upstream returned ${upstream.status}` }, 502);
       const type = upstream.headers.get('content-type') || '';
       if (!type.includes('text/html') && !type.includes('text/plain')) {
-        return new Response(JSON.stringify({ error: 'not an HTML/text page: ' + type }), {
-          status: 415,
-          headers: { ...cors, 'Content-Type': 'application/json' }
-        });
+        return json({ error: 'not an HTML/text page: ' + type.slice(0, 80) }, 415);
       }
-      let body = await upstream.text();
-      if (body.length > 3000000) body = body.slice(0, 3000000);
+      let body;
+      try { body = await upstream.text(); } catch (e) { return json({ error: 'could not read the page' }, 502); }
+      if (body.length > MAX_BYTES) body = body.slice(0, MAX_BYTES);
       return new Response(body, {
         status: 200,
-        headers: { ...cors, 'Content-Type': 'text/html; charset=utf-8' }
+        headers: {
+          ...cors, ...SECURITY_HEADERS,
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Content-Disposition': 'attachment',
+          'Content-Security-Policy': "default-src 'none'; sandbox"
+        }
       });
     }
 
-    // ---- /v1/* : forward to OpenAI ----
+    // ---- AI proxies: /v1/* (OpenAI) and /gemini/* (Google) ----
     // Server-side moderation tooth: a blocked user is refused here, so blocking
     // actually costs them the AI features rather than only hiding the panel.
-    // The client sends its signed-in name as X-GPA-User. (This can't gate
-    // Gemini, which the browser calls directly, or a user who supplies their
-    // own key in direct mode — those bypass the worker entirely.)
+    // The client sends its signed-in name as X-GPA-User. Both providers are
+    // proxied so an owner-assigned key is attached HERE and never reaches the
+    // browser; a user who brings their own key in direct mode still bypasses
+    // the worker entirely, which is their key to spend.
+    //
+    // Anything that is not one of these two prefixes is refused: an earlier
+    // version fell through to "forward whatever path was asked for to
+    // api.openai.com", which made every unrouted request an open proxy hop.
+    const AI_ROUTES = {
+      openai: { prefix: '/v1/', upstream: 'https://api.openai.com' },
+      gemini: { prefix: '/gemini/', upstream: 'https://generativelanguage.googleapis.com' }
+    };
+    const provider = url.pathname.startsWith(AI_ROUTES.openai.prefix) ? 'openai'
+      : (url.pathname.startsWith(AI_ROUTES.gemini.prefix) ? 'gemini' : null);
+    if (!provider) return json({ error: 'not found' }, 404);
     const modUser = req.headers.get('X-GPA-User');
     let assignedKey = '';
     // Config-driven checks that apply to every /v1/* call, whether or not it
@@ -975,22 +1239,19 @@ export default {
       // whatever the client sent. A key aimed at this exact user wins over
       // an "assign to everyone" key.
       try {
-        const specific = await env.TELEMETRY.get('key:openai:' + String(modUser).toLowerCase(), 'json');
-        const rec = specific || await env.TELEMETRY.get('key:openai:*', 'json');
-        if (rec && rec.key) assignedKey = rec.key;
+        assignedKey = await getAssignedKey(env.TELEMETRY, provider, modUser);
       } catch (e) { /* fall back to whatever the client sent */ }
     }
 
-    // Absent an assigned key, the key can arrive four ways, tried in order:
+    // Absent an assigned key, the key can arrive three ways, tried in order:
     //   1. a normal Authorization header
     //   2. the X-GPA-Key header    — for pages that rewrite Authorization
     //   3. a _gpa_key field in the JSON body — for pages whose wrappers strip
-    //      custom headers too. Preferred over a query parameter because a key
-    //      in a URL leaks into browser history, Referer headers, proxy/CDN
-    //      logs and screenshots; a key in a body leaks into none of those.
-    //   4. ?key= in the query string — legacy, still accepted so an older
-    //      copy of script.js keeps working, but it should be considered
-    //      compromised once used and rotated.
+    //      custom headers too.
+    // A key in the query string (the old ?key=) is no longer accepted at all:
+    // URLs end up in browser history, Referer headers, proxy and CDN logs and
+    // screenshots, so a key sent that way should be considered burned. Any
+    // ?key= still arriving is dropped before the request is forwarded.
     let bodyText;
     let keyFromBody = '';
     let parsedBody = null;
@@ -1011,12 +1272,21 @@ export default {
 
     // Server-side model/token caps (see /admin/config's allowedModels and
     // maxTokens). Defaults — an empty allowlist and a 0 cap — allow anything,
-    // so this is a no-op until the owner configures it.
-    if (vCfg && parsedBody && typeof parsedBody === 'object') {
-      if (vCfg.allowedModels.length && parsedBody.model && !vCfg.allowedModels.includes(parsedBody.model)) {
-        return json({ error: { message: `Model "${parsedBody.model}" is not allowed.`, type: 'model_not_allowed' } }, 400);
-      }
-      if (vCfg.maxTokens > 0 && typeof parsedBody.max_tokens === 'number' && parsedBody.max_tokens > vCfg.maxTokens) {
+    // so this is a no-op until the owner configures it. OpenAI names the model
+    // in the body; Gemini names it in the path
+    // (/gemini/v1beta/models/<model>:generateContent), so it is read from
+    // whichever place this provider actually puts it.
+    const requestedModel = provider === 'gemini'
+      ? (/\/models\/([^/:]+)/.exec(url.pathname) || [])[1] || ''
+      : (parsedBody && typeof parsedBody === 'object' ? parsedBody.model : '');
+    if (vCfg && vCfg.allowedModels.length && requestedModel && !vCfg.allowedModels.includes(requestedModel)) {
+      return json({ error: { message: `Model "${requestedModel}" is not allowed.`, type: 'model_not_allowed' } }, 400);
+    }
+    if (vCfg && vCfg.maxTokens > 0 && parsedBody && typeof parsedBody === 'object') {
+      const asked = provider === 'gemini'
+        ? (parsedBody.generationConfig && parsedBody.generationConfig.maxOutputTokens)
+        : parsedBody.max_tokens;
+      if (typeof asked === 'number' && asked > vCfg.maxTokens) {
         return json({ error: { message: `max_tokens exceeds the configured cap of ${vCfg.maxTokens}.`, type: 'max_tokens_exceeded' } }, 400);
       }
     }
@@ -1026,34 +1296,42 @@ export default {
     // stray newline), passing it straight to fetch throws a TypeError and the
     // whole worker 500s. Strip it here so the request still goes through.
     const strip = (v) => (v ? String(v).replace(/[^\x21-\x7E]/g, '') : '');
-    const bearer = strip(assignedKey)
+    const apiKey = strip(assignedKey)
       || strip((req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, ''))
       || strip(req.headers.get('X-GPA-Key'))
-      || strip(keyFromBody)
-      || strip(url.searchParams.get('key'));
+      || strip(keyFromBody);
 
     // Without this, a missing key was forwarded as the literal header
     // "Authorization: null", and OpenAI's reply ("You didn't provide an API
     // key") made it look like the key itself was at fault.
-    if (!bearer) {
-      return new Response(JSON.stringify({
+    if (!apiKey) {
+      return json({
         error: {
-          message: 'No API key reached the proxy. The page is probably stripping headers — make sure script.js and worker.js are both up to date, since the key channel they agree on changed.',
+          message: 'No API key reached the proxy. Either ask the owner to assign you one, or paste your own in Settings — and make sure script.js and worker.js are both up to date, since keys are no longer accepted in the URL.',
           type: 'agent_console_no_key'
         }
-      }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
+      }, 401);
     }
 
-    const res = await fetch('https://api.openai.com' + url.pathname, {
+    // The upstream URL is rebuilt from the route's own prefix, never taken
+    // from caller-supplied input, and the query string is dropped entirely so
+    // a stray ?key= can't be relayed onward.
+    const route = AI_ROUTES[provider];
+    const upstreamPath = provider === 'gemini'
+      ? url.pathname.slice('/gemini'.length)
+      : url.pathname;
+    const upstreamHeaders = { 'Content-Type': 'application/json' };
+    if (provider === 'gemini') upstreamHeaders['x-goog-api-key'] = apiKey;
+    else upstreamHeaders['Authorization'] = `Bearer ${apiKey}`;
+
+    const res = await fetch(route.upstream + upstreamPath, {
       method: req.method,
-      headers: {
-        'Authorization': `Bearer ${bearer}`,
-        'Content-Type': 'application/json'
-      },
+      headers: upstreamHeaders,
       body: bodyText
     });
     const r = new Response(res.body, res);
     r.headers.set('Access-Control-Allow-Origin', '*');
+    Object.entries(SECURITY_HEADERS).forEach(([k, v]) => r.headers.set(k, v));
     return r;
   },
 

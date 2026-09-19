@@ -95,6 +95,10 @@
   // configured, so they aren't nagged every call — the owner may have
   // assigned them a key server-side via the admin console's "Assign key".
   const OPENAI_KEY_SKIP = 'gpa_openai_key_skip';
+  // Whether the worker says this account has an owner-assigned key for each
+  // provider. Booleans only — the key itself never leaves the worker (see
+  // applyAssignedKeys).
+  const serverAssignedKeys = { openai: false, gemini: false };
   const OPENAI_MODEL = 'gpt-5';
   const REASON_KEY = 'gpa_reason';
 const REASONING_MODELS = new Set([
@@ -2902,9 +2906,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // The admin console (unlocked with a PIN, see far below) can override a few
   // engine settings. They live in their own localStorage keys, kept out of
   // profile snapshots so they're device-global and survive sign-in/sign-out.
-  // Honest note: the PIN and these keys are all client-side. Anyone who reads
-  // this file sees the PIN, and anyone with DevTools can read/write these keys.
-  // This is a soft lock and a personal dashboard, not real access control.
+  // Honest note: this PIN is a soft lock on a local UI, not access control.
+  // It is in a public file, so treat it as "hides the panel", nothing more.
+  // Everything that actually matters — reading telemetry, moderating users,
+  // assigning keys, changing config — is enforced by the worker against the
+  // ADMIN_TOKEN, which is never stored on this device (see sessionSecrets).
+  // Someone who bypasses this PIN gets an admin panel that can't do anything.
   const ADMIN_PIN = '1029';
   const ADMIN_KEYS = {
     MODEL: 'gpa_admin_model',
@@ -2919,7 +2926,34 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     TELE_NOTICE_SEEN: 'gpa_tele_notice_seen',
     OWNER_CODE: 'gpa_owner_code'              // proves this device is really the owner (see worker.js OWNER_CODE)
   };
-  function admGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  // ---- Session-only secrets -------------------------------------------------
+  // The admin token and the owner code are credentials, and this script runs
+  // inside whatever page it was opened on — localStorage there is shared with
+  // that page's own JavaScript, so anything persisted is readable by the site
+  // (and by every other script it loads). Both therefore live in memory for
+  // the life of this session only, and any copy an older build left behind is
+  // deleted on startup. The cost is re-entering the token after a reload; the
+  // alternative is handing the owner's token to every page they visit.
+  const sessionSecrets = { adminToken: '', ownerCode: '' };
+  const SECRET_KEYS = ['gpa_admin_tele_token', 'gpa_owner_code'];
+  (function purgePersistedSecrets() {
+    SECRET_KEYS.forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } });
+  })();
+  function admGet(k) {
+    if (k === ADMIN_KEYS.TELE_TOKEN) return sessionSecrets.adminToken || null;
+    if (k === ADMIN_KEYS.OWNER_CODE) return sessionSecrets.ownerCode || null;
+    try { return localStorage.getItem(k); } catch (e) { return null; }
+  }
+  function admSetSecret(k, v) {
+    if (k === ADMIN_KEYS.TELE_TOKEN) sessionSecrets.adminToken = v || '';
+    else if (k === ADMIN_KEYS.OWNER_CODE) sessionSecrets.ownerCode = v || '';
+  }
+  // Admin calls carry the token in the Authorization header. It used to ride
+  // in the query string, where it lands in the worker's request logs, in any
+  // proxy or CDN in between, and in the browser's own history.
+  function adminAuthHeaders(token, extra) {
+    return { ...(extra || {}), Authorization: 'Bearer ' + String(token || '').trim() };
+  }
   // Defaults to ON with gpt-6-astra as the smart model until the owner
   // explicitly sets either value — an explicit 'off' or a different smart
   // model always wins over these defaults.
@@ -2950,8 +2984,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function adminSysPrefix() { const p = (admGet(ADMIN_KEYS.SYSPREFIX) || '').trim(); return p ? p + '\n\n' : ''; }
 
   // ---- Gemini API helpers -----------------------------------------------
-  function getApiKey() {
+  function getApiKey(optional) {
     let key = sanitizeKey(API_KEY_DEFAULT) || readStoredKey(STORAGE_KEY);
+    // When the owner has assigned this account a key, the worker attaches it
+    // to the upstream call itself — there is nothing for the user to paste,
+    // and the key deliberately never reaches this browser.
+    if (!key && optional) return null;
     if (!key) {
       key = sanitizeKey(prompt('Paste your Gemini API key (from aistudio.google.com/apikey):'));
       if (key) localStorage.setItem(STORAGE_KEY, key);
@@ -2960,8 +2998,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   async function callGemini(userText, systemText, imageDataUrls, hard) {
-    const key = getApiKey();
-    if (!key) throw new Error('No API key provided.');
+    // Route through the worker when one is configured: it applies the same
+    // block/quota rules as the OpenAI path and, for users the owner assigned a
+    // key to, attaches that key server-side so it never touches this browser.
+    const viaProxy = !!OPENAI_PROXY;
+    const key = getApiKey(viaProxy && serverAssignedKeys.gemini);
+    if (!key && !viaProxy) throw new Error('No API key provided.');
 
     const parts = [];
     if (userText) parts.push({ text: userText });
@@ -2978,14 +3020,28 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
     const geminiModel = effectiveModel(MODEL, hard);
     noteModelUsed(geminiModel, 'Gemini', hard);
-    const res = await rawFetch(`${API_BASE}${geminiModel}:generateContent?key=${key}`, {
+    // The key travels in a header (or, through the proxy, in a body field the
+    // worker strips before forwarding) — never in the query string, where it
+    // would be recorded in browser history, Referer headers and every log
+    // between here and Google.
+    const headers = { 'Content-Type': 'application/json' };
+    let endpoint;
+    if (viaProxy) {
+      endpoint = `${OPENAI_PROXY}/gemini/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`;
+      if (key) { headers['X-GPA-Key'] = key; body._gpa_key = key; }
+      if (typeof currentUser !== 'undefined' && currentUser) headers['X-GPA-User'] = currentUser;
+    } else {
+      endpoint = `${API_BASE}${encodeURIComponent(geminiModel)}:generateContent`;
+      headers['x-goog-api-key'] = key;
+    }
+    const res = await rawFetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body)
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw new Error(`Gemini API error (${res.status}): ${errText.slice(0, 300)}`);
+      throw new Error(`Gemini API error (${res.status}): ${redactSecrets(errText).slice(0, 300)}`);
     }
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '(no response)';
@@ -2999,6 +3055,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // owner-assigned key (if any) is applied server-side regardless, so
     // there's no reason to keep interrupting them with the same prompt.
     if (!key && localStorage.getItem(OPENAI_KEY_SKIP)) return null;
+    // Same when the worker has already told us a key is assigned to this
+    // account: the proxy attaches it, so there is nothing to ask for.
+    if (!key && OPENAI_PROXY && serverAssignedKeys.openai) return null;
     if (!key) {
       const prompted = OPENAI_PROXY
         ? 'Paste your OpenAI API key (starts with "sk-") — or leave blank if your admin assigned you one:'
@@ -3225,7 +3284,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw new Error(`OpenAI API error (${res.status}): ${errText.slice(0, 300)}`);
+      throw new Error(`OpenAI API error (${res.status}): ${redactSecrets(errText).slice(0, 300)}`);
     }
     const data = await res.json();
     return data?.choices?.[0]?.message?.content || '(no response)';
@@ -3330,9 +3389,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   function showError(el, err, label) {
-    // The panel shows a friendly sentence; the full raw error lands in the
-    // DevTools console so the real cause is never hidden behind it.
-    console.error('[Agent Console] raw error from', label, ':', err);
+    // The panel shows a friendly sentence; the raw error lands in the DevTools
+    // console so the real cause is never hidden behind it — with anything that
+    // looks like a credential masked, since upstream errors echo the key that
+    // failed and consoles get screenshotted and pasted into chats.
+    console.error('[Agent Console] raw error from', label, ':', redactSecrets((err && err.message) || err));
     el.innerHTML = `<div class="gpa-error"><span class="gpa-error-icon">⚠</span><span>${explainError(err, label)}</span></div>`;
   }
 
@@ -3380,6 +3441,30 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // ---- Structured answer grid (for "answers to questions 1-10" style asks) --
   function escapeHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Origin + path, never the query string or fragment. Used everywhere a page
+  // address is recorded or sent anywhere.
+  function scrubPageUrl(raw) {
+    const s = String(raw == null ? '' : raw);
+    try {
+      const u = new URL(s);
+      return (u.origin + u.pathname).slice(0, 200);
+    } catch (e) {
+      return s.split(/[?#]/)[0].slice(0, 200);
+    }
+  }
+
+  // Anything that looks like an API key is masked before it can reach a toast,
+  // the console, or the local log. Upstream error bodies sometimes echo the
+  // credential that failed, and a screenshot of an error should never be worth
+  // anything to whoever sees it.
+  function redactSecrets(text) {
+    return String(text == null ? '' : text)
+      .replace(/sk-[A-Za-z0-9_\-]{8,}/g, 'sk-…redacted…')
+      .replace(/AIza[A-Za-z0-9_\-]{10,}/g, 'AIza…redacted…')
+      .replace(/(Bearer\s+)[A-Za-z0-9._\-]{8,}/gi, '$1…redacted…')
+      .replace(/([?&](?:key|token|api_?key)=)[^&\s]+/gi, '$1…redacted…');
   }
 
   function confidenceClass(pct) {
@@ -4857,7 +4942,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const res = await rawFetch(url);
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw new Error(`YouTube API error (${res.status}): ${errText.slice(0, 300)}`);
+      throw new Error(`YouTube API error (${res.status}): ${redactSecrets(errText).slice(0, 300)}`);
     }
     const data = await res.json();
     const item = data.items && data.items[0];
@@ -6187,7 +6272,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       for (const u of urls) {
         out.textContent = `🔎 Reading ${srcs.length + 1}/${urls.length}: ${u.slice(0, 60)}…`;
         try {
-          const r = await rawFetch(`${OPENAI_PROXY}/read?url=${encodeURIComponent(u)}`);
+          const r = await rawFetch(`${OPENAI_PROXY}/read?url=${encodeURIComponent(u)}`, {
+            headers: currentUser ? { 'X-GPA-User': currentUser } : {}
+          });
           if (!r.ok) continue;
           const html = await r.text();
           const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -6287,7 +6374,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           const u = pick.trim().replace(/^["'\[\]]+|["'\[\]]+$/g, '');
           if (!/^https?:\/\//i.test(u)) continue;
           status.textContent = `🌐 Reading: ${u.slice(0, 70)}…`;
-          const r = await rawFetch(`${OPENAI_PROXY}/read?url=${encodeURIComponent(u)}`);
+          const r = await rawFetch(`${OPENAI_PROXY}/read?url=${encodeURIComponent(u)}`, {
+            headers: currentUser ? { 'X-GPA-User': currentUser } : {}
+          });
           if (!r.ok) continue;
           const html = await r.text();
           const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -6407,18 +6496,178 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const loginMsg = panel.querySelector('#gpa-login-msg');
   let currentUser = null;
 
-  async function hashPin(user, pin) {
-    const text = `gpa|${user}|${pin}`;
-    if (window.crypto && window.crypto.subtle) {
-      try {
-        const buf = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-        return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-      } catch (e) { /* fall through to the non-crypto path below */ }
+  // ---- PIN hashing ----------------------------------------------------------
+  // A profile's PIN is short and the hash sits in localStorage, so the only
+  // thing standing between a copied profile and the PIN is how expensive one
+  // guess is. A plain SHA-256 (what this used to do, unsalted) is billions of
+  // guesses a second on a GPU and identical across users, so one rainbow table
+  // cracks every profile at once. PBKDF2 with a per-profile random salt and a
+  // high iteration count makes each guess cost real time and makes every
+  // profile its own problem.
+  //
+  // Records are stored as { v, alg, salt, iter, hash }. Older profiles hold a
+  // bare hex string; those still verify, and are rewritten to the new format
+  // the moment their owner signs in successfully (see verifyPin).
+  const PIN_ITERATIONS = 210000;      // OWASP's PBKDF2-HMAC-SHA256 guidance
+  const PIN_ITERATIONS_JS = 20000;    // pure-JS fallback: slower per round
+  const toHex = (bytes) => Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  const subtleCrypto = () => (window.crypto && window.crypto.subtle) || null;
+
+  function randomSaltHex() {
+    const a = new Uint8Array(16);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(a);
+    else for (let i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 256);
+    return toHex(a);
+  }
+  // Compares two hex digests without letting the loop exit early — an early
+  // return leaks how many leading characters were right.
+  function constantTimeEqualHex(a, b) {
+    const x = String(a || ''), y = String(b || '');
+    if (x.length !== y.length) return false;
+    let diff = 0;
+    for (let i = 0; i < x.length; i++) diff |= x.charCodeAt(i) ^ y.charCodeAt(i);
+    return diff === 0;
+  }
+
+  async function pbkdf2Hex(pin, saltHex, iterations) {
+    const subtle = subtleCrypto();
+    const enc = new TextEncoder();
+    if (subtle) {
+      const keyMaterial = await subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']);
+      const bits = await subtle.deriveBits(
+        { name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(saltHex), iterations },
+        keyMaterial, 256
+      );
+      return toHex(new Uint8Array(bits));
     }
-    // Fallback for non-secure contexts where SubtleCrypto is unavailable.
-    let h = 0;
-    for (let i = 0; i < text.length; i++) { h = ((h << 5) - h + text.charCodeAt(i)) | 0; }
-    return 'fb' + (h >>> 0).toString(16);
+    return jsPbkdf2Hex(pin, saltHex, iterations);
+  }
+
+  // Makes a stored record for a fresh PIN.
+  async function makePinRecord(user, pin) {
+    const salt = randomSaltHex();
+    const subtle = subtleCrypto();
+    const iter = subtle ? PIN_ITERATIONS : PIN_ITERATIONS_JS;
+    const material = `gpa|${user}|${pin}`;
+    return {
+      v: 2,
+      alg: subtle ? 'PBKDF2-SHA256' : 'PBKDF2-SHA256-js',
+      salt, iter,
+      hash: await pbkdf2Hex(material, salt, iter)
+    };
+  }
+
+  // Verifies a PIN against either format. `upgrade` is true when the stored
+  // record is an old unsalted hash (or a weaker fallback) that should be
+  // rewritten now that we have the plaintext PIN in hand.
+  async function verifyPin(user, pin, stored) {
+    if (stored && typeof stored === 'object' && stored.v === 2) {
+      const h = await pbkdf2Hex(`gpa|${user}|${pin}`, stored.salt, stored.iter);
+      const ok = constantTimeEqualHex(h, stored.hash);
+      // A record written without SubtleCrypto used fewer rounds; once we're in
+      // a secure context again, re-stretch it.
+      const upgrade = ok && stored.alg === 'PBKDF2-SHA256-js' && !!subtleCrypto();
+      return { ok, upgrade };
+    }
+    // Legacy: bare SHA-256 hex, or the old 32-bit fallback.
+    const text = `gpa|${user}|${pin}`;
+    let legacy = null;
+    const subtle = subtleCrypto();
+    if (subtle) {
+      try {
+        const buf = await subtle.digest('SHA-256', new TextEncoder().encode(text));
+        legacy = toHex(new Uint8Array(buf));
+      } catch (e) { /* fall through */ }
+    }
+    if (legacy === null) {
+      let h = 0;
+      for (let i = 0; i < text.length; i++) { h = ((h << 5) - h + text.charCodeAt(i)) | 0; }
+      legacy = 'fb' + (h >>> 0).toString(16);
+    }
+    const ok = constantTimeEqualHex(legacy, String(stored || ''));
+    return { ok, upgrade: ok };
+  }
+
+  // PBKDF2-HMAC-SHA256 in plain JavaScript, for pages served over plain HTTP
+  // where SubtleCrypto does not exist. Slower per round than the native one,
+  // hence the lower iteration count, but still salted and still thousands of
+  // times harder than a single unsalted digest.
+  function jsPbkdf2Hex(password, saltHex, iterations) {
+    const K = [
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+      0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+      0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    ];
+    const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+    function sha256Bytes(bytes) {
+      const len = bytes.length;
+      const withPad = new Uint8Array((((len + 8) >> 6) + 1) << 6);
+      withPad.set(bytes);
+      withPad[len] = 0x80;
+      const bitLenHi = Math.floor(len / 536870912);
+      const bitLen = len * 8;
+      const dv = new DataView(withPad.buffer);
+      dv.setUint32(withPad.length - 8, bitLenHi, false);
+      dv.setUint32(withPad.length - 4, bitLen >>> 0, false);
+      const H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+      const w = new Uint32Array(64);
+      for (let off = 0; off < withPad.length; off += 64) {
+        for (let i = 0; i < 16; i++) w[i] = dv.getUint32(off + i * 4, false);
+        for (let i = 16; i < 64; i++) {
+          const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+          const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+          w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+        }
+        let [a, b, c, d, e, f, g, h] = H;
+        for (let i = 0; i < 64; i++) {
+          const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+          const ch = (e & f) ^ (~e & g);
+          const t1 = (h + S1 + ch + K[i] + w[i]) >>> 0;
+          const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+          const maj = (a & b) ^ (a & c) ^ (b & c);
+          const t2 = (S0 + maj) >>> 0;
+          h = g; g = f; f = e; e = (d + t1) >>> 0;
+          d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+        }
+        H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + b) >>> 0; H[2] = (H[2] + c) >>> 0; H[3] = (H[3] + d) >>> 0;
+        H[4] = (H[4] + e) >>> 0; H[5] = (H[5] + f) >>> 0; H[6] = (H[6] + g) >>> 0; H[7] = (H[7] + h) >>> 0;
+      }
+      const out = new Uint8Array(32);
+      const outView = new DataView(out.buffer);
+      for (let i = 0; i < 8; i++) outView.setUint32(i * 4, H[i], false);
+      return out;
+    }
+    function hmacSha256(keyBytes, msgBytes) {
+      let key = keyBytes;
+      if (key.length > 64) key = sha256Bytes(key);
+      const pad = new Uint8Array(64);
+      pad.set(key);
+      const inner = new Uint8Array(64 + msgBytes.length);
+      const outer = new Uint8Array(64 + 32);
+      for (let i = 0; i < 64; i++) { inner[i] = pad[i] ^ 0x36; outer[i] = pad[i] ^ 0x5c; }
+      inner.set(msgBytes, 64);
+      outer.set(sha256Bytes(inner), 64);
+      return sha256Bytes(outer);
+    }
+    const enc = new TextEncoder();
+    const pw = enc.encode(password);
+    const salt = enc.encode(saltHex);
+    // One 32-byte block is all we need, so this is PBKDF2 with dkLen = hLen.
+    const block1 = new Uint8Array(salt.length + 4);
+    block1.set(salt);
+    block1[salt.length + 3] = 1;
+    let u = hmacSha256(pw, block1);
+    const out = u.slice();
+    for (let i = 1; i < iterations; i++) {
+      u = hmacSha256(pw, u);
+      for (let j = 0; j < out.length; j++) out[j] ^= u[j];
+    }
+    return toHex(out);
   }
 
   function profileKey(user) { return PROFILE_PREFIX + user.toLowerCase(); }
@@ -6560,8 +6809,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!user || !pin) { showLoginMsg('Enter both a profile name and a PIN.', true); return; }
     const profile = readProfile(user);
     if (!profile) { showLoginMsg('No profile by that name here. Use Create, or restore a sync code.', true); return; }
-    const hash = await hashPin(user.toLowerCase(), pin);
-    if (hash !== profile.pinHash) { showLoginMsg('Wrong PIN.', true); return; }
+    showLoginMsg('Checking…');
+    const { ok, upgrade } = await verifyPin(user.toLowerCase(), pin, profile.pinHash);
+    if (!ok) { showLoginMsg('Wrong PIN.', true); return; }
+    // Re-hash a profile still carrying the old unsalted digest. This is the
+    // only moment the plaintext PIN exists, so it is the only chance to do it.
+    if (upgrade) {
+      try {
+        profile.pinHash = await makePinRecord(user.toLowerCase(), pin);
+        writeProfile(user, profile);
+      } catch (e) { /* signing in matters more than the re-hash */ }
+    }
     applyState(profile.data || {});
     showLoginMsg('');
     enterApp(user);
@@ -6572,7 +6830,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const pin = loginPinInput.value;
     if (!user || !pin) { showLoginMsg('Enter both a profile name and a PIN.', true); return; }
     if (readProfile(user)) { showLoginMsg('That profile already exists here — sign in instead.', true); return; }
-    const pinHash = await hashPin(user.toLowerCase(), pin);
+    if (String(pin).length < 4) { showLoginMsg('Use a PIN of at least 4 characters.', true); return; }
+    showLoginMsg('Securing your PIN…');
+    const pinHash = await makePinRecord(user.toLowerCase(), pin);
     // A brand-new profile starts from whatever is currently set up, so you
     // don't lose settings you'd already configured before making a profile.
     // The one thing it must not inherit is a previous profile's answer to the
@@ -6607,8 +6867,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const payload = decodeSyncCode(code);
       if (!payload || !payload.data) throw new Error('bad payload');
       const user = loginUserInput.value.trim() || payload.user || 'restored';
-      const pin = loginPinInput.value || '0000';
-      const pinHash = await hashPin(user.toLowerCase(), pin);
+      const pin = loginPinInput.value;
+      // A restored profile used to fall back to the PIN "0000" when the field
+      // was left empty, which is no PIN at all for anyone who knows the
+      // default. Make the person choose one.
+      if (!pin || pin.length < 4) {
+        showLoginMsg('Enter the PIN you want this restored profile to use (4+ characters), then press Transfer again.', true);
+        loginPinInput.focus();
+        return;
+      }
+      const pinHash = await makePinRecord(user.toLowerCase(), pin);
       applyState(payload.data);
       writeProfile(user, { user, pinHash, data: payload.data, updatedAt: Date.now() });
       showLoginMsg('');
@@ -10264,7 +10532,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       u: user || currentUser || '(anonymous)',
       ev,
       ts: Date.now(),
-      url: location.href.slice(0, 300),
+      // Origin + path only: a full URL routinely carries session tokens,
+      // reset codes and search terms, and this log is readable by anyone who
+      // opens the admin console on this device.
+      url: scrubPageUrl(location.href),
       host: location.hostname,
       ua: (navigator.userAgent || '').slice(0, 160)
     };
@@ -10348,7 +10619,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       sid: TELE_SID,
       user: user || currentUser || 'anonymous',
       host: location.hostname,
-      url: location.href.slice(0, 300),
+      // Query strings and fragments are stripped before this leaves the
+      // browser — the worker scrubs them again on arrival.
+      url: scrubPageUrl(location.href),
       event: event === 'open' ? 'open' : 'beat'
     });
     try {
@@ -10404,28 +10677,22 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     } catch (e) { /* best-effort */ }
   }
 
-  // Delivered by /track and /status when the owner has assigned this user a
-  // key remotely (admin console → Control → Assign API key, to one person,
-  // several, or everyone). Written straight into this browser's own
-  // localStorage so it's picked up by the normal getOpenAiKey()/getApiKey()
-  // flow with no paste required, and re-applied on every poll so a change on
-  // the owner's end reaches this device within one heartbeat. Clearing an
-  // assignment on the owner's side does not retroactively erase a key
-  // already written here — the user can still clear it themselves in
-  // Settings.
-  let lastAppliedOpenaiKey = null, lastAppliedGeminiKey = null;
-  function applyAssignedKeys(keys) {
-    const openai = sanitizeKey(keys.openai || '');
-    if (openai && openai !== lastAppliedOpenaiKey) {
-      lastAppliedOpenaiKey = openai;
-      localStorage.setItem(OPENAI_STORAGE_KEY, openai);
-      localStorage.removeItem(OPENAI_KEY_SKIP);
-    }
-    const gemini = sanitizeKey(keys.gemini || '');
-    if (gemini && gemini !== lastAppliedGeminiKey) {
-      lastAppliedGeminiKey = gemini;
-      localStorage.setItem(STORAGE_KEY, gemini);
-    }
+  // /track and /status report whether the owner has assigned this account a
+  // key (admin console → Control → Assign API key) — a boolean per provider,
+  // never the key itself.
+  //
+  // An earlier version had the worker send the actual key and wrote it into
+  // this browser's localStorage. That put a live API key inside whatever page
+  // the console was opened on, readable by that page's own scripts, and made
+  // /status?user=<name> an unauthenticated way for anyone to fetch somebody
+  // else's key. Assigned keys now stay on the worker and are attached to the
+  // upstream request there; all this flag does is tell the user they have
+  // nothing to paste.
+  function applyAssignedKeys(flags) {
+    serverAssignedKeys.openai = !!(flags && flags.openai);
+    serverAssignedKeys.gemini = !!(flags && flags.gemini);
+    // Nothing to prompt for while the server is covering this user.
+    if (serverAssignedKeys.openai) { try { localStorage.removeItem(OPENAI_KEY_SKIP); } catch (e) { /* ignore */ } }
   }
   // Owner-set brand name (admin console → Control → Branding) replaces the
   // built-in "Agent Console" name in the header and login screen. Not
@@ -10830,12 +11097,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     let teleAutoTimer = null;
 
     function loadTelemetryFields() {
-      teleToken.value = admGet(ADMIN_KEYS.TELE_TOKEN) || '';
+      // Deliberately session-only: the token is never written to disk, so it
+      // comes back blank after a reload (see sessionSecrets).
+      teleToken.value = sessionSecrets.adminToken || '';
       teleEndpoint.value = admGet(ADMIN_KEYS.TELE_ENDPOINT) || '';
       teleEndpoint.placeholder = 'Worker URL (blank = ' + (TELEMETRY_ENDPOINT || 'none') + ')';
     }
     function saveTeleFields() {
-      localStorage.setItem(ADMIN_KEYS.TELE_TOKEN, teleToken.value.trim());
+      admSetSecret(ADMIN_KEYS.TELE_TOKEN, teleToken.value.trim());
       localStorage.setItem(ADMIN_KEYS.TELE_ENDPOINT, teleEndpoint.value.trim());
     }
     teleToken.addEventListener('change', saveTeleFields);
@@ -10943,8 +11212,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (!token || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
       teleMsg.textContent = 'Generating code for ' + user + '…';
       try {
-        const res = await fetch(base + '/admin/setunlock?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ user })
+        const res = await fetch(base + '/admin/setunlock', {
+          method: 'POST', headers: adminAuthHeaders(token, { 'Content-Type': 'text/plain' }), body: JSON.stringify({ user })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.code) throw new Error(data.error || ('HTTP ' + res.status));
@@ -10968,8 +11237,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const key = (prompt(`Paste the OpenAI API key to assign to ${user} (leave blank to remove their assigned key):`, '') || '').trim();
       teleMsg.textContent = (key ? 'Assigning key to ' : 'Removing key from ') + user + '…';
       try {
-        const res = await fetch(base + '/admin/assignkey?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'text/plain' },
+        const res = await fetch(base + '/admin/assignkey', {
+          method: 'POST', headers: adminAuthHeaders(token, { 'Content-Type': 'text/plain' }),
           body: JSON.stringify({ user, key })
         });
         const data = await res.json().catch(() => ({}));
@@ -11013,8 +11282,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       teleMsg.textContent = `${action} ${user}…`;
       try {
-        const res = await fetch(base + '/admin/moderate?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'text/plain' },
+        const res = await fetch(base + '/admin/moderate', {
+          method: 'POST', headers: adminAuthHeaders(token, { 'Content-Type': 'text/plain' }),
           body: JSON.stringify({ user, action, reason, ...extraBody })
         });
         const data = await res.json().catch(() => ({}));
@@ -11038,7 +11307,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (!token) { teleMsg.textContent = 'Enter your admin token (the worker\'s ADMIN_TOKEN).'; return; }
       teleMsg.textContent = 'Loading…';
       try {
-        const res = await fetch(base + '/admin/summary?token=' + encodeURIComponent(token));
+        const res = await fetch(base + '/admin/summary', { headers: adminAuthHeaders(token) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
         renderLive(data);
@@ -11058,8 +11327,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (turningOn && !confirm('Turn on private mode? Everyone except the owner will be blocked from using the tool.')) return;
       teleMsg.textContent = turningOn ? 'Enabling private mode…' : 'Disabling private mode…';
       try {
-        const res = await fetch(base + '/admin/config?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ privateMode: turningOn })
+        const res = await fetch(base + '/admin/config', {
+          method: 'POST', headers: adminAuthHeaders(token, { 'Content-Type': 'text/plain' }), body: JSON.stringify({ privateMode: turningOn })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
@@ -11099,8 +11368,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return null; }
       controlMsg.textContent = 'Sending…';
       try {
-        const res = await fetch(base + '/admin/config?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body)
+        const res = await fetch(base + '/admin/config', {
+          method: 'POST', headers: adminAuthHeaders(token, { 'Content-Type': 'text/plain' }), body: JSON.stringify(body)
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
@@ -11200,7 +11469,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
       out.innerHTML = '<div class="gpa-sub">Loading…</div>';
       try {
-        const res = await fetch(base + '/admin/audit?token=' + encodeURIComponent(token));
+        const res = await fetch(base + '/admin/audit', { headers: adminAuthHeaders(token) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
         out.innerHTML = data.entries.length ? data.entries.map((e) =>
@@ -11220,7 +11489,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
       controlMsg.textContent = 'Preparing backup…';
       try {
-        const res = await fetch(base + '/admin/backup?token=' + encodeURIComponent(token));
+        const res = await fetch(base + '/admin/backup', { headers: adminAuthHeaders(token) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -11247,8 +11516,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       try {
         const text = await file.text();
         const payload = JSON.parse(text);
-        const res = await fetch(base + '/admin/restore?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload)
+        const res = await fetch(base + '/admin/restore', {
+          method: 'POST', headers: adminAuthHeaders(token, { 'Content-Type': 'text/plain' }), body: JSON.stringify(payload)
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
@@ -11278,8 +11547,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (!removing && !key) { msg.textContent = 'Paste the key to assign, or use "Remove instead".'; return; }
       msg.textContent = (removing ? 'Removing' : 'Assigning') + '…';
       try {
-        const res = await fetch(base + '/admin/assignkey?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'text/plain' },
+        const res = await fetch(base + '/admin/assignkey', {
+          method: 'POST', headers: adminAuthHeaders(token, { 'Content-Type': 'text/plain' }),
           body: JSON.stringify({ provider, all, users, key })
         });
         const data = await res.json().catch(() => ({}));
@@ -11302,8 +11571,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const base = adminBase();
       if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return null; }
       try {
-        const res = await fetch(base + '/admin/rooms?token=' + encodeURIComponent(token), {
-          method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body)
+        const res = await fetch(base + '/admin/rooms', {
+          method: 'POST', headers: adminAuthHeaders(token, { 'Content-Type': 'text/plain' }), body: JSON.stringify(body)
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
@@ -11470,7 +11739,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const token = teleToken.value.trim();
         if (token) {
           try {
-            const res = await fetch(base + '/admin/summary?token=' + encodeURIComponent(token));
+            const res = await fetch(base + '/admin/summary', { headers: adminAuthHeaders(token) });
             add('Admin token accepted', res.ok ? 'yes' : 'NO (' + res.status + ')', res.ok);
             if (res.ok) { const s = await res.json(); knownFlags = s.features || knownFlags; renderFlags(); }
           } catch (e) { add('Admin token accepted', 'check failed', false); }
@@ -11606,13 +11875,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const wrap = panel.querySelector('#gpa-adm-keys');
       if (!wrap) return;
       wrap.innerHTML = '';
-      [['Gemini', STORAGE_KEY], ['OpenAI', OPENAI_STORAGE_KEY], ['YouTube', YT_STORAGE_KEY],
-       ['Admin token', ADMIN_KEYS.TELE_TOKEN], ['Owner code', ADMIN_KEYS.OWNER_CODE]].forEach(([label, key]) => {
-        const v = localStorage.getItem(key) || '';
+      // sessionOnly entries live in memory for this session only and are never
+      // written to localStorage — see sessionSecrets.
+      [['Gemini', STORAGE_KEY, false], ['OpenAI', OPENAI_STORAGE_KEY, false], ['YouTube', YT_STORAGE_KEY, false],
+       ['Admin token', ADMIN_KEYS.TELE_TOKEN, true], ['Owner code', ADMIN_KEYS.OWNER_CODE, true]].forEach(([label, key, sessionOnly]) => {
+        const v = (sessionOnly ? admGet(key) : localStorage.getItem(key)) || '';
         const row = document.createElement('div');
         row.className = 'gpa-admin-userrow';
         const left = document.createElement('span');
-        left.innerHTML = `<b>${escapeHtml(label)}</b> <span style="opacity:0.7">${v ? escapeHtml(maskKey(v)) : 'not set'}</span>`;
+        left.innerHTML = `<b>${escapeHtml(label)}</b> <span style="opacity:0.7">${v ? escapeHtml(maskKey(v)) : 'not set'}</span>`
+          + (sessionOnly ? ' <span style="opacity:0.55;font-size:9px;">this session only</span>' : '');
         const btns = document.createElement('span');
         btns.style.cssText = 'display:flex;gap:4px;';
         if (v) {
@@ -11622,7 +11894,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           clear.textContent = 'Clear';
           clear.addEventListener('click', () => {
             if (!confirm(`Clear the ${label} key from this device?`)) return;
-            localStorage.removeItem(key);
+            if (sessionOnly) admSetSecret(key, ''); else localStorage.removeItem(key);
             renderKeyManager(); renderLsEditor();
           });
           btns.appendChild(clear);
@@ -11635,7 +11907,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           const nv = prompt(`${label} key:`, '');
           if (nv === null) return;
           const clean = sanitizeKey(nv);
-          if (clean) localStorage.setItem(key, clean); else localStorage.removeItem(key);
+          if (sessionOnly) admSetSecret(key, clean);
+          else if (clean) localStorage.setItem(key, clean);
+          else localStorage.removeItem(key);
           renderKeyManager(); renderLsEditor();
         });
         btns.appendChild(set);

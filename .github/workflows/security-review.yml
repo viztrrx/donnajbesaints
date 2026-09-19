@@ -1,0 +1,28 @@
+name: Security Review
+
+# Claude reviews every pull request for security problems before it lands, and
+# leaves its findings as PR comments. Needs an Anthropic API key stored as the
+# CLAUDE_API_KEY repository secret (Settings → Secrets and variables → Actions);
+# without it the job fails fast rather than silently passing.
+
+permissions:
+  pull-requests: write   # to leave the findings as review comments
+  contents: read
+
+on:
+  pull_request:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - uses: anthropics/claude-code-security-review@main
+        with:
+          comment-pr: true
+          claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+          exclude-directories: node_modules
