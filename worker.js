@@ -316,40 +316,129 @@ export default {
     // hostnames resolvable only from inside a network the worker can see.
     // Only public http(s) hosts are allowed, and every redirect hop is
     // re-checked rather than trusted.
-    const PRIVATE_HOST_RE = /^(localhost|.*\.local|.*\.internal|.*\.localdomain|metadata(\..*)?|instance-data(\..*)?)$/i;
-    const isPrivateIPv4 = (host) => {
-      const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-      if (!m) return false;
-      const [a, b] = [Number(m[1]), Number(m[2])];
-      if ([a, Number(m[2]), Number(m[3]), Number(m[4])].some((n) => n > 255)) return true;  // malformed: refuse
-      if (a === 10 || a === 127 || a === 0) return true;
-      if (a === 169 && b === 254) return true;          // link-local, incl. 169.254.169.254
-      if (a === 172 && b >= 16 && b <= 31) return true;
-      if (a === 192 && b === 168) return true;
-      if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
-      if (a === 192 && b === 0) return true;             // 192.0.0.0/24 + 192.0.2.0/24
-      if (a >= 224) return true;                         // multicast / reserved
+    // Names that resolve somewhere private. Matched after the trailing root dot
+    // is stripped — "metadata.google.internal." and "localhost." resolve to the
+    // same place as the dotless spellings, and an anchored pattern that forgets
+    // that is defeated by one character.
+    const PRIVATE_HOST_RE = /^(localhost|.*\.local|.*\.internal|.*\.localdomain|.*\.home\.arpa|metadata(\..*)?|instance-data(\..*)?)$/i;
+
+    // Decides whether a 32-bit IPv4 value is somewhere we refuse to fetch from.
+    const isPrivateIPv4Value = (v) => {
+      const a = (v >>> 24) & 255, b = (v >>> 16) & 255;
+      if (a === 0 || a === 10 || a === 127) return true;   // this-network, private, loopback
+      if (a === 169 && b === 254) return true;             // link-local, incl. 169.254.169.254
+      if (a === 172 && b >= 16 && b <= 31) return true;    // private
+      if (a === 192 && b === 168) return true;             // private
+      if (a === 192 && b === 0) return true;               // 192.0.0.0/24, 192.0.2.0/24
+      if (a === 100 && b >= 64 && b <= 127) return true;   // carrier-grade NAT
+      if (a >= 224) return true;                           // multicast and reserved
       return false;
     };
-    const isPrivateIPv6 = (host) => {
-      const h = host.replace(/^\[|\]$/g, '').toLowerCase();
-      if (!h.includes(':')) return false;
-      if (h === '::1' || h === '::') return true;
-      if (/^f[cd]/.test(h)) return true;                 // unique local fc00::/7
-      if (h.startsWith('fe80')) return true;             // link-local
-      if (h.startsWith('::ffff:')) return isPrivateIPv4(h.slice(7));  // IPv4-mapped
+    // Parses the shorthand forms a resolver accepts — "127.1", "0177.0.0.1",
+    // "0x7f000001", "2130706433". The URL parser normalizes most of these
+    // already, but it is the only thing that does, so this does not rely on it.
+    // Returns a 32-bit value, or null when the host is not an IPv4 literal.
+    const parseIPv4Loose = (host) => {
+      const parts = host.split('.');
+      if (parts.length < 1 || parts.length > 4) return null;
+      const nums = [];
+      for (const p of parts) {
+        if (p === '') return null;
+        let n;
+        if (/^0x[0-9a-f]+$/i.test(p)) n = parseInt(p.slice(2), 16);
+        else if (/^0[0-7]+$/.test(p)) n = parseInt(p, 8);
+        else if (/^[0-9]+$/.test(p)) n = parseInt(p, 10);
+        else return null;
+        if (!Number.isFinite(n) || n < 0) return null;
+        nums.push(n);
+      }
+      for (let i = 0; i < nums.length - 1; i++) if (nums[i] > 255) return null;
+      const lastMax = Math.pow(256, 4 - (nums.length - 1)) - 1;
+      if (nums[nums.length - 1] > lastMax) return null;
+      let value = 0;
+      for (let i = 0; i < nums.length - 1; i++) value += nums[i] * Math.pow(256, 3 - i);
+      value += nums[nums.length - 1];
+      return value >>> 0;
+    };
+    // Expands an IPv6 literal (with or without brackets, "::" compression, or a
+    // trailing dotted-quad) into its eight 16-bit groups. Returns null if it
+    // isn't a well-formed IPv6 address.
+    const parseIPv6 = (raw) => {
+      let h = String(raw).replace(/^\[|\]$/g, '').toLowerCase();
+      if (!h.includes(':')) return null;
+      h = h.split('%')[0];                                   // drop any zone id
+      let tail4 = null;
+      const lastColon = h.lastIndexOf(':');
+      const afterColon = h.slice(lastColon + 1);
+      if (afterColon.includes('.')) {
+        const v4 = parseIPv4Loose(afterColon);
+        if (v4 === null) return null;
+        tail4 = [(v4 >>> 16) & 0xffff, v4 & 0xffff];
+        h = h.slice(0, lastColon + 1) + '0:0';
+      }
+      const halves = h.split('::');
+      if (halves.length > 2) return null;
+      const toGroups = (s) => (s === '' ? [] : s.split(':').map((g) => {
+        if (!/^[0-9a-f]{1,4}$/.test(g)) return NaN;
+        return parseInt(g, 16);
+      }));
+      let groups;
+      if (halves.length === 2) {
+        const head = toGroups(halves[0]);
+        const tail = toGroups(halves[1]);
+        const fill = 8 - head.length - tail.length;
+        if (fill < 0) return null;
+        groups = [...head, ...new Array(fill).fill(0), ...tail];
+      } else {
+        groups = toGroups(halves[0]);
+      }
+      if (groups.length !== 8 || groups.some((g) => !Number.isFinite(g))) return null;
+      if (tail4) { groups[6] = tail4[0]; groups[7] = tail4[1]; }
+      return groups;
+    };
+    const isPrivateIPv6Groups = (g) => {
+      const allZeroPrefix = g.slice(0, 5).every((x) => x === 0);
+      if (g.every((x) => x === 0)) return true;                      // ::
+      if (allZeroPrefix && g[5] === 0 && g[6] === 0 && g[7] === 1) return true;  // ::1
+      // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible (::a.b.c.d): the
+      // address that actually gets dialled is the embedded IPv4 one, so it has
+      // to be judged as IPv4. new URL() rewrites ::ffff:127.0.0.1 into
+      // ::ffff:7f00:1, so string-matching on "::ffff:" misses it entirely.
+      if (allZeroPrefix && (g[5] === 0xffff || g[5] === 0)) {
+        return isPrivateIPv4Value((((g[6] << 16) >>> 0) + g[7]) >>> 0);
+      }
+      if (g[0] === 0x64 && g[1] === 0xff9b) {                        // NAT64 translation
+        return isPrivateIPv4Value((((g[6] << 16) >>> 0) + g[7]) >>> 0);
+      }
+      if ((g[0] & 0xfe00) === 0xfc00) return true;                   // unique local fc00::/7
+      if ((g[0] & 0xffc0) === 0xfe80) return true;                   // link-local fe80::/10
+      if ((g[0] & 0xff00) === 0xff00) return true;                   // multicast ff00::/8
       return false;
     };
     // Returns a URL object to fetch, or null when the target must be refused.
+    // Everything ambiguous fails closed: a host that looks like a number but
+    // cannot be parsed as one is refused rather than passed through as a name.
     const safeTargetUrl = (raw) => {
       let u;
       try { u = new URL(String(raw)); } catch (e) { return null; }
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
       if (u.username || u.password) return null;
-      const host = u.hostname.toLowerCase();
+      let host = u.hostname.toLowerCase();
       if (!host) return null;
+      if (host.startsWith('[')) {                                    // IPv6 literal
+        const groups = parseIPv6(host);
+        if (!groups) return null;
+        return isPrivateIPv6Groups(groups) ? null : u;
+      }
+      host = host.replace(/\.+$/, '');                               // "localhost." === "localhost"
+      if (!host) return null;
+      const lastLabel = host.slice(host.lastIndexOf('.') + 1);
+      if (/^(0x[0-9a-f]+|[0-9]+)$/i.test(lastLabel)) {               // numeric host = IPv4 literal
+        const v = parseIPv4Loose(host);
+        if (v === null) return null;
+        return isPrivateIPv4Value(v) ? null : u;
+      }
       if (PRIVATE_HOST_RE.test(host)) return null;
-      if (isPrivateIPv4(host) || isPrivateIPv6(host)) return null;
       return u;
     };
 
@@ -1214,8 +1303,19 @@ export default {
         const mod = await getMod(env.TELEMETRY, modUser);
         // Approval queue: a brand-new user (see /track) can't reach the
         // model at all until /admin/moderate action "approve".
+        //
+        // The pending flag is only set by /track, so a caller who skips the
+        // heartbeat and comes straight here used to sail past the queue with
+        // any made-up name. With approvalMode on, a name the owner has never
+        // seen is therefore treated as pending whether or not it has a record.
         if (mod.pending) {
           return json({ error: { message: 'Your access is awaiting approval from the owner.', type: 'awaiting_approval' } }, 403);
+        }
+        if (vCfg && vCfg.approvalMode && !mod.allow) {
+          const known = await env.TELEMETRY.get('user:' + String(modUser).toLowerCase(), 'json');
+          if (!known) {
+            return json({ error: { message: 'Your access is awaiting approval from the owner.', type: 'awaiting_approval' } }, 403);
+          }
         }
         // Per-user AI freeze: chat and /read keep working, only this route
         // is cut off — a lighter lever than a full block.
