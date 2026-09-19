@@ -339,6 +339,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         </div>
       </div>
     </div>
+    <div class="gpa-langpick" id="gpa-langpick" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="gpa-langpick-title">
+      <div class="gpa-langpick-card">
+        <div class="gpa-langpick-glyph">🌐</div>
+        <div class="gpa-langpick-title" id="gpa-langpick-title">Choose your language</div>
+        <div class="gpa-langpick-sub">Elige tu idioma</div>
+        <div class="gpa-langpick-who" id="gpa-langpick-who"></div>
+        <div class="gpa-langpick-opts">
+          <button class="gpa-langpick-opt" data-lang="en">English</button>
+          <button class="gpa-langpick-opt" data-lang="es">Español</button>
+        </div>
+        <div class="gpa-langpick-note">Saved to this account only — other profiles on this browser keep their own language. You can change it later in Settings.</div>
+      </div>
+    </div>
     <div class="gpa-body" id="gpa-body">
       <nav class="gpa-sidebar" aria-label="Agent Console sections">
       <div class="gpa-dropdown" id="gpa-dropdown">
@@ -1742,6 +1755,46 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         font-size: 10.5px; color: ${t.sub}; line-height: 1.5;
       }
       .gpa-login-legal { color: ${t.sub}; }
+      /* First-run language picker: sits inside the console, centered over
+         whatever pane is behind it, above the login overlay (z-index 40). */
+      .gpa-langpick {
+        position: absolute; inset: 0; z-index: 60;
+        background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(2px);
+        display: flex; align-items: center; justify-content: center; padding: 16px;
+        animation: gpa-langpick-fade 0.16s ease-out;
+      }
+      @keyframes gpa-langpick-fade { from { opacity: 0; } to { opacity: 1; } }
+      .gpa-langpick-card {
+        width: 100%; max-width: 300px; background: ${t.panel};
+        border: 1px solid ${t.accent}; border-radius: 16px; padding: 22px 20px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+        text-align: center;
+        animation: gpa-langpick-pop 0.18s ease-out;
+      }
+      @keyframes gpa-langpick-pop {
+        from { opacity: 0; transform: scale(0.94) translateY(8px); }
+        to { opacity: 1; transform: scale(1) translateY(0); }
+      }
+      .gpa-langpick-glyph { font-size: 22px; line-height: 1; margin-bottom: 10px; }
+      .gpa-langpick-title { font-size: 14px; font-weight: 600; color: ${t.text}; }
+      .gpa-langpick-sub { font-size: 11.5px; color: ${t.sub}; margin-top: 3px; }
+      .gpa-langpick-who {
+        font-size: 10.5px; color: ${t.accent}; margin-top: 8px;
+        letter-spacing: 0.3px;
+      }
+      .gpa-langpick-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+      .gpa-langpick-opt {
+        width: 100%; padding: 10px 12px; border-radius: 9px;
+        background: ${t.field}; border: 1px solid ${t.border}; color: ${t.text};
+        font-family: inherit; font-size: 12.5px; cursor: pointer;
+      }
+      .gpa-langpick-opt:hover { border-color: ${t.accent}; box-shadow: 0 0 0 3px ${t.accent}22; }
+      .gpa-langpick-opt:active { transform: scale(0.98); }
+      .gpa-langpick-opt.current { border-color: ${t.accent}; color: ${t.accent}; }
+      .gpa-langpick-note {
+        margin-top: 14px; padding-top: 12px; border-top: 1px solid ${t.border};
+        font-size: 10px; line-height: 1.5; color: ${t.sub};
+      }
       .gpa-sync-box {
         width: 100%; min-height: 54px; margin-top: 6px; padding: 7px;
         background: ${t.field}; border: 1px solid ${t.border}; border-radius: 5px;
@@ -2348,18 +2401,57 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (el) el.textContent = t(map[sel]);
     });
   }
-  panel.querySelectorAll('.lang-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      localStorage.setItem(LANG_KEY, btn.dataset.lang);
-      panel.querySelectorAll('.lang-btn').forEach((b) => b.classList.toggle('primary', b === btn));
-      applyLanguage();
-    });
-  });
-  (function initLangUI() {
+  function syncLangButtons() {
     const lang = currentLang();
     panel.querySelectorAll('.lang-btn').forEach((b) => b.classList.toggle('primary', b.dataset.lang === lang));
+  }
+  function setLanguage(lang) {
+    localStorage.setItem(LANG_KEY, lang);
+    syncLangButtons();
+    applyLanguage();
+    // gpa_language rides along in the profile snapshot, so writing it back now
+    // pins the choice to whoever is signed in rather than to this browser.
+    if (typeof saveProgress === 'function') saveProgress();
+  }
+  panel.querySelectorAll('.lang-btn').forEach((btn) => {
+    btn.addEventListener('click', () => setLanguage(btn.dataset.lang));
+  });
+  (function initLangUI() {
+    syncLangButtons();
     applyLanguage();
   })();
+
+  // ---- Post-sign-in language prompt ---------------------------------------
+  // An in-console dialog (not a browser notification) shown centered over the
+  // panel the first time an account signs in. The "asked already" flag is a
+  // gpa_ key, so like the language itself it lives in the profile snapshot —
+  // each account gets the question once and keeps its own answer.
+  const LANG_ASKED_KEY = 'gpa_language_asked';
+  const langPick = panel.querySelector('#gpa-langpick');
+  function closeLanguagePicker() {
+    langPick.style.display = 'none';
+  }
+  function showLanguagePicker(user) {
+    const who = panel.querySelector('#gpa-langpick-who');
+    if (who) who.textContent = user ? `Applies to ${user}` : '';
+    const lang = currentLang();
+    langPick.querySelectorAll('.gpa-langpick-opt').forEach((b) => {
+      b.classList.toggle('current', b.dataset.lang === lang);
+    });
+    langPick.style.display = 'flex';
+  }
+  langPick.querySelectorAll('.gpa-langpick-opt').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setLanguage(btn.dataset.lang);
+      localStorage.setItem(LANG_ASKED_KEY, '1');
+      if (typeof saveProgress === 'function') saveProgress();
+      closeLanguagePicker();
+    });
+  });
+  function maybePromptLanguage(user) {
+    if (localStorage.getItem(LANG_ASKED_KEY) === '1') return;
+    showLanguagePicker(user);
+  }
 
   // ---- Theme swatches -----------------------------------------------------
   const THEME_USER_SET_KEY = 'gpa_theme_user_set';
@@ -6442,6 +6534,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     setLockedChrome(false);
     refreshAccountUI();
     reapplyAllSettings();
+    // The restored profile brought its own language with it, so re-translate
+    // before asking — an account that already chose never sees the prompt.
+    if (typeof applyLanguage === 'function') applyLanguage();
+    if (typeof syncLangButtons === 'function') syncLangButtons();
+    if (typeof maybePromptLanguage === 'function') maybePromptLanguage(user);
     // Particles were held off until now so the login screen stays plain and
     // doesn't leak the previous user's preference.
     if (typeof setParticleStyle === 'function') {
@@ -6478,6 +6575,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const pinHash = await hashPin(user.toLowerCase(), pin);
     // A brand-new profile starts from whatever is currently set up, so you
     // don't lose settings you'd already configured before making a profile.
+    // The one thing it must not inherit is a previous profile's answer to the
+    // language prompt — every new account picks its own.
+    localStorage.removeItem(LANG_ASKED_KEY);
     writeProfile(user, { user, pinHash, data: collectState(), updatedAt: Date.now() });
     showLoginMsg('');
     enterApp(user);
@@ -10054,6 +10154,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   panel.querySelector('#gpa-logout-btn').addEventListener('click', () => {
     saveProgress();
+    closeLanguagePicker();
     currentUser = null;
     localStorage.removeItem(SESSION_KEY);
     refreshAccountUI();
@@ -10573,6 +10674,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   function doKick(reason) {
     hideModOverlay();
+    if (typeof closeLanguagePicker === 'function') closeLanguagePicker();
     try { if (typeof saveProgress === 'function') saveProgress(); } catch (e) { /* ignore */ }
     currentUser = null;
     try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
