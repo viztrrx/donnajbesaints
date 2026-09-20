@@ -12191,8 +12191,24 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   let featureFlags = {};
   function featureOn(name) { return featureFlags[name] !== false; }
   function applyFeatureFlags(flags) {
-    if (JSON.stringify(flags) === JSON.stringify(featureFlags)) return;
-    featureFlags = flags || {};
+    if (JSON.stringify(flags) !== JSON.stringify(featureFlags)) {
+      featureFlags = flags || {};
+    } else if (!applyFeatureFlags.everRun) {
+      // First call still has to run even if flags happen to already match
+      // the initial {} default (an owner with no config set yet).
+    } else {
+      return;
+    }
+    applyFeatureFlags.everRun = true;
+    refreshTabVisibility();
+  }
+  // Split out so unlocking the local admin panel (which flips ownerMode,
+  // not the server's flags) can re-run the same show/hide pass on demand —
+  // applyFeatureFlags on its own only re-runs when the SERVER'S flags
+  // object actually changes, so without this an owner who unlocks admin
+  // after a tab was already hidden would stay stuck looking at a hidden
+  // tab until the next differing poll happened to arrive.
+  function refreshTabVisibility() {
     ['games', 'music', 'browser', 'notes', 'study', 'humanize', 'grammar'].forEach((tab) => {
       const on = ownerMode || featureOn(tab);
       const item = panel.querySelector(`.gpa-dropdown-item[data-tab="${tab}"]`);
@@ -12392,6 +12408,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     function openAdmin() {
       adminBox.style.display = 'block';
       ownerMode = true;
+      // A tab the owner's own feature flags hid earlier in this session
+      // needs to reappear now, not wait for the next status poll.
+      if (typeof refreshTabVisibility === 'function') refreshTabVisibility();
       loadPowerToolFields();
       loadTelemetryFields();
       renderUsage();
