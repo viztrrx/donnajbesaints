@@ -2766,11 +2766,32 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     sendBeat('beat', currentUser);
   }
 
-  async function fetchLehighNews() {
+  // Non-prompting check: is there already a key this session could use
+  // (saved, or owner-assigned server-side) without popping the "paste your
+  // API key" dialog? Lets automatic calls (page load, tab revisit) skip AI
+  // silently instead of interrupting the user before they've asked for
+  // anything — the blocking prompt() is only acceptable as a *response* to
+  // an explicit action like pressing Refresh or opening Ask AI/Chat.
+  function hasUsableAiKey() {
+    const provider = localStorage.getItem(PROVIDER_KEY) || 'openai';
+    if (provider === 'openai') {
+      return !!(readStoredKey(OPENAI_STORAGE_KEY) || (OPENAI_PROXY && serverAssignedKeys.openai));
+    }
+    return !!(sanitizeKey(API_KEY_DEFAULT) || readStoredKey(STORAGE_KEY) || (OPENAI_PROXY && serverAssignedKeys.gemini));
+  }
+
+  async function fetchLehighNews(auto) {
     const newsEl = panel.querySelector('#gpa-welcome-news');
     const metaEl = panel.querySelector('#gpa-welcome-news-meta');
     const refreshBtn = panel.querySelector('#gpa-welcome-news-refresh');
     if (!newsEl) return;
+    // Auto-refresh (pane load / tab revisit) never interrupts with the API
+    // key prompt — only an explicit Refresh click may trigger that.
+    if (auto && !hasUsableAiKey()) {
+      newsEl.textContent = 'Local news summarizes a real article with AI. Set up a provider key in Ask AI, then tap Refresh here.';
+      metaEl.textContent = '';
+      return;
+    }
     newsEl.textContent = 'Looking for local news…';
     metaEl.textContent = '';
     if (refreshBtn) refreshBtn.disabled = true;
@@ -2809,12 +2830,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   function refreshWelcomeData() {
     fetchLehighWeather();
-    fetchLehighNews();
+    fetchLehighNews(true); // auto: never prompts for an API key on its own
     fetchActiveUsers();
     fetchYourStats();
   }
   const welcomeRefreshBtn = panel.querySelector('#gpa-welcome-news-refresh');
-  if (welcomeRefreshBtn) welcomeRefreshBtn.addEventListener('click', fetchLehighNews);
+  // Explicit click: the user asked for AI content, so a key prompt here (if
+  // needed) is an expected response to that action, not an interruption.
+  if (welcomeRefreshBtn) welcomeRefreshBtn.addEventListener('click', () => fetchLehighNews(false));
 
   // Quick actions: jump straight to another tab by replaying a click on its
   // real nav button, so every existing side effect that click already
