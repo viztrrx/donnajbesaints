@@ -1503,6 +1503,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          (cards, stat grid, buttons) reuses Page Insights' existing classes
          as-is, per the plan's "reuse, don't duplicate" rule. */
       .gpa-welcome-greeting { font-size: 18px; font-weight: 700; color: ${t.text}; text-wrap: balance; line-height: 1.3; }
+      /* Reuses the existing gpa-blink keyframes (defined above for the AI
+         streaming cursor) so both blink at the same rate — this one just
+         never gets removed. */
+      .gpa-welcome-cursor { color: ${t.accent}; animation: gpa-blink 0.85s steps(1) infinite; }
       #gpa-welcome-3d { width: 140px; height: 140px; flex-shrink: 0; border-radius: 12px; }
       .gpa-welcome-news-text { font-size: 13px; line-height: 1.6; color: ${t.text}; white-space: pre-wrap; overflow-wrap: break-word; }
       /* A slow-drifting conic-gradient ring behind the greeting card, muted
@@ -2629,10 +2633,45 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!greetEl) return;
     const hour = new Date().getHours();
     const part = hour < 5 ? 'Good night' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-    greetEl.textContent = currentUser ? `${part}, ${currentUser}` : part;
+    const fullText = currentUser
+      ? `${part}, ${currentUser}, welcome to the Agent Console`
+      : `${part}, welcome to the Agent Console`;
+    typeWelcomeGreeting(greetEl, fullText);
     if (subEl) {
       subEl.textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
     }
+  }
+
+  // Types the greeting out character by character, terminal-style, then
+  // leaves a persistent blinking "_" at the end for as long as the pane
+  // exists. Distinct from the app's existing .gpa-cursor (a solid bar shown
+  // only WHILE an AI reply is streaming, then removed) -- this one is purely
+  // decorative and never goes away, so it gets its own class and never
+  // calls into typeText()'s remove-on-finish behavior.
+  let welcomeGreetGen = 0;
+  function typeWelcomeGreeting(el, fullText) {
+    const gen = ++welcomeGreetGen; // supersedes any typing loop already in flight
+    el.textContent = '';
+    const textSpan = document.createElement('span');
+    el.appendChild(textSpan);
+    const cursor = document.createElement('span');
+    cursor.className = 'gpa-welcome-cursor';
+    cursor.textContent = '_';
+    el.appendChild(cursor);
+
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      textSpan.textContent = fullText;
+      return;
+    }
+    let i = 0;
+    function step() {
+      if (gen !== welcomeGreetGen) return; // a newer greeting took over
+      if (i >= fullText.length) return;
+      textSpan.textContent += fullText[i];
+      i++;
+      setTimeout(step, 32);
+    }
+    step();
   }
 
   function renderNycClock() {
