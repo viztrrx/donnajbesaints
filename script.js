@@ -382,100 +382,104 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       <main class="gpa-main" id="gpa-main">
 
       <div class="gpa-pane active" data-pane="scan">
-        <div class="gpa-scan-layout">
-          <div class="gpa-scan-rail">
-            <div class="gpa-card">
-              <div class="gpa-card-title">Read the page</div>
-              <div class="gpa-row">
-                <button id="gpa-scan-btn" class="gpa-btn">Scan page text</button>
-                <button id="gpa-capture-btn" class="gpa-btn">Capture screen</button>
-              </div>
-              <div class="gpa-row">
-                <button id="gpa-upload-btn" class="gpa-btn">Upload image</button>
-                <input type="file" id="gpa-image-upload" accept="image/*" style="display:none" />
-              </div>
-              <div class="gpa-sub">or paste (Ctrl+V) a screenshot anywhere in this panel</div>
-              <div class="gpa-row" style="margin-top:10px;">
-                <button id="gpa-translate-page-btn" class="gpa-btn">🌐 Translate this page</button>
-              </div>
+        <div class="gpa-scan-flow">
+          <div class="gpa-card">
+            <div class="gpa-card-title">Read the page</div>
+            <div class="gpa-row">
+              <button id="gpa-scan-btn" class="gpa-btn">Scan page text</button>
+              <button id="gpa-capture-btn" class="gpa-btn">Capture screen</button>
+              <button id="gpa-upload-btn" class="gpa-btn">Upload image</button>
+              <input type="file" id="gpa-image-upload" accept="image/*" style="display:none" />
+              <button id="gpa-translate-page-btn" class="gpa-btn">🌐 Translate this page</button>
             </div>
-            <div class="gpa-card">
-              <div class="gpa-card-title">Page snapshot</div>
-              <div id="gpa-snapshot-stats" class="gpa-snapshot-grid"></div>
-              <div id="gpa-snapshot-meta" class="gpa-sub" style="margin-top:8px;"></div>
+            <div class="gpa-sub">or paste (Ctrl+V) a screenshot anywhere in this panel</div>
+          </div>
+
+          <div class="gpa-card">
+            <div class="gpa-card-title">Page snapshot</div>
+            <div id="gpa-snapshot-stats" class="gpa-snapshot-grid"></div>
+            <div id="gpa-snapshot-meta" class="gpa-sub" style="margin-top:8px;"></div>
+          </div>
+
+          <div class="gpa-card">
+            <div class="gpa-card-title">Quick actions</div>
+            <div class="gpa-row">
+              <button id="gpa-copy-text-btn" class="gpa-btn">📋 Copy page text</button>
+              <button id="gpa-copy-url-btn" class="gpa-btn">🔗 Copy page URL</button>
+              <button id="gpa-print-btn" class="gpa-btn">🖨 Print page</button>
             </div>
-            <div class="gpa-card">
-              <div class="gpa-card-title">Quick actions</div>
-              <div class="gpa-row">
-                <button id="gpa-copy-text-btn" class="gpa-btn">📋 Copy page text</button>
-                <button id="gpa-copy-url-btn" class="gpa-btn">🔗 Copy page URL</button>
-              </div>
-              <div class="gpa-row">
-                <button id="gpa-print-btn" class="gpa-btn">🖨 Print page</button>
-              </div>
-              <div id="gpa-quick-action-status" class="gpa-sub"></div>
+            <div id="gpa-quick-action-status" class="gpa-sub"></div>
+          </div>
+
+          <div class="gpa-card">
+            <div class="gpa-card-title">Quick settings</div>
+            <div class="gpa-sub" style="margin-bottom:6px;">AI provider</div>
+            <div class="gpa-row">
+              <button class="gpa-btn provider-btn" data-provider="gemini">Gemini</button>
+              <button class="gpa-btn provider-btn primary" data-provider="openai">OpenAI</button>
             </div>
-            <div class="gpa-card">
-              <div class="gpa-card-title">Quick settings</div>
-              <div class="gpa-sub" style="margin-bottom:6px;">AI provider</div>
-              <div class="gpa-row">
-                <button class="gpa-btn provider-btn" data-provider="gemini">Gemini</button>
-                <button class="gpa-btn provider-btn primary" data-provider="openai">OpenAI</button>
-              </div>
-              <div class="gpa-sub" style="margin:10px 0 6px;">Page actions</div>
-              <div class="gpa-row">
-                <button class="gpa-btn autoconfirm-btn">✋ Confirm page clicks: ON</button>
-              </div>
-              <div class="gpa-row" style="margin-top:2px;">
-                <button id="gpa-more-settings-btn" class="gpa-btn">⚙ More settings…</button>
-              </div>
-            </div>
-            <div class="gpa-card">
-              <div class="gpa-card-title">Automate</div>
-              <div class="gpa-row">
-                <button id="gpa-quiz-btn" class="gpa-btn quiz-btn">✨ Solve quiz on this page</button>
-              </div>
-              <div class="gpa-row">
-                <button id="gpa-tutor-btn" class="gpa-btn">🎓 Tutor mode</button>
-                <button id="gpa-autofollow-btn" class="gpa-btn">📍 Auto-explain</button>
-              </div>
-              <div class="gpa-row">
-                <button id="gpa-tables-btn" class="gpa-btn">📋 Extract tables</button>
-                <button id="gpa-watch-btn" class="gpa-btn">👀 Watch page</button>
-              </div>
-              <div class="gpa-row" id="gpa-watch-row" style="display:none;">
-                <input id="gpa-watch-cond" class="gpa-input" placeholder='Tell me when… (e.g. "price drops below $50")' />
-                <button id="gpa-watch-start" class="gpa-btn primary">Arm</button>
-              </div>
-              <div class="gpa-row">
-                <input id="gpa-cmd-input" class="gpa-input" placeholder='⚡ Tell the page what to do… ("click the third assignment")' />
-                <button id="gpa-cmd-btn" class="gpa-btn primary">Do it</button>
-              </div>
+            <div class="gpa-sub" style="margin:10px 0 6px;">Page actions</div>
+            <div class="gpa-row">
+              <button class="gpa-btn autoconfirm-btn">✋ Confirm page clicks: ON</button>
+              <button id="gpa-more-settings-btn" class="gpa-btn">⚙ More settings…</button>
             </div>
           </div>
-          <div class="gpa-scan-output-col">
-            <div class="gpa-card">
-              <div class="gpa-card-title">Ask about it</div>
-              <div id="gpa-ask-empty-hint" class="gpa-sub">Nothing scanned yet — click Scan page text or Capture screen on the left (or paste a screenshot anywhere in this panel), then come back here to summarize, analyze, or ask anything about it.</div>
-              <div class="gpa-row" id="gpa-status-row" style="display:none;">
-                <img id="gpa-thumb" alt="captured screen" />
-                <span id="gpa-scan-status" class="gpa-sub"></span>
-                <button id="gpa-clear-context" class="gpa-btn" title="Clear captured page text and screenshot">Clear</button>
-              </div>
-              <div class="gpa-row gpa-actions" id="gpa-scan-actions" style="display:none;">
-                <button class="gpa-btn primary" data-action="summarize">Summarize</button>
-                <button class="gpa-btn primary" data-action="analyze">Analyze</button>
-                <button class="gpa-btn" data-action="autofill">Auto-Fill Form</button>
-              </div>
-              <div class="gpa-row" id="gpa-question-row" style="display:none;">
-                <input id="gpa-question" class="gpa-input" placeholder="Ask a question about this page…" />
-                <button id="gpa-question-btn" class="gpa-btn primary">Answer</button>
-              </div>
+
+          <div class="gpa-card">
+            <div class="gpa-card-title">Automate</div>
+            <div class="gpa-row">
+              <button id="gpa-quiz-btn" class="gpa-btn quiz-btn">✨ Solve quiz on this page</button>
             </div>
-            <div id="gpa-scan-output" class="gpa-output"></div>
-            <div class="gpa-row" style="margin-top:6px;">
-              <button id="gpa-clear-highlights" class="gpa-btn" style="display:none;">✕ Clear page highlights</button>
+            <div class="gpa-row">
+              <button id="gpa-tutor-btn" class="gpa-btn">🎓 Tutor mode</button>
+              <button id="gpa-autofollow-btn" class="gpa-btn">📍 Auto-explain</button>
+              <button id="gpa-tables-btn" class="gpa-btn">📋 Extract tables</button>
+              <button id="gpa-watch-btn" class="gpa-btn">👀 Watch page</button>
             </div>
+            <div class="gpa-row" id="gpa-watch-row" style="display:none;">
+              <input id="gpa-watch-cond" class="gpa-input" placeholder='Tell me when… (e.g. "price drops below $50")' />
+              <button id="gpa-watch-start" class="gpa-btn primary">Arm</button>
+            </div>
+            <div class="gpa-row">
+              <input id="gpa-cmd-input" class="gpa-input" placeholder='⚡ Tell the page what to do… ("click the third assignment")' />
+              <button id="gpa-cmd-btn" class="gpa-btn primary">Do it</button>
+            </div>
+          </div>
+
+          <div class="gpa-scan-ask-section">
+            <div class="gpa-card-title">Ask about it</div>
+            <div id="gpa-ask-empty-hint" class="gpa-sub">Nothing scanned yet — click Scan page text or Capture screen above (or paste a screenshot anywhere in this panel), then use the tools below to summarize, analyze, or ask anything about it.</div>
+            <div class="gpa-row" id="gpa-status-row" style="display:none;">
+              <img id="gpa-thumb" alt="captured screen" />
+              <span id="gpa-scan-status" class="gpa-sub"></span>
+              <button id="gpa-clear-context" class="gpa-btn" title="Clear captured page text and screenshot">Clear</button>
+            </div>
+            <div class="gpa-row gpa-actions" id="gpa-scan-actions" style="display:none;">
+              <button class="gpa-btn primary" data-action="summarize">Summarize</button>
+              <button class="gpa-btn primary" data-action="analyze">Analyze</button>
+              <button class="gpa-btn" data-action="autofill">Auto-Fill Form</button>
+            </div>
+            <div class="gpa-row gpa-actions" id="gpa-scan-more-actions" style="display:none;">
+              <button id="gpa-tone-btn" class="gpa-btn">🎭 Tone &amp; insights</button>
+              <button id="gpa-explore-btn" class="gpa-btn">🧭 Explore further</button>
+            </div>
+            <div class="gpa-row" id="gpa-question-row" style="display:none;">
+              <input id="gpa-question" class="gpa-input" placeholder="Ask a question about this page…" />
+              <button id="gpa-question-btn" class="gpa-btn primary">Answer</button>
+            </div>
+          </div>
+          <div id="gpa-scan-output" class="gpa-output"></div>
+          <div id="gpa-tone-output" class="gpa-card" style="display:none;">
+            <div class="gpa-card-title">Tone &amp; insight analysis</div>
+            <div id="gpa-tone-gauges"></div>
+            <div id="gpa-tone-summary" class="gpa-sub" style="margin-top:6px;"></div>
+          </div>
+          <div id="gpa-explore-output" class="gpa-card" style="display:none;">
+            <div class="gpa-card-title">Explore further</div>
+            <div id="gpa-explore-chips" class="gpa-chip-row"></div>
+          </div>
+          <div class="gpa-row" style="margin-top:6px;">
+            <button id="gpa-clear-highlights" class="gpa-btn" style="display:none;">✕ Clear page highlights</button>
           </div>
         </div>
       </div>
@@ -1392,50 +1396,56 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          scrollbar or answers/controls that looked "cut off". */
       .gpa-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; flex-shrink: 0; }
       .gpa-actions { flex-wrap: wrap; }
-      /* Page Insights: an action rail beside a flexible output column,
-         instead of every control stacked in one long vertical list. */
-      /* The reading-width cap now lives one level up on .gpa-pane.active, so
-         this just fills whatever width that already-capped, centered parent
-         gives it — no separate cap needed here. */
-      .gpa-scan-layout { display: flex; gap: 16px; flex: 1; min-height: 0; min-width: 0; }
-      .gpa-scan-rail { flex: 0 0 250px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; overflow-x: hidden; }
-      .gpa-scan-rail .gpa-row { flex-wrap: wrap; }
-      /* flex: 1 0 auto — grow yes, shrink NO, basis auto. This is the actual
-         Auto-explain bug: flex:1 alone means flex-basis:0% AND shrink:1, so
-         two buttons that don't really both fit get compressed into equal
-         halves below their own content width instead of wrapping, and
-         nowrap text then renders past the shrunk box's own border. Turning
-         shrink off removes that failure mode entirely — a button can never
-         be compressed smaller than its label needs, so when two don't fit
-         side by side, flex-wrap's only remaining option is to push the
-         second one onto its own line, at full (still readable) width.
-         Confirmed this is needed, not just basis:auto with shrink still on
-         — shrink:1 alone was still enough to compress and ellipsize labels
-         under the fixed 250px rail once a scrollbar ate a few of its
-         pixels. overflow/text-overflow remain as a last-resort safety net
-         for a single label too long even alone on its own full-width line. */
-      .gpa-scan-rail .gpa-btn { flex: 1 0 auto; min-width: 90px; overflow: hidden; text-overflow: ellipsis; }
-      .gpa-scan-output-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overflow-x: hidden; gap: 10px; }
+      /* Page Insights: one full-width flowing column of cards, the same
+         convention every other pane already uses (Notes, Humanize, Study…),
+         not a fixed-width scrolling rail beside a separate output column.
+         That split used to force buttons into equal-width flex:1 slots
+         (the actual cause of the Auto-explain overflow bug — see the old
+         history of this rule) and needed its own nested scrollbar; a plain
+         vertical stack has neither problem, and buttons here get the exact
+         same safe, content-width, wraps-naturally sizing every other card's
+         buttons already have via .gpa-row's default flex-wrap. */
+      .gpa-scan-flow { display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; min-width: 0; }
+      /* "Ask about it" is deliberately not a .gpa-card — no box, no border —
+         it's a section heading inside the same flowing column, immediately
+         followed by its own output area below. */
+      .gpa-scan-ask-section { flex-shrink: 0; }
       /* Page snapshot: always populated the instant the tab opens (plain DOM
-         stats, no AI call, no button to click) so the rail has real content
-         to show before the user has scanned anything, instead of sitting
-         empty until they do. */
-      .gpa-snapshot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+         stats, no AI call, no button to click) so there's real content here
+         before the user has scanned anything, instead of an empty card. */
+      .gpa-snapshot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
       .gpa-snapshot-stat {
         background: ${t.field}; border: 1px solid ${t.border}; border-radius: 10px;
         padding: 8px 10px;
       }
       .gpa-snapshot-num { font-size: 16px; font-weight: 700; color: ${t.accent}; line-height: 1.2; }
       .gpa-snapshot-label { font-size: 10.5px; color: ${t.sub}; margin-top: 2px; }
-      /* Below ~640px of actual panel width (the smaller windowed size
-         presets, or the full-page mode on a narrow browser) a fixed 250px
-         rail leaves the output column too cramped to be usable — stack
-         instead of squeezing. Driven by a ResizeObserver rather than a
-         @media query since panel width and browser viewport width are two
-         different things (a Compact-sized panel in a wide browser window
-         still needs to stack). */
-      .gpa-panel.gpa-narrow .gpa-scan-layout { flex-direction: column; }
-      .gpa-panel.gpa-narrow .gpa-scan-rail { flex: 0 0 auto; overflow-y: visible; }
+      /* Tone & insight gauges: a sequential (single-hue, magnitude) bar for
+         formality/complexity, and a diverging (two-hue + neutral midpoint)
+         bar for sentiment, since positive/negative is a polarity, not a
+         magnitude — one hue for that would falsely imply "more" rather than
+         "which direction". Colors are the validated default diverging pair
+         (blue/red) at the correct step for this panel's current light or
+         dark surface, not the user's chosen accent — sentiment's red/blue
+         reads consistently regardless of which of the 8 UI themes is active,
+         the same reasoning the reserved status palette uses. */
+      .gpa-gauge { margin-bottom: 12px; }
+      .gpa-gauge:last-child { margin-bottom: 0; }
+      .gpa-gauge-label { display: flex; justify-content: space-between; font-size: 11.5px; color: ${t.sub}; margin-bottom: 4px; }
+      .gpa-gauge-value { color: ${t.text}; font-weight: 600; }
+      .gpa-gauge-track { position: relative; height: 8px; border-radius: 4px; background: ${t.field}; border: 1px solid ${t.border}; overflow: hidden; }
+      .gpa-gauge-fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), left 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+      .gpa-gauge-mid { position: absolute; top: -2px; bottom: -2px; left: 50%; width: 1px; background: ${t.sub}; opacity: 0.6; }
+      /* Explore further: clickable related-topic chips that feed straight
+         into the existing question box below, rather than a separate flow. */
+      .gpa-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+      .gpa-chip {
+        background: ${t.field}; border: 1px solid ${t.border}; border-radius: 999px;
+        padding: 6px 12px; font-size: 11.5px; color: ${t.text}; cursor: pointer;
+        transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+      }
+      .gpa-chip:hover { border-color: ${t.accent}80; background: ${t.panel}; }
+      .gpa-chip:active { transform: scale(0.97); }
       .gpa-card {
         background: ${t.panel}; border: 1px solid ${t.border}; border-radius: 14px;
         padding: 14px; flex-shrink: 0;
@@ -4805,6 +4815,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const thumb = panel.querySelector('#gpa-thumb');
   const clearBtn = panel.querySelector('#gpa-clear-context');
   const scanActions = panel.querySelector('#gpa-scan-actions');
+  const scanMoreActions = panel.querySelector('#gpa-scan-more-actions');
   const questionRow = panel.querySelector('#gpa-question-row');
   const scanOutput = panel.querySelector('#gpa-scan-output');
   const askEmptyHint = panel.querySelector('#gpa-ask-empty-hint');
@@ -4816,6 +4827,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const has = parts.length > 0;
     statusRow.style.display = has ? 'flex' : 'none';
     scanActions.style.display = has ? 'flex' : 'none';
+    if (scanMoreActions) scanMoreActions.style.display = has ? 'flex' : 'none';
     questionRow.style.display = has ? 'flex' : 'none';
     if (askEmptyHint) askEmptyHint.style.display = has ? 'none' : 'block';
     scanStatus.textContent = has ? parts.join(' + ') : '';
@@ -5038,6 +5050,154 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     moreSettingsBtn.addEventListener('click', () => {
       const item = panel.querySelector('.gpa-dropdown-item[data-tab="theme"]');
       if (item) item.click();
+    });
+  }
+
+  // ---- Tone & insight analysis: an AI tool whose result is a small chart,
+  // not more paragraphs — sentiment is a polarity (diverging: two hues +
+  // a neutral midpoint), formality/complexity are magnitudes (sequential:
+  // one hue, light-to-dark by proportion). Colors are the dataviz skill's
+  // validated default diverging pair (blue/red) at the step for whichever
+  // of the 8 UI themes' light/dark surface is active — not the user's
+  // chosen accent color, same reasoning the reserved status palette uses:
+  // sentiment should read the same way regardless of theme.
+  function isLightSurface() { return theme === 'white' || theme === 'lightblue'; }
+  function divergingColors() {
+    return isLightSurface()
+      ? { pos: '#2a78d6', neg: '#e34948', mid: '#f0efec' }
+      : { pos: '#3987e5', neg: '#e66767', mid: '#383835' };
+  }
+  function renderSequentialGauge(container, label, value) {
+    const v = Math.max(0, Math.min(100, Math.round(value)));
+    const wrap = document.createElement('div');
+    wrap.className = 'gpa-gauge';
+    const lab = document.createElement('div');
+    lab.className = 'gpa-gauge-label';
+    const labText = document.createElement('span');
+    labText.textContent = label;
+    const labVal = document.createElement('span');
+    labVal.className = 'gpa-gauge-value';
+    labVal.textContent = v + '/100';
+    lab.appendChild(labText);
+    lab.appendChild(labVal);
+    const track = document.createElement('div');
+    track.className = 'gpa-gauge-track';
+    const fill = document.createElement('div');
+    fill.className = 'gpa-gauge-fill';
+    fill.style.left = '0'; fill.style.width = v + '%'; fill.style.background = THEMES[theme].accent;
+    track.appendChild(fill);
+    wrap.appendChild(lab); wrap.appendChild(track);
+    container.appendChild(wrap);
+  }
+  function renderDivergingGauge(container, label, value) {
+    const v = Math.max(-100, Math.min(100, Math.round(value)));
+    const { pos, neg, mid } = divergingColors();
+    const wrap = document.createElement('div');
+    wrap.className = 'gpa-gauge';
+    const lab = document.createElement('div');
+    lab.className = 'gpa-gauge-label';
+    const labText = document.createElement('span');
+    labText.textContent = label;
+    const labVal = document.createElement('span');
+    labVal.className = 'gpa-gauge-value';
+    labVal.textContent = (v > 0 ? '+' : '') + v;
+    lab.appendChild(labText);
+    lab.appendChild(labVal);
+    const track = document.createElement('div');
+    track.className = 'gpa-gauge-track';
+    const midline = document.createElement('div');
+    midline.className = 'gpa-gauge-mid';
+    midline.style.background = mid;
+    const fill = document.createElement('div');
+    fill.className = 'gpa-gauge-fill';
+    const half = Math.abs(v) / 2;
+    fill.style.left = (v >= 0 ? 50 : 50 - half) + '%';
+    fill.style.width = half + '%';
+    fill.style.background = v >= 0 ? pos : neg;
+    track.appendChild(midline); track.appendChild(fill);
+    wrap.appendChild(lab); wrap.appendChild(track);
+    container.appendChild(wrap);
+  }
+
+  const toneBtn = panel.querySelector('#gpa-tone-btn');
+  const toneOutput = panel.querySelector('#gpa-tone-output');
+  const toneGauges = panel.querySelector('#gpa-tone-gauges');
+  const toneSummary = panel.querySelector('#gpa-tone-summary');
+  if (toneBtn) {
+    toneBtn.addEventListener('click', async () => {
+      if (!pageText && !screenshotDataUrl) { scanOutput.textContent = 'Scan the page or capture the screen first.'; return; }
+      const prevLabel = toneBtn.textContent;
+      toneBtn.textContent = 'Analyzing…';
+      toneBtn.disabled = true;
+      try {
+        const sys = 'Analyze the tone of the given content. Respond with ONLY a JSON object in exactly this shape and nothing else: {"tone":"one or two words, e.g. Professional","sentiment":0,"formality":0,"complexity":0,"summary":"one short plain-language sentence about the overall tone and why"} — "sentiment" is -100 (very negative/critical) to 100 (very positive/upbeat), "formality" is 0 (very casual) to 100 (very formal), "complexity" is 0 (very simple/easy to read) to 100 (very dense/technical). No text outside the JSON object.';
+        const textPart = pageText ? `PAGE TEXT:\n${pageText}` : '(no page text captured — use the screenshot)';
+        const out = await callAI(textPart, sys, screenshotDataUrl ? [screenshotDataUrl] : null);
+        const m = out.match(/\{[\s\S]*\}/);
+        if (!m) throw new Error('Could not read a tone analysis from that response.');
+        const data = JSON.parse(m[0]);
+        toneGauges.innerHTML = '';
+        renderDivergingGauge(toneGauges, 'Sentiment', Number(data.sentiment) || 0);
+        renderSequentialGauge(toneGauges, 'Formality', Number(data.formality) || 0);
+        renderSequentialGauge(toneGauges, 'Complexity', Number(data.complexity) || 0);
+        toneSummary.textContent = (data.tone ? data.tone + ' — ' : '') + (data.summary || '');
+        toneOutput.style.display = 'block';
+        appendModelBadge(toneOutput);
+      } catch (e) {
+        toneOutput.style.display = 'block';
+        toneSummary.textContent = '';
+        // showError replaces the innerHTML of whatever it's given — target
+        // just the gauges area, not the whole card, so the "Tone & insight
+        // analysis" title survives a failed request instead of disappearing
+        // along with it.
+        showError(toneGauges, e, currentProviderLabel());
+      } finally {
+        toneBtn.textContent = prevLabel;
+        toneBtn.disabled = false;
+      }
+    });
+  }
+
+  // ---- Explore further: related-topic chips that feed the existing
+  // question box, so this complements Ask-a-question instead of forking
+  // off into its own separate Q&A flow.
+  const exploreBtn = panel.querySelector('#gpa-explore-btn');
+  const exploreOutput = panel.querySelector('#gpa-explore-output');
+  const exploreChips = panel.querySelector('#gpa-explore-chips');
+  if (exploreBtn) {
+    exploreBtn.addEventListener('click', async () => {
+      if (!pageText && !screenshotDataUrl) { scanOutput.textContent = 'Scan the page or capture the screen first.'; return; }
+      const prevLabel = exploreBtn.textContent;
+      exploreBtn.textContent = 'Thinking…';
+      exploreBtn.disabled = true;
+      try {
+        const sys = 'Suggest 5 short, specific follow-up questions or related topics a curious reader of this content would want to explore next. Respond with ONLY a JSON array of 5 short strings (each under 8 words) and nothing else, e.g. ["...", "...", "...", "...", "..."]';
+        const textPart = pageText ? `PAGE TEXT:\n${pageText}` : '(no page text captured — use the screenshot)';
+        const out = await callAI(textPart, sys, screenshotDataUrl ? [screenshotDataUrl] : null);
+        const m = out.match(/\[[\s\S]*\]/);
+        if (!m) throw new Error('Could not read suggestions from that response.');
+        const topics = JSON.parse(m[0]).filter((s) => typeof s === 'string' && s.trim()).slice(0, 6);
+        exploreChips.innerHTML = '';
+        topics.forEach((topic) => {
+          const chip = document.createElement('button');
+          chip.className = 'gpa-chip';
+          chip.type = 'button';
+          chip.textContent = topic;
+          chip.addEventListener('click', () => {
+            const qInput = panel.querySelector('#gpa-question');
+            if (qInput) { qInput.value = topic; askPageQuestion(); }
+          });
+          exploreChips.appendChild(chip);
+        });
+        exploreOutput.style.display = 'block';
+      } catch (e) {
+        exploreOutput.style.display = 'block';
+        exploreChips.innerHTML = '';
+        showError(exploreChips, e, currentProviderLabel());
+      } finally {
+        exploreBtn.textContent = prevLabel;
+        exploreBtn.disabled = false;
+      }
     });
   }
 
