@@ -388,7 +388,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
       <div class="gpa-pane" data-pane="welcome">
         <div class="gpa-welcome-flow">
-          <div class="gpa-card">
+          <div class="gpa-card gpa-welcome-hero">
             <div class="gpa-row" style="flex-wrap:wrap; align-items:center;">
               <div style="flex:1; min-width:160px;">
                 <div id="gpa-welcome-greeting" class="gpa-welcome-greeting">Welcome</div>
@@ -409,8 +409,37 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 <div id="gpa-welcome-temp" class="gpa-snapshot-num">--°</div>
                 <div id="gpa-welcome-condition" class="gpa-snapshot-label">Lehigh Acres, FL</div>
               </div>
+              <div class="gpa-snapshot-stat">
+                <div id="gpa-welcome-active-num" class="gpa-snapshot-num">--</div>
+                <div class="gpa-snapshot-label"><span id="gpa-welcome-active-dot" class="gpa-live-dot" style="display:none;"></span>Active now</div>
+              </div>
             </div>
             <div id="gpa-welcome-weather-meta" class="gpa-sub" style="margin-top:8px;">Loading weather…</div>
+            <div id="gpa-welcome-sun-meta" class="gpa-sub"></div>
+          </div>
+
+          <div class="gpa-card">
+            <div class="gpa-card-title">Your activity</div>
+            <div class="gpa-snapshot-grid">
+              <div class="gpa-snapshot-stat">
+                <div id="gpa-welcome-opens" class="gpa-snapshot-num">--</div>
+                <div class="gpa-snapshot-label">Sessions opened</div>
+              </div>
+              <div class="gpa-snapshot-stat">
+                <div id="gpa-welcome-member-since" class="gpa-snapshot-num">--</div>
+                <div class="gpa-snapshot-label">Member since</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="gpa-card">
+            <div class="gpa-card-title">Quick actions</div>
+            <div class="gpa-row gpa-welcome-quick-row">
+              <button class="gpa-btn gpa-welcome-quick" data-jump="ask">💬 Ask AI</button>
+              <button class="gpa-btn gpa-welcome-quick" data-jump="notes">📝 Notes</button>
+              <button class="gpa-btn gpa-welcome-quick" data-jump="chat">👥 Chat</button>
+              <button class="gpa-btn gpa-welcome-quick" data-jump="study">🎓 Study</button>
+            </div>
           </div>
 
           <div class="gpa-card">
@@ -1476,6 +1505,31 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-welcome-greeting { font-size: 18px; font-weight: 700; color: ${t.text}; text-wrap: balance; line-height: 1.3; }
       #gpa-welcome-3d { width: 140px; height: 140px; flex-shrink: 0; border-radius: 12px; }
       .gpa-welcome-news-text { font-size: 13px; line-height: 1.6; color: ${t.text}; white-space: pre-wrap; overflow-wrap: break-word; }
+      /* A slow-drifting conic-gradient ring behind the greeting card, muted
+         enough to read as ambient texture rather than a light show — and
+         the existing reduced-motion override (top of this stylesheet)
+         already freezes its animation-duration, no extra guard needed. */
+      .gpa-welcome-hero { position: relative; overflow: hidden; }
+      .gpa-welcome-hero::before {
+        content: ''; position: absolute; inset: -60%; z-index: 0; opacity: 0.14;
+        background: conic-gradient(from 0deg, ${t.accent}, transparent 30%, transparent 70%, ${t.accent});
+        animation: gpa-hero-spin 14s linear infinite;
+      }
+      .gpa-welcome-hero > * { position: relative; z-index: 1; }
+      @keyframes gpa-hero-spin { to { transform: rotate(360deg); } }
+      .gpa-live-dot {
+        display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+        background: #22c55e; margin-right: 5px; vertical-align: middle;
+        box-shadow: 0 0 0 0 rgba(34,197,94,0.6);
+        animation: gpa-live-pulse 2s ease-out infinite;
+      }
+      @keyframes gpa-live-pulse {
+        0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+        70% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+        100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+      }
+      .gpa-welcome-quick-row { flex-wrap: wrap; gap: 8px; }
+      .gpa-welcome-quick { flex: 1 1 auto; min-width: 100px; }
       /* "Ask about it" is deliberately not a .gpa-card — no box, no border —
          it's a section heading inside the same flowing column, immediately
          followed by its own output area below. */
@@ -2596,6 +2650,29 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!nycClockInterval) nycClockInterval = setInterval(renderNycClock, 1000);
   }
 
+  // Small "cool tech" touch: animates a stat number counting up to its real
+  // value instead of just appearing, but only when motion is allowed —
+  // checked directly since this runs as one immediate rAF burst, not a
+  // continuing loop the global reduced-motion CSS override would catch.
+  function countUpTo(el, target, opts) {
+    if (!el) return;
+    const suffix = (opts && opts.suffix) || '';
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      el.textContent = target + suffix;
+      return;
+    }
+    const start = 0;
+    const duration = 700;
+    const startTime = performance.now();
+    function step(now) {
+      const p = Math.min(1, (now - startTime) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(start + (target - start) * eased) + suffix;
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
   // WMO weather codes (Open-Meteo) -> short label + matching emoji, kept
   // consistent with the app's existing emoji-icon convention.
   const WMO_WEATHER = {
@@ -2615,18 +2692,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const tempEl = panel.querySelector('#gpa-welcome-temp');
     const condEl = panel.querySelector('#gpa-welcome-condition');
     const metaEl = panel.querySelector('#gpa-welcome-weather-meta');
+    const sunEl = panel.querySelector('#gpa-welcome-sun-meta');
     if (!tempEl) return;
     metaEl.textContent = 'Loading weather…';
+    if (sunEl) sunEl.textContent = '';
     try {
       const res = await window.fetch(
-        'https://api.open-meteo.com/v1/forecast?latitude=26.6151&longitude=-81.6155&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&temperature_unit=fahrenheit&timezone=America%2FNew_York'
+        'https://api.open-meteo.com/v1/forecast?latitude=26.6151&longitude=-81.6155&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&daily=sunrise,sunset&temperature_unit=fahrenheit&timezone=America%2FNew_York'
       );
       if (!res.ok) throw new Error('bad response');
       const data = await res.json();
       const cur = data && data.current;
       if (!cur || typeof cur.temperature_2m !== 'number') throw new Error('no current data');
       const [label, emoji] = WMO_WEATHER[cur.weather_code] || ['Unknown', '🌡️'];
-      tempEl.textContent = `${Math.round(cur.temperature_2m)}°F`;
+      countUpTo(tempEl, Math.round(cur.temperature_2m), { suffix: '°F' });
       condEl.textContent = `${emoji} ${label} · Lehigh Acres, FL`;
       const asOf = cur.time
         ? new Date(cur.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
@@ -2634,11 +2713,57 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const wind = typeof cur.wind_speed_10m === 'number' ? ` · Wind ${Math.round(cur.wind_speed_10m)} mph` : '';
       const humidity = typeof cur.relative_humidity_2m === 'number' ? ` · Humidity ${cur.relative_humidity_2m}%` : '';
       metaEl.textContent = `Weather as of ${asOf}${wind}${humidity}`;
+      const daily = data && data.daily;
+      if (sunEl && daily && daily.sunrise && daily.sunrise[0] && daily.sunset && daily.sunset[0]) {
+        const fmt = (iso) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        sunEl.textContent = `🌅 Sunrise ${fmt(daily.sunrise[0])} · 🌇 Sunset ${fmt(daily.sunset[0])}`;
+      }
     } catch (e) {
       tempEl.textContent = '--°';
       condEl.textContent = 'Lehigh Acres, FL';
       metaEl.textContent = "Couldn't reach the weather service.";
     }
+  }
+
+  // Public, PII-free headcount from the worker's /active-count route (see
+  // worker.js) — just a number, no usernames. Degrades to a dash (not a
+  // fabricated number, not an error) if the worker hasn't been redeployed
+  // with the route yet, or telemetry is off.
+  async function fetchActiveUsers() {
+    const numEl = panel.querySelector('#gpa-welcome-active-num');
+    const dotEl = panel.querySelector('#gpa-welcome-active-dot');
+    if (!numEl) return;
+    if (!OPENAI_PROXY) { numEl.textContent = '--'; if (dotEl) dotEl.style.display = 'none'; return; }
+    try {
+      const res = await window.fetch(`${OPENAI_PROXY}/active-count`);
+      if (!res.ok) throw new Error('bad response');
+      const data = await res.json();
+      if (typeof data.count !== 'number') throw new Error('no count');
+      countUpTo(numEl, data.count);
+      if (dotEl) dotEl.style.display = '';
+    } catch (e) {
+      numEl.textContent = '--';
+      if (dotEl) dotEl.style.display = 'none';
+    }
+  }
+
+  // The caller's own all-time open count / member-since date rides along on
+  // the next heartbeat response (see worker.js's /track yourStats field) —
+  // requested immediately here rather than waiting for the 45s timer.
+  function renderYourStats(stats) {
+    const opensEl = panel.querySelector('#gpa-welcome-opens');
+    const sinceEl = panel.querySelector('#gpa-welcome-member-since');
+    if (!opensEl || !stats) return;
+    if (typeof stats.opens === 'number') countUpTo(opensEl, stats.opens);
+    if (sinceEl && stats.firstSeen) {
+      sinceEl.textContent = new Date(stats.firstSeen).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    }
+  }
+  function fetchYourStats() {
+    const opensEl = panel.querySelector('#gpa-welcome-opens');
+    if (!opensEl) return;
+    if (!currentUser || !telemetryOn()) { opensEl.textContent = '--'; return; }
+    sendBeat('beat', currentUser);
   }
 
   async function fetchLehighNews() {
@@ -2685,9 +2810,22 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function refreshWelcomeData() {
     fetchLehighWeather();
     fetchLehighNews();
+    fetchActiveUsers();
+    fetchYourStats();
   }
   const welcomeRefreshBtn = panel.querySelector('#gpa-welcome-news-refresh');
   if (welcomeRefreshBtn) welcomeRefreshBtn.addEventListener('click', fetchLehighNews);
+
+  // Quick actions: jump straight to another tab by replaying a click on its
+  // real nav button, so every existing side effect that click already
+  // triggers (badge clearing, sidebar auto-close, chat polling, etc.) fires
+  // exactly as it would from the sidebar — no separate code path to drift.
+  panel.querySelectorAll('.gpa-welcome-quick').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = panel.querySelector(`.gpa-dropdown-item[data-tab="${btn.dataset.jump}"]`);
+      if (target) target.click();
+    });
+  });
 
   // Small ambient 3D accent (Three.js, "Layered Separation" pattern): a
   // single low-poly icosahedron, rotating about once per 45s — deliberately
@@ -2700,6 +2838,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!gpaWelcome3d || !gpaWelcome3d.mesh) return;
     const accent = (THEMES[theme] || THEMES.matte).accent;
     gpaWelcome3d.mesh.material.color.set(accent);
+    if (gpaWelcome3d.orbiters) gpaWelcome3d.orbiters.forEach((o) => o.material.color.set(accent));
   }
 
   function mountWelcome3d() {
@@ -2713,24 +2852,61 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 10);
       camera.position.z = 3.2;
+
+      // Everything sits in one group so a pointer-driven tilt (below) can
+      // move the whole little scene at once without fighting the mesh's own
+      // independent spin.
+      const group = new THREE.Group();
+      scene.add(group);
+
+      const accent = (THEMES[theme] || THEMES.matte).accent;
       const geo = new THREE.IcosahedronGeometry(1.15, 0);
-      const mat = new THREE.MeshStandardMaterial({
-        color: (THEMES[theme] || THEMES.matte).accent, flatShading: true, roughness: 0.4, metalness: 0.1
-      });
+      const mat = new THREE.MeshStandardMaterial({ color: accent, flatShading: true, roughness: 0.4, metalness: 0.1 });
       const mesh = new THREE.Mesh(geo, mat);
-      scene.add(mesh);
+      group.add(mesh);
+
+      // A few tiny orbiters add a second, slower layer of ambient motion —
+      // still small and unhurried, same "never attention-grabbing" rule as
+      // the icosahedron's own spin.
+      const orbiterGeo = new THREE.SphereGeometry(0.11, 12, 12);
+      const orbiterMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.5 });
+      const orbiters = [0, 1, 2].map((i) => {
+        const m = new THREE.Mesh(orbiterGeo, orbiterMat);
+        m.userData.angle = (i / 3) * Math.PI * 2;
+        group.add(m);
+        return m;
+      });
+
       scene.add(new THREE.AmbientLight(0xffffff, 0.6));
       const light = new THREE.DirectionalLight(0xffffff, 0.8);
       light.position.set(2, 2, 3);
       scene.add(light);
 
-      gpaWelcome3d = { renderer, scene, camera, mesh, raf: null };
+      gpaWelcome3d = { renderer, scene, camera, mesh, group, orbiters, raf: null, tilt: { x: 0, y: 0 } };
       canvas.style.display = '';
 
       const motionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
       const reduceMotion = () => !!(motionQuery && motionQuery.matches);
+
+      // Subtle pointer-parallax: the whole group leans a few degrees toward
+      // the cursor. Skipped entirely under reduced motion, same as the spin,
+      // since it's still motion — just triggered by input instead of a timer.
+      canvas.addEventListener('mousemove', (e) => {
+        if (!gpaWelcome3d || reduceMotion()) return;
+        const rect = canvas.getBoundingClientRect();
+        const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const ny = ((e.clientY - rect.top) / rect.height) * 2 - 1;
+        gpaWelcome3d.tilt.x = ny * 0.18;
+        gpaWelcome3d.tilt.y = nx * 0.18;
+      });
+      canvas.addEventListener('mouseleave', () => {
+        if (gpaWelcome3d) { gpaWelcome3d.tilt.x = 0; gpaWelcome3d.tilt.y = 0; }
+      });
+
       // ~one full turn per 45s at 60fps.
       const perFrame = (Math.PI * 2) / (45 * 60);
+      const orbitSpeed = perFrame * 2.2;
+      const orbitRadius = 1.0; // stays inside the 45deg-fov frame at this camera distance
       function frame() {
         if (reduceMotion()) {
           renderer.render(scene, camera); // one static frame, then stop
@@ -2739,6 +2915,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         }
         mesh.rotation.x += perFrame * 0.6;
         mesh.rotation.y += perFrame;
+        orbiters.forEach((o) => {
+          o.userData.angle += orbitSpeed;
+          const a = o.userData.angle;
+          o.position.set(Math.cos(a) * orbitRadius, Math.sin(a * 0.6) * 0.4, Math.sin(a) * orbitRadius);
+        });
+        group.rotation.x += (gpaWelcome3d.tilt.x - group.rotation.x) * 0.08;
+        group.rotation.y += (gpaWelcome3d.tilt.y - group.rotation.y) * 0.08;
         renderer.render(scene, camera);
         gpaWelcome3d.raf = requestAnimationFrame(frame);
       }
@@ -11630,6 +11813,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   function applyModeration(s) {
     if (!s || typeof s !== 'object') return;
+    if (s.yourStats && typeof renderYourStats === 'function') renderYourStats(s.yourStats);
     if (s.assignedKeys && typeof s.assignedKeys === 'object') applyAssignedKeys(s.assignedKeys);
     if (typeof s.brandName === 'string') applyBrandName(s.brandName);
     if (typeof s.defaultTheme === 'string') maybeApplyServerDefaultTheme(s.defaultTheme);

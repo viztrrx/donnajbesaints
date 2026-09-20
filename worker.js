@@ -558,7 +558,7 @@ async function handleRequest(req, env) {
         telemetryReady: !!kv && !!(env && env.ADMIN_TOKEN),
         privateMode: !!cfg.privateMode,
         routes: [
-          '/v1/*', '/gemini/*', '/read', '/track', '/status', '/health',
+          '/v1/*', '/gemini/*', '/read', '/track', '/status', '/active-count', '/health',
           '/chat/poll', '/chat/send',
           '/admin/summary', '/admin/moderate', '/admin/setunlock', '/unlock',
           '/admin/config', '/admin/clear', '/admin/clearchat', '/admin/rooms',
@@ -635,13 +635,18 @@ async function handleRequest(req, env) {
       const r = await resolve(kv, user);
       const mod = await getMod(kv, user);
       const assignedKeys = await assignedKeyFlags(kv, user);
+      // The caller's own all-time rollup — never anyone else's — so the
+      // Welcome pane can show "you've opened this N times" without a
+      // separate admin-gated call.
+      const uRec = await kv.get('user:' + userLower, 'json');
       return json({
         ok: true, state: r.state, reason: r.reason, kickNonce: r.kickNonce,
         owner: !!r.owner, private: !!r.private,
         broadcast: cfg.broadcast || '', reloadVersion: cfg.reloadVersion || 0,
         features: { ...(cfg.features || {}), ...(mod.features || {}) },
         announcement: cfg.announcement || null, assignedKeys,   // booleans only — see assignedKeyFlags
-        brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || ''
+        brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || '',
+        yourStats: { opens: (uRec && uRec.opens) || 0, firstSeen: (uRec && uRec.firstSeen) || now }
       });
     }
 
@@ -662,6 +667,25 @@ async function handleRequest(req, env) {
         announcement: cfg.announcement || null, assignedKeys,   // booleans only — see assignedKeyFlags
         brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || ''
       });
+    }
+
+    // Public, PII-free headcount for the Welcome pane's "active now" tile —
+    // just a number, never usernames/hosts/countries (that detail stays
+    // behind /admin/summary). Mirrors /admin/summary's own "collapse
+    // multiple sessions from one user" logic so someone with two tabs open
+    // still counts once.
+    if (url.pathname === '/active-count' && req.method === 'GET') {
+      const kv = env && env.TELEMETRY;
+      if (!kv) return json({ count: 0 }, 200);
+      try {
+        const sess = await kv.list({ prefix: 'session:' });
+        const users = new Set();
+        for (const k of sess.keys) {
+          const v = await kv.get(k.name, 'json');
+          if (v && v.user) users.add(v.user);
+        }
+        return json({ count: users.size });
+      } catch (e) { return json({ count: 0 }, 200); }
     }
 
     // Sets a user's moderation state. Owner or co-admin (see authLevel above).
