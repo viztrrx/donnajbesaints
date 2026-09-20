@@ -5899,7 +5899,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     + 'Keep the exact same meaning, facts, and length throughout — do not add, remove, or invent information.';
 
   // Text-selection assistant: select any text on the page → floating bubble
-  // with Explain / Simplify / Translate / Define / Humanize / clean-copy / save.
+  // with Explain / Simplify / Translate / Define / Humanize / Grammar / clean-copy / save.
   (function selectionAssistant() {
     const ACTIONS = [
       ['Explain', 'Explain the selected text clearly and concisely.'],
@@ -5907,6 +5907,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       ['Translate', 'Translate the selected text to English. If it is already in English, translate it to Spanish.'],
       ['Define', 'Define the key terms, jargon, or names in the selected text — one per line, term first.'],
       ['Humanize', HUMANIZE_PROMPT, true],
+      ['Grammar', 'Proofread the selected text for grammar, spelling, and punctuation errors only — do not change the writer\'s style, tone, word choice, or length beyond what is needed to fix an actual error. Reply with the corrected version first, then a blank line, then "Fixed:" followed by one short line per correction naming what was wrong and the fix. If there are no errors, reply with the text unchanged, then a blank line, then "No errors found."'],
       ['📋 Clean', null],
       ['💾', 'save']
     ];
