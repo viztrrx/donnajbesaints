@@ -26,13 +26,13 @@
  *         embed/iframe involved.
  *    Playback keeps running in the background while you switch tabs (the
  *    player element stays in the DOM, just visually hidden).
- *  - A "Browser" section: a plain iframe with a URL bar. It only loads
- *    sites that allow being embedded (most publisher sites, wikis,
- *    many docs sites). Sites that set X-Frame-Options / CSP
- *    frame-ancestors to block embedding — banks, most social apps,
- *    soundcloud.com's own site — won't load here. That's a security
- *    protection those sites intentionally set, and this script does not
- *    attempt to circumvent it.
+ *  - A "Proxy" section: loads pages through Scramjet (a separate proxy
+ *    project the user runs on their own device — github.com/MercuryWorkshop
+ *    /scramjet), so sites that block plain iframe embedding can still be
+ *    reached. The proxy server address is user-configurable and defaults to
+ *    this device's own localhost; it is never a shared/public default, so
+ *    it does nothing unless the person using this script is also running
+ *    their own proxy server, and it never routes anyone else's traffic.
  *  - A "Theme" section to change the panel's color scheme, plus optional
  *    ambient background particles (several styles, adjustable play area)
  *    and AI provider/typing-speed/response-font controls.
@@ -373,7 +373,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button class="gpa-dropdown-item" data-tab="ask"><span class="gpa-nav-ic">✦</span><span class="gpa-nav-label">Ask AI</span></button>
           <button class="gpa-dropdown-item" data-tab="chat"><span class="gpa-nav-ic">◔</span><span class="gpa-nav-label">Chat</span><span id="gpa-chat-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
           <button class="gpa-dropdown-item" data-tab="music"><span class="gpa-nav-ic">♫</span><span class="gpa-nav-label">Music</span></button>
-          <button class="gpa-dropdown-item" data-tab="browser"><span class="gpa-nav-ic">◫</span><span class="gpa-nav-label">Browser</span></button>
+          <button class="gpa-dropdown-item" data-tab="browser"><span class="gpa-nav-ic">◫</span><span class="gpa-nav-label">Proxy</span></button>
           <button class="gpa-dropdown-item" data-tab="games"><span class="gpa-nav-ic">▣</span><span class="gpa-nav-label">Games</span></button>
           <button class="gpa-dropdown-item" data-tab="study"><span class="gpa-nav-ic">◈</span><span class="gpa-nav-label">Study</span></button>
           <button class="gpa-dropdown-item" data-tab="notes"><span class="gpa-nav-ic">▤</span><span class="gpa-nav-label">Notes</span></button>
@@ -658,18 +658,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       </div>
 
       <div class="gpa-pane" data-pane="browser">
+        <div class="gpa-card-title">Scramjet Proxy</div>
+        <div class="gpa-sub" style="margin-bottom:8px;">Browse through a proxy server running on your own device (or another one you point this at below) — nothing here reaches anyone else's connection but whatever this is pointed at. Use the Music tab for actual SoundCloud playback.</div>
         <div class="gpa-row">
-          <input id="gpa-browser-url" class="gpa-input" placeholder="Enter a URL…" />
-          <button id="gpa-browser-go" class="gpa-btn primary">Go</button>
+          <input id="gpa-proxy-url" class="gpa-input" placeholder="Enter a website or URL…" autocomplete="off" />
+          <button id="gpa-proxy-go" class="gpa-btn primary">Go</button>
         </div>
-        <div id="gpa-browser-proxy-row" class="gpa-row" style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
-          <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;">
-            <input type="checkbox" id="gpa-browser-proxy-toggle" />
-            Route through my own local proxy (e.g. Scramjet) at localhost:4141
-          </label>
+        <div class="gpa-row" style="margin:8px 0; flex-wrap:wrap; align-items:center; gap:6px;">
+          <button id="gpa-proxy-reload" class="gpa-btn">🔄 Reload</button>
+          <button id="gpa-proxy-home" class="gpa-btn">🏠 Home</button>
+          <button id="gpa-proxy-popout" class="gpa-btn">↗ Pop Out</button>
+          <span id="gpa-proxy-status" class="gpa-sub" style="margin-left:auto;">Not connected</span>
         </div>
-        <div class="gpa-sub" style="margin-bottom:8px;">Sites that block embedding (banks, most social apps, soundcloud.com itself) won't load here by default — that's a security setting on their end. Turning on the toggle above sends loads to a proxy on your OWN machine instead (localhost:4141, e.g. Scramjet) if you have one running there — it does nothing if you don't, and it never affects anyone else who uses this script. Use the Music tab for actual SoundCloud playback.</div>
-        <iframe id="gpa-browser-frame" class="gpa-iframe" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+        <div class="gpa-row" style="margin-bottom:6px;">
+          <input id="gpa-proxy-server" class="gpa-input" placeholder="Proxy server URL (advanced — defaults to your own localhost)" autocomplete="off" style="font-size:11px;" />
+        </div>
+        <div id="gpa-proxy-error" class="gpa-sub" style="display:none; margin-bottom:6px;"></div>
+        <iframe id="gpa-proxy-frame" class="gpa-iframe" allow="fullscreen; clipboard-read; clipboard-write; autoplay; camera; microphone; geolocation" referrerpolicy="no-referrer"></iframe>
         <div class="gpa-sub" style="margin:12px 0 6px;">🔎 Research mode — AI reads web sources and writes you a brief</div>
         <div class="gpa-row">
           <input id="gpa-research-input" class="gpa-input" placeholder="Topic or question to research…" />
@@ -2637,6 +2642,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       if (item.dataset.tab === 'saved') renderSavedInsights();
       if (item.dataset.tab === 'study') renderDeck();
+      // Loads the proxy frontend + restores the last destination the FIRST
+      // time this tab is opened, not on every script init — no reason to
+      // hit any server (even the user's own localhost) before they've asked.
+      if (item.dataset.tab === 'browser' && typeof activateProxyPane === 'function') activateProxyPane();
       // Re-fetch weather/news if the user navigates back later in the
       // session — the clock is already ticking continuously via its own
       // interval and doesn't need a refresh here.
@@ -2653,7 +2662,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // news, and a small ambient 3D accent. Weather calls Open-Meteo directly
   // (no worker involved — see worker.js's content-type-locked /read route);
   // news reuses the app's own "AI picks a real URL -> worker /read -> AI
-  // summarizes only what's there" research pattern from the Browser tab.
+  // summarizes only what's there" research pattern from the Proxy tab.
   function renderWelcomeGreeting() {
     const greetEl = panel.querySelector('#gpa-welcome-greeting');
     const subEl = panel.querySelector('#gpa-welcome-sub');
@@ -3160,14 +3169,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const LANG_KEY = 'gpa_language';
   const NAV_LABELS_EN = {
     welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat', music: 'Music',
-    browser: 'Browser', games: 'Games', study: 'Study', notes: 'Notes',
+    browser: 'Proxy', games: 'Games', study: 'Study', notes: 'Notes',
     humanize: 'Humanize', grammar: 'Grammar', saved: 'Saved', theme: 'Settings'
   };
   const I18N = {
     es: {
       'Welcome': 'Bienvenida',
       'Page Insights': 'Información de la página', 'Ask AI': 'Preguntar a la IA',
-      'Chat': 'Chat', 'Music': 'Música', 'Browser': 'Navegador', 'Games': 'Juegos',
+      'Chat': 'Chat', 'Music': 'Música', 'Proxy': 'Proxy', 'Games': 'Juegos',
       'Study': 'Estudio', 'Notes': 'Notas', 'Humanize': 'Humanizar', 'Grammar': 'Gramática', 'Saved': 'Guardado', 'Settings': 'Ajustes',
       'Agent Console': 'Consola del Agente',
       'Sign in to continue': 'Inicia sesión para continuar',
@@ -6363,52 +6372,122 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   });
   localVolume.addEventListener('input', () => { localAudio.volume = parseFloat(localVolume.value) / 100; });
 
-  // ---- Browser tab (plain iframe by default; an opt-in local proxy route) --
-  // By default this only loads sites that allow embedding — sites that
-  // refuse (banks, most social apps) keep refusing, on purpose, same as
-  // always. The one addition: an opt-in toggle that, when on, sends loads to
-  // localhost:4141 instead — where THIS device's own local proxy (e.g.
-  // github.com/MercuryWorkshop/scramjet, a separate project the user runs
-  // themselves) would be listening, if they have one running.
+  // ---- Proxy tab (Scramjet-powered) ---------------------------------------
+  // Loads pages through Scramjet (github.com/MercuryWorkshop/scramjet), a
+  // proxy engine the user runs on their own device — the internal data-tab/
+  // data-pane key stays "browser" (other code keys off it), only the
+  // user-facing label changed to "Proxy".
   //
-  // There's deliberately no "detect whether something's listening there
-  // first" check: browsers block a plain fetch() probe from a page to a
-  // localhost/private address (Private Network Access) unless the local
-  // server opts in with a header a dev server like Vite's won't send, so
-  // that kind of check would silently report "not running" even when it is.
-  // A direct iframe navigation isn't restricted the same way, so the toggle
-  // is simply always available, and if nothing is listening the iframe just
-  // fails to load like any other broken address — the same honest-failure
-  // behavior the rest of this tab already relies on.
-  const browserUrlInput = panel.querySelector('#gpa-browser-url');
-  const browserGoBtn = panel.querySelector('#gpa-browser-go');
-  const browserFrame = panel.querySelector('#gpa-browser-frame');
-  const browserProxyToggle = panel.querySelector('#gpa-browser-proxy-toggle');
-  const LOCAL_PROXY_ORIGIN = 'http://localhost:4141';
-  const LOCAL_PROXY_TOGGLE_KEY = 'gpa_browser_use_local_proxy';
+  // The iframe always loads the proxy SERVER's own frontend first; a
+  // destination is never written straight into the iframe's src (that would
+  // bypass the proxy entirely). Instead it's handed to the frontend's real,
+  // already-existing navigation entrypoint — its own demo app reads a
+  // "?goto=" query param on load and passes it to its controller's
+  // frame.go() internally (see packages/demo/src/pages/BrowserView.tsx in
+  // the scramjet repo) — so this always uses Scramjet's actual supported
+  // mechanism, never an invented one.
+  //
+  // The proxy server address is a small, user-editable setting that
+  // defaults to this device's OWN localhost — never a shared or public
+  // default. Whatever the user types there is saved only in their own
+  // browser's storage; it is not baked into this script for anyone else,
+  // and by default (nothing configured, nothing running) the tab simply
+  // shows the same honest "couldn't load" state as a broken address, same
+  // as the rest of this app does when something isn't reachable.
+  const PROXY_SERVER_KEY = 'gpa_proxy_server_url';
+  const PROXY_LAST_DEST_KEY = 'gpa_proxy_last_destination';
+  const DEFAULT_PROXY_SERVER = 'http://localhost:4141';
 
-  browserProxyToggle.checked = localStorage.getItem(LOCAL_PROXY_TOGGLE_KEY) === '1';
-  browserProxyToggle.addEventListener('change', () => {
-    localStorage.setItem(LOCAL_PROXY_TOGGLE_KEY, browserProxyToggle.checked ? '1' : '0');
+  const proxyUrlInput = panel.querySelector('#gpa-proxy-url');
+  const proxyGoBtn = panel.querySelector('#gpa-proxy-go');
+  const proxyFrame = panel.querySelector('#gpa-proxy-frame');
+  const proxyReloadBtn = panel.querySelector('#gpa-proxy-reload');
+  const proxyHomeBtn = panel.querySelector('#gpa-proxy-home');
+  const proxyPopoutBtn = panel.querySelector('#gpa-proxy-popout');
+  const proxyStatusEl = panel.querySelector('#gpa-proxy-status');
+  const proxyServerInput = panel.querySelector('#gpa-proxy-server');
+  const proxyErrorEl = panel.querySelector('#gpa-proxy-error');
+
+  function proxyServerUrl() {
+    let v = '';
+    try { v = localStorage.getItem(PROXY_SERVER_KEY) || ''; } catch (e) { /* storage unavailable */ }
+    return (v || DEFAULT_PROXY_SERVER).replace(/\/+$/, '');
+  }
+  try { proxyServerInput.value = proxyServerUrl(); } catch (e) { /* ignore */ }
+  proxyServerInput.addEventListener('change', () => {
+    const v = proxyServerInput.value.trim();
+    try { localStorage.setItem(PROXY_SERVER_KEY, v || DEFAULT_PROXY_SERVER); } catch (e) { /* best-effort */ }
   });
 
-  function loadBrowserUrl() {
-    let url = browserUrlInput.value.trim();
-    if (!url) return;
+  function setProxyStatus(text, isError) {
+    proxyStatusEl.textContent = text;
+    proxyStatusEl.style.color = isError ? '#e5453a' : '';
+  }
+  function normalizeDestination(raw) {
+    let url = (raw || '').trim();
+    if (!url) return '';
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-    if (browserProxyToggle.checked) {
-      // Scramjet's own demo app reads a ?goto= param on load and navigates
-      // its internal (sandboxed, same-origin-as-localhost) frame there —
-      // this script never loads Scramjet's client/service-worker code
-      // itself, it just hands the target URL to the user's own already-
-      // running instance.
-      browserFrame.src = `${LOCAL_PROXY_ORIGIN}/?goto=${encodeURIComponent(url)}`;
+    return url;
+  }
+  function proxyGoto(destination) {
+    const base = proxyServerUrl();
+    proxyErrorEl.style.display = 'none';
+    setProxyStatus('Connecting…');
+    if (destination) {
+      try { localStorage.setItem(PROXY_LAST_DEST_KEY, destination); } catch (e) { /* best-effort */ }
+      proxyFrame.src = `${base}/?goto=${encodeURIComponent(destination)}`;
     } else {
-      browserFrame.src = url;
+      proxyFrame.src = `${base}/`;
     }
   }
-  browserGoBtn.addEventListener('click', loadBrowserUrl);
-  browserUrlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadBrowserUrl(); });
+  function loadProxyUrl() {
+    const dest = normalizeDestination(proxyUrlInput.value);
+    if (!dest) return;
+    proxyUrlInput.value = dest; // .value, never innerHTML — nothing here is ever parsed as markup
+    proxyGoto(dest);
+  }
+  proxyGoBtn.addEventListener('click', loadProxyUrl);
+  proxyUrlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadProxyUrl(); });
+
+  proxyReloadBtn.addEventListener('click', () => {
+    // The frame is cross-origin to this page (it points at whatever proxy
+    // server is configured), so contentWindow.location.reload() would throw
+    // a SecurityError. Re-assigning the same src is the reliable
+    // cross-origin-safe way to force a reload.
+    const current = proxyFrame.src || `${proxyServerUrl()}/`;
+    setProxyStatus('Connecting…');
+    proxyFrame.src = 'about:blank';
+    requestAnimationFrame(() => { proxyFrame.src = current; });
+  });
+  proxyHomeBtn.addEventListener('click', () => {
+    proxyUrlInput.value = '';
+    proxyGoto('');
+  });
+  proxyPopoutBtn.addEventListener('click', () => {
+    window.open(proxyServerUrl() + '/', '_blank', 'noopener,noreferrer');
+  });
+  proxyFrame.addEventListener('load', () => {
+    // This only confirms the proxy server's OWN frontend reached this
+    // browser — the destination site loaded inside it is a separate,
+    // cross-origin document this iframe can't inspect, so "Connected" means
+    // "the proxy responded," not "the destination site is healthy."
+    setProxyStatus('Connected');
+  });
+  proxyFrame.addEventListener('error', () => {
+    setProxyStatus('Load failed', true);
+    proxyErrorEl.textContent = 'Unable to load the proxy. Check that the proxy server address above is correct and running, then try Reload.';
+    proxyErrorEl.style.display = '';
+  });
+
+  let proxyPaneInitialized = false;
+  function activateProxyPane() {
+    if (proxyPaneInitialized) return;
+    proxyPaneInitialized = true;
+    let lastDest = '';
+    try { lastDest = localStorage.getItem(PROXY_LAST_DEST_KEY) || ''; } catch (e) { /* ignore */ }
+    if (lastDest) proxyUrlInput.value = lastDest;
+    proxyGoto(lastDest);
+  }
 
   // ---- Ask AI tab (general chat) -----------------------------------------
   const chatEl = panel.querySelector('#gpa-chat');
@@ -7537,7 +7616,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     render();
   })();
 
-  // Research mode (Browser tab): the AI picks 3 authoritative sources, the
+  // Research mode (Proxy tab): the AI picks 3 authoritative sources, the
   // worker fetches them (pages block browser-side fetches with CORS), and
   // the AI writes a brief with sources. Needs OPENAI_PROXY to be set.
   panel.querySelector('#gpa-research-btn').addEventListener('click', async () => {
@@ -12677,7 +12756,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     const FLAGS = [
       ['quiz', 'Quiz solver'], ['tutor', 'Tutor mode'], ['games', 'Games'],
-      ['music', 'Music'], ['browser', 'Browser'], ['notes', 'Notes'], ['study', 'Study'],
+      ['music', 'Music'], ['browser', 'Proxy'], ['notes', 'Notes'], ['study', 'Study'],
       ['watch', 'Page watcher'], ['autofill', 'Form auto-fill'], ['research', 'Research mode']
     ];
     let knownFlags = {};
