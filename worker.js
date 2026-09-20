@@ -89,6 +89,33 @@ export default {
       headers: { ...cors, ...SECURITY_HEADERS, 'Content-Type': 'application/json' }
     });
 
+    // Wrap the entire handler in try-catch to ensure CORS headers on all error responses
+    try {
+      return await handleRequest(req, env, cors, SECURITY_HEADERS, json);
+    } catch (error) {
+      console.error('Worker error:', error);
+      return json({
+        error: 'internal server error',
+        message: error.message || 'An unexpected error occurred'
+      }, 500);
+    }
+  },
+
+  // Daily chat reset. Cloudflare Cron Triggers run in UTC and don't shift for
+  // daylight saving, so this fixed UTC time drifts by an hour against local
+  // New York time across the DST boundary (early Nov/mid Mar) — set here to
+  // land at local midnight during EST; during EDT it'll fire at 1am instead.
+  // Add/adjust the actual schedule in the dashboard: Workers & Pages →
+  // donnajbesaints → Triggers → Cron Triggers → Add "0 5 * * *".
+  async scheduled(event, env, ctx) {
+    const kv = env && env.TELEMETRY;
+    if (!kv) return;
+    ctx.waitUntil(clearAllChatMessages(kv));
+  }
+};
+
+async function handleRequest(req, env, cors, SECURITY_HEADERS, json) {
+
     // Moderation state for one user: active (default), blocked, or locked,
     // plus a kick counter the client compares against to force a one-time
     // sign-out. Read wherever we need to enforce or report it.
@@ -1433,20 +1460,7 @@ export default {
     r.headers.set('Access-Control-Allow-Origin', '*');
     Object.entries(SECURITY_HEADERS).forEach(([k, v]) => r.headers.set(k, v));
     return r;
-  },
-
-  // Daily chat reset. Cloudflare Cron Triggers run in UTC and don't shift for
-  // daylight saving, so this fixed UTC time drifts by an hour against local
-  // New York time across the DST boundary (early Nov/mid Mar) — set here to
-  // land at local midnight during EST; during EDT it'll fire at 1am instead.
-  // Add/adjust the actual schedule in the dashboard: Workers & Pages →
-  // donnajbesaints → Triggers → Cron Triggers → Add "0 5 * * *".
-  async scheduled(event, env, ctx) {
-    const kv = env && env.TELEMETRY;
-    if (!kv) return;
-    ctx.waitUntil(clearAllChatMessages(kv));
-  }
-};
+}
 
 // Deletes every stored chat message across every room (public and private).
 // Rooms themselves (their codes) are untouched — only the msg: entries under
