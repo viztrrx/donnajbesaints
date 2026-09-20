@@ -393,6 +393,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <div style="flex:1; min-width:160px;">
                 <div id="gpa-welcome-greeting" class="gpa-welcome-greeting">Welcome</div>
                 <div id="gpa-welcome-sub" class="gpa-sub"></div>
+                <div class="gpa-welcome-ai-status">
+                  <span class="gpa-welcome-ai-line"><span id="gpa-welcome-ai-dot-openai" class="gpa-status-dot"></span>OpenAI: <span id="gpa-welcome-ai-text-openai">checking…</span></span>
+                  <span class="gpa-welcome-ai-line"><span id="gpa-welcome-ai-dot-gemini" class="gpa-status-dot"></span>Gemini: <span id="gpa-welcome-ai-text-gemini">checking…</span></span>
+                </div>
               </div>
               <canvas id="gpa-welcome-3d" width="140" height="140" style="display:none;"></canvas>
             </div>
@@ -1507,6 +1511,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          streaming cursor) so both blink at the same rate — this one just
          never gets removed. */
       .gpa-welcome-cursor { color: ${t.accent}; animation: gpa-blink 0.85s steps(1) infinite; }
+      /* Provider status line: deliberately smaller than both the greeting
+         and its date sub-line, but the pulsing dot keeps it noticeable
+         without competing for attention. */
+      .gpa-welcome-ai-status { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 5px; font-size: 10.5px; color: ${t.sub}; }
+      .gpa-welcome-ai-line { display: inline-flex; align-items: center; gap: 5px; }
+      .gpa-status-dot {
+        display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+        background: #9ca3af; flex-shrink: 0;
+      }
+      .gpa-status-dot.checking { background: #f59e0b; animation: gpa-status-pulse 0.9s ease-in-out infinite; }
+      .gpa-status-dot.online {
+        background: #22c55e; box-shadow: 0 0 0 0 rgba(34,197,94,0.6);
+        animation: gpa-live-pulse 2s ease-out infinite;
+      }
+      .gpa-status-dot.down { background: #ef4444; animation: gpa-status-pulse 1.4s ease-in-out infinite; }
+      .gpa-status-dot.unset { background: #6b7280; }
+      @keyframes gpa-status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
       #gpa-welcome-3d { width: 140px; height: 140px; flex-shrink: 0; border-radius: 12px; }
       .gpa-welcome-news-text { font-size: 13px; line-height: 1.6; color: ${t.text}; white-space: pre-wrap; overflow-wrap: break-word; }
       /* A slow-drifting conic-gradient ring behind the greeting card, muted
@@ -2805,6 +2826,62 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     sendBeat('beat', currentUser);
   }
 
+  // Live per-provider status for the Welcome pane: "API key not set" (no
+  // local key and no owner assignment — no network call at all, so this
+  // never risks the blocking key prompt), "Currently down" (a key exists
+  // but a real ping to it failed), or online. The ping is a models-list GET
+  // — free/metadata-only on both OpenAI and Gemini, never a paid completion,
+  // so checking this on every pane visit costs nothing.
+  async function checkAiProviderStatus(provider) {
+    const dotEl = panel.querySelector(`#gpa-welcome-ai-dot-${provider}`);
+    const textEl = panel.querySelector(`#gpa-welcome-ai-text-${provider}`);
+    if (!dotEl || !textEl) return;
+
+    const localKey = provider === 'openai'
+      ? readStoredKey(OPENAI_STORAGE_KEY)
+      : (sanitizeKey(API_KEY_DEFAULT) || readStoredKey(STORAGE_KEY));
+    const assigned = provider === 'openai' ? serverAssignedKeys.openai : serverAssignedKeys.gemini;
+    const hasKey = !!(localKey || (OPENAI_PROXY && assigned));
+
+    if (!hasKey) {
+      dotEl.className = 'gpa-status-dot unset';
+      textEl.textContent = 'API key not set';
+      return;
+    }
+    dotEl.className = 'gpa-status-dot checking';
+    textEl.textContent = 'checking…';
+
+    if (!OPENAI_PROXY) {
+      // No proxy to safely verify through — a raw cross-origin ping from an
+      // arbitrary host page is more likely to fail on CORS than say
+      // anything real about the key, so just confirm one is set.
+      dotEl.className = 'gpa-status-dot online';
+      textEl.textContent = 'Key configured';
+      return;
+    }
+    try {
+      const path = provider === 'openai' ? '/v1/models' : '/gemini/v1beta/models';
+      const headers = {};
+      if (localKey) headers[provider === 'openai' ? 'Authorization' : 'X-GPA-Key'] = provider === 'openai' ? `Bearer ${localKey}` : localKey;
+      if (currentUser) headers['X-GPA-User'] = currentUser;
+      const res = await rawFetch(`${OPENAI_PROXY}${path}`, { headers });
+      if (res.ok) {
+        dotEl.className = 'gpa-status-dot online';
+        textEl.textContent = 'Online';
+      } else {
+        dotEl.className = 'gpa-status-dot down';
+        textEl.textContent = 'Currently down';
+      }
+    } catch (e) {
+      dotEl.className = 'gpa-status-dot down';
+      textEl.textContent = 'Currently down';
+    }
+  }
+  function checkAllAiStatus() {
+    checkAiProviderStatus('openai');
+    checkAiProviderStatus('gemini');
+  }
+
   // Non-prompting check: is there already a key this session could use
   // (saved, or owner-assigned server-side) without popping the "paste your
   // API key" dialog? Lets automatic calls (page load, tab revisit) skip AI
@@ -2872,6 +2949,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     fetchLehighNews(true); // auto: never prompts for an API key on its own
     fetchActiveUsers();
     fetchYourStats();
+    checkAllAiStatus();
   }
   const welcomeRefreshBtn = panel.querySelector('#gpa-welcome-news-refresh');
   // Explicit click: the user asked for AI content, so a key prompt here (if
@@ -11850,6 +11928,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     serverAssignedKeys.gemini = !!(flags && flags.gemini);
     // Nothing to prompt for while the server is covering this user.
     if (serverAssignedKeys.openai) { try { localStorage.removeItem(OPENAI_KEY_SKIP); } catch (e) { /* ignore */ } }
+    // The Welcome pane's status line may have already rendered "not set"
+    // before this first heartbeat told us an owner-assigned key exists —
+    // re-check now that we actually know.
+    if (typeof checkAllAiStatus === 'function') checkAllAiStatus();
   }
   // Owner-set brand name (admin console → Control → Branding) replaces the
   // built-in "Agent Console" name in the header and login screen. Not
