@@ -395,6 +395,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 <input type="file" id="gpa-image-upload" accept="image/*" style="display:none" />
               </div>
               <div class="gpa-sub">or paste (Ctrl+V) a screenshot anywhere in this panel</div>
+              <div class="gpa-row" style="margin-top:10px;">
+                <button id="gpa-translate-page-btn" class="gpa-btn">🌐 Translate this page</button>
+              </div>
+            </div>
+            <div class="gpa-card">
+              <div class="gpa-card-title">Page snapshot</div>
+              <div id="gpa-snapshot-stats" class="gpa-snapshot-grid"></div>
+              <div id="gpa-snapshot-meta" class="gpa-sub" style="margin-top:8px;"></div>
             </div>
             <div class="gpa-card">
               <div class="gpa-card-title">Automate</div>
@@ -422,6 +430,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <div class="gpa-scan-output-col">
             <div class="gpa-card">
               <div class="gpa-card-title">Ask about it</div>
+              <div id="gpa-ask-empty-hint" class="gpa-sub">Nothing scanned yet — click Scan page text or Capture screen on the left (or paste a screenshot anywhere in this panel), then come back here to summarize, analyze, or ask anything about it.</div>
               <div class="gpa-row" id="gpa-status-row" style="display:none;">
                 <img id="gpa-thumb" alt="captured screen" />
                 <span id="gpa-scan-status" class="gpa-sub"></span>
@@ -1367,6 +1376,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-scan-rail .gpa-row { flex-wrap: wrap; }
       .gpa-scan-rail .gpa-btn { flex: 1; min-width: 90px; }
       .gpa-scan-output-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overflow-x: hidden; gap: 10px; }
+      /* Page snapshot: always populated the instant the tab opens (plain DOM
+         stats, no AI call, no button to click) so the rail has real content
+         to show before the user has scanned anything, instead of sitting
+         empty until they do. */
+      .gpa-snapshot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .gpa-snapshot-stat {
+        background: ${t.field}; border: 1px solid ${t.border}; border-radius: 10px;
+        padding: 8px 10px;
+      }
+      .gpa-snapshot-num { font-size: 16px; font-weight: 700; color: ${t.accent}; line-height: 1.2; }
+      .gpa-snapshot-label { font-size: 10.5px; color: ${t.sub}; margin-top: 2px; }
       /* Below ~640px of actual panel width (the smaller windowed size
          presets, or the full-page mode on a narrow browser) a fixed 250px
          rail leaves the output column too cramped to be usable — stack
@@ -2404,6 +2424,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       if (item.dataset.tab === 'saved') renderSavedInsights();
       if (item.dataset.tab === 'study') renderDeck();
+      if (item.dataset.tab === 'scan' && typeof updatePageSnapshot === 'function') updatePageSnapshot();
       // A hidden pane measures as zero, so games can only be sized once
       // the tab is actually visible.
       else requestAnimationFrame(() => { if (typeof fitGameToStage === 'function') fitGameToStage(); });
@@ -4740,6 +4761,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const scanActions = panel.querySelector('#gpa-scan-actions');
   const questionRow = panel.querySelector('#gpa-question-row');
   const scanOutput = panel.querySelector('#gpa-scan-output');
+  const askEmptyHint = panel.querySelector('#gpa-ask-empty-hint');
 
   function refreshStatus() {
     const parts = [];
@@ -4749,10 +4771,47 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     statusRow.style.display = has ? 'flex' : 'none';
     scanActions.style.display = has ? 'flex' : 'none';
     questionRow.style.display = has ? 'flex' : 'none';
+    if (askEmptyHint) askEmptyHint.style.display = has ? 'none' : 'block';
     scanStatus.textContent = has ? parts.join(' + ') : '';
     thumb.classList.toggle('show', !!screenshotDataUrl);
     thumb.src = screenshotDataUrl || '';
   }
+
+  // Plain DOM stats, no AI call — populated the instant the tab is shown so
+  // there's real, honest content here even before anything is scanned.
+  function updatePageSnapshot() {
+    const statsEl = panel.querySelector('#gpa-snapshot-stats');
+    const metaEl = panel.querySelector('#gpa-snapshot-meta');
+    if (!statsEl || !metaEl) return;
+    const text = (document.body.innerText || '').trim();
+    const words = text ? text.split(/\s+/).filter(Boolean).length : 0;
+    const minutes = words ? Math.max(1, Math.round(words / 200)) : 0;
+    const images = document.querySelectorAll('img').length;
+    const links = document.querySelectorAll('a[href]').length;
+    const stats = [
+      [words.toLocaleString(), 'words'],
+      [minutes ? minutes + ' min' : '—', 'read time'],
+      [images.toLocaleString(), 'images'],
+      [links.toLocaleString(), 'links']
+    ];
+    statsEl.innerHTML = '';
+    stats.forEach(([num, label]) => {
+      const cell = document.createElement('div');
+      cell.className = 'gpa-snapshot-stat';
+      const n = document.createElement('div');
+      n.className = 'gpa-snapshot-num';
+      n.textContent = num;
+      const l = document.createElement('div');
+      l.className = 'gpa-snapshot-label';
+      l.textContent = label;
+      cell.appendChild(n);
+      cell.appendChild(l);
+      statsEl.appendChild(cell);
+    });
+    const lang = (document.documentElement.lang || '').trim();
+    metaEl.textContent = (lang ? lang + ' · ' : '') + location.hostname;
+  }
+  updatePageSnapshot();
 
   // ---- Quiz solver: reads page text + dropdown/radio/checkbox choices,
   // returns one answer per question (including multi-part like "2a"/"2b")
@@ -4863,6 +4922,30 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     pageText = extractPageText();
     scanOutput.textContent = '';
     refreshStatus();
+  });
+
+  // Translates the whole page's text, not just a selection — the
+  // selection-assistant bubble already covers one passage at a time, this
+  // covers the rest of a page written in another language.
+  const translatePageBtn = panel.querySelector('#gpa-translate-page-btn');
+  translatePageBtn.addEventListener('click', async () => {
+    if (!pageText) pageText = extractPageText();
+    refreshStatus();
+    const prevLabel = translatePageBtn.textContent;
+    translatePageBtn.textContent = 'Translating…';
+    translatePageBtn.disabled = true;
+    scanOutput.innerHTML = '';
+    scanOutput.textContent = 'Reading and translating the page…';
+    try {
+      const sys = 'Translate the given page text into English. If it is already in English, translate it into Spanish. Keep paragraph breaks where they make sense. Reply in plain text only — no markdown symbols.';
+      const out = await callAI(pageText, sys);
+      typeText(scanOutput, stripConfidence(out), scanOutput, () => appendModelBadge(scanOutput));
+    } catch (e) {
+      showError(scanOutput, e, currentProviderLabel());
+    } finally {
+      translatePageBtn.textContent = prevLabel;
+      translatePageBtn.disabled = false;
+    }
   });
 
   captureBtn.addEventListener('click', async () => {
