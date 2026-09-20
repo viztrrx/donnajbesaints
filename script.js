@@ -2881,6 +2881,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     checkAiProviderStatus('openai');
     checkAiProviderStatus('gemini');
   }
+  // Steady-state refresh cadence for the status line — every 10 minutes
+  // while the Welcome pane exists, via the file's shadowed setInterval so
+  // it's auto-cleared on reload like the NYC clock. Separate from the
+  // one-off checks on pane load/revisit and on an actual assigned-key
+  // change, which cover the "just did something" cases immediately.
+  let welcomeAiStatusInterval = null;
+  function startWelcomeAiStatusPolling() {
+    if (!welcomeAiStatusInterval) welcomeAiStatusInterval = setInterval(checkAllAiStatus, 10 * 60 * 1000);
+  }
 
   // Non-prompting check: is there already a key this session could use
   // (saved, or owner-assigned server-side) without popping the "paste your
@@ -3112,6 +3121,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     renderWelcomeGreeting();
     startNycClock();
     refreshWelcomeData();
+    startWelcomeAiStatusPolling();
     loadThreeJs();
   }
 
@@ -11924,14 +11934,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // upstream request there; all this flag does is tell the user they have
   // nothing to paste.
   function applyAssignedKeys(flags) {
+    const prevOpenai = serverAssignedKeys.openai;
+    const prevGemini = serverAssignedKeys.gemini;
     serverAssignedKeys.openai = !!(flags && flags.openai);
     serverAssignedKeys.gemini = !!(flags && flags.gemini);
     // Nothing to prompt for while the server is covering this user.
     if (serverAssignedKeys.openai) { try { localStorage.removeItem(OPENAI_KEY_SKIP); } catch (e) { /* ignore */ } }
-    // The Welcome pane's status line may have already rendered "not set"
-    // before this first heartbeat told us an owner-assigned key exists —
-    // re-check now that we actually know.
-    if (typeof checkAllAiStatus === 'function') checkAllAiStatus();
+    // This runs on every heartbeat/status poll (as often as every 15s), so
+    // only re-check the Welcome pane's status line on an actual change —
+    // otherwise that ping would run far more often than its own 10-minute
+    // timer intends. A real, brand-new assignment still shows up right away.
+    if (typeof checkAllAiStatus === 'function'
+      && (prevOpenai !== serverAssignedKeys.openai || prevGemini !== serverAssignedKeys.gemini)) {
+      checkAllAiStatus();
+    }
   }
   // Owner-set brand name (admin console → Control → Branding) replaces the
   // built-in "Agent Console" name in the header and login screen. Not
