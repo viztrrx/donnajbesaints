@@ -1414,7 +1414,11 @@ async function handleRequest(req, env) {
       // Per-user daily request cap (see /admin/config's dailyQuota, 0 =
       // unlimited). The owner is exempt. Counted per calendar day (UTC) with
       // a 2-day TTL so old counters clean themselves up — no cron needed.
-      if (!r.owner && vCfg && vCfg.dailyQuota > 0) {
+      // GET requests (script.js's Welcome-pane provider-status check hits
+      // /v1/models and /gemini/v1beta/models this way) are free metadata
+      // calls, not billable generations — they don't count against the
+      // quota or get refused by it, same as they cost the owner nothing.
+      if (!r.owner && vCfg && vCfg.dailyQuota > 0 && req.method !== 'GET' && req.method !== 'HEAD') {
         const day = new Date().toISOString().slice(0, 10);
         const qKey = `usage:${day}:${String(modUser).toLowerCase()}`;
         const used = parseInt(await env.TELEMETRY.get(qKey), 10) || 0;
