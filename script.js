@@ -1406,6 +1406,25 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          same safe, content-width, wraps-naturally sizing every other card's
          buttons already have via .gpa-row's default flex-wrap. */
       .gpa-scan-flow { display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; min-width: 0; }
+      /* .gpa-btn's base white-space:nowrap is safe everywhere else, but this
+         tab's fixed sidebar (190px) can leave .gpa-main under 100px wide at
+         the Compact preset — confirmed by measuring actual rendered widths,
+         not assumed — and a handful of labels here ("Confirm page clicks:
+         ON", "Solve quiz on this page") simply cannot fit on one line in
+         that space at any font size. Letting the label wrap onto a second
+         line inside the button (content-driven height, per the "don't clip
+         text in a fixed-width box" rule) is the fix; the row's flex-wrap
+         alone can't help since that only moves whole buttons to new lines,
+         not the text within one. */
+      .gpa-scan-flow .gpa-btn { white-space: normal; min-width: 0; text-align: center; }
+      /* text <input> elements default to a sizable browser-intrinsic
+         min-width that flex: 1 alone doesn't override — confirmed via
+         measurement as the last remaining overflow source at Compact
+         (the command-bar and question inputs), even after the button fix
+         above. min-width: 0 is the standard, universally-safe fix for a
+         flex-item input; scoped here rather than on the shared .gpa-input
+         rule to keep this change to the tab that was actually tested. */
+      .gpa-scan-flow .gpa-input { min-width: 0; }
       /* "Ask about it" is deliberately not a .gpa-card — no box, no border —
          it's a section heading inside the same flowing column, immediately
          followed by its own output area below. */
@@ -1413,13 +1432,21 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       /* Page snapshot: always populated the instant the tab opens (plain DOM
          stats, no AI call, no button to click) so there's real content here
          before the user has scanned anything, instead of an empty card. */
-      .gpa-snapshot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+      /* min(110px, 100%) as the track floor, not a bare 110px: a bare pixel
+         floor never shrinks below itself even when the grid's own container
+         is narrower (confirmed via testing at the Compact 300px preset,
+         where the fixed sidebar leaves .gpa-main under 110px wide) — the
+         grid then forces a horizontal scrollbar on the entire tab instead of
+         just stacking to one column, exactly the "content wider than
+         viewport" anti-pattern. Capping the floor at 100% lets it shrink to
+         fit when the container itself is the constraint. */
+      .gpa-snapshot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr)); gap: 8px; }
       .gpa-snapshot-stat {
         background: ${t.field}; border: 1px solid ${t.border}; border-radius: 10px;
         padding: 8px 10px;
       }
       .gpa-snapshot-num { font-size: 16px; font-weight: 700; color: ${t.accent}; line-height: 1.2; }
-      .gpa-snapshot-label { font-size: 10.5px; color: ${t.sub}; margin-top: 2px; }
+      .gpa-snapshot-label { font-size: 10.5px; color: ${t.sub}; margin-top: 2px; overflow-wrap: anywhere; }
       /* Tone & insight gauges: a sequential (single-hue, magnitude) bar for
          formality/complexity, and a diverging (two-hue + neutral midpoint)
          bar for sentiment, since positive/negative is a polarity, not a
