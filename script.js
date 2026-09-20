@@ -2054,6 +2054,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-sel-bubble button:hover { background: ${t.accent}33; }
       .gpa-sel-pop { position: fixed; z-index: 2147483647; max-width: 340px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: ${t.panel}; border: 1px solid ${t.accent}; color: ${t.text}; font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
       .gpa-sel-pop .gpa-sel-pop-src { display: block; margin-top: 8px; font-size: 10px; opacity: 0.65; overflow-wrap: break-word; }
+      .gpa-sel-pop .gpa-sel-pop-retry { display: block; margin-top: 8px; background: transparent; border: 1px solid ${t.accent}; color: ${t.text}; font-size: 11px; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+      .gpa-sel-pop .gpa-sel-pop-retry:hover { background: ${t.accent}33; }
+      .gpa-sel-pop .gpa-sel-pop-retry:disabled { opacity: 0.6; cursor: default; }
       .gpa-flip { perspective: 900px; cursor: pointer; min-height: 96px; }
       .gpa-flip-inner { position: relative; transition: transform 0.35s; transform-style: preserve-3d; min-height: 96px; }
       .gpa-flip.flipped .gpa-flip-inner { transform: rotateY(180deg); }
@@ -5859,13 +5862,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   })();
 
   // Text-selection assistant: select any text on the page → floating bubble
-  // with Explain / Simplify / Translate / Define / clean-copy / save.
+  // with Explain / Simplify / Translate / Define / Humanize / clean-copy / save.
   (function selectionAssistant() {
+    // Rewrites stiff/robotic phrasing into something that reads the way a
+    // person would actually write it — a writing-quality aid, not a tool for
+    // disguising text's origin. Meaning, facts, and length must stay intact.
+    const HUMANIZE_PROMPT = 'Rewrite the selected text so it reads naturally, the way a person would actually write it — vary sentence length and structure, and cut stiff, repetitive, or overly formal phrasing. Keep the exact same meaning, facts, and length; do not add, remove, or invent any information.';
     const ACTIONS = [
       ['Explain', 'Explain the selected text clearly and concisely.'],
       ['Simplify', 'Rewrite the selected text in much simpler words anyone can understand. Keep it short.'],
       ['Translate', 'Translate the selected text to English. If it is already in English, translate it to Spanish.'],
       ['Define', 'Define the key terms, jargon, or names in the selected text — one per line, term first.'],
+      ['Humanize', HUMANIZE_PROMPT, true],
       ['📋 Clean', null],
       ['💾', 'save']
     ];
@@ -5874,7 +5882,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     function removeBubble() { if (bubble) { bubble.remove(); bubble = null; } }
     function removePop() { if (pop) { pop.remove(); pop = null; } }
 
-    function showPop(x, y, selectedText, sys) {
+    function showPop(x, y, selectedText, sys, allowRetry) {
       removePop();
       pop = document.createElement('div');
       pop.className = 'gpa-sel-pop';
@@ -5882,16 +5890,36 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       pop.style.left = Math.max(8, Math.min(x, window.innerWidth - 356)) + 'px';
       pop.style.top = Math.max(8, Math.min(y + 14, window.innerHeight - 280)) + 'px';
       document.body.appendChild(pop);
+
+      function renderResult(out) {
+        pop.textContent = stripConfidence(out);
+        speak(out);
+        const src = document.createElement('span');
+        src.className = 'gpa-sel-pop-src';
+        src.textContent = selectedText.slice(0, 120) + (selectedText.length > 120 ? '…' : '');
+        pop.appendChild(src);
+        appendModelBadge(pop);
+        if (allowRetry) {
+          const retryBtn = document.createElement('button');
+          retryBtn.className = 'gpa-sel-pop-retry';
+          retryBtn.textContent = '🔄 Try again';
+          retryBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            retryBtn.textContent = 'Thinking…';
+            retryBtn.disabled = true;
+            callAI(
+              `Selected text:\n"""\n${selectedText}\n"""\n\nYour previous rewrite was:\n"""\n${out}\n"""\nWrite a different rewrite this time — vary the wording and sentence structure from that previous version while still following the instructions.`,
+              sys
+            )
+              .then((out2) => renderResult(out2))
+              .catch((e) => { pop.textContent = 'AI error: ' + (e && e.message || e); });
+          });
+          pop.appendChild(retryBtn);
+        }
+      }
+
       callAI(`Selected text:\n"""\n${selectedText}\n"""`, sys)
-        .then((out) => {
-          pop.textContent = stripConfidence(out);
-          speak(out);
-          const src = document.createElement('span');
-          src.className = 'gpa-sel-pop-src';
-          src.textContent = selectedText.slice(0, 120) + (selectedText.length > 120 ? '…' : '');
-          pop.appendChild(src);
-          appendModelBadge(pop);
-        })
+        .then((out) => renderResult(out))
         .catch((e) => { pop.textContent = 'AI error: ' + (e && e.message || e); });
       pop.addEventListener('click', removePop);
     }
@@ -5907,7 +5935,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         if (!rect.width && !rect.height) return;
         bubble = document.createElement('div');
         bubble.className = 'gpa-sel-bubble';
-        ACTIONS.forEach(([label, sys]) => {
+        ACTIONS.forEach(([label, sys, retry]) => {
           const b = document.createElement('button');
           b.textContent = label;
           b.addEventListener('mousedown', (ev) => {
@@ -5922,7 +5950,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               saveInsight(text);
               removeBubble();
             } else {
-              showPop(rect.left, rect.bottom, text, sys + ' Reply in plain text only — no markdown symbols.');
+              showPop(rect.left, rect.bottom, text, sys + ' Reply in plain text only — no markdown symbols.', retry === true);
             }
           });
           bubble.appendChild(b);
