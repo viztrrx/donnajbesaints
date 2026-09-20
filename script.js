@@ -1328,7 +1328,22 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-pane { display: none; }
       .gpa-pane.active {
         display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0;
+        /* Capped and centered rather than left-anchored and stretched full
+           width — on a huge full-page/fullscreen panel, letting every pane's
+           text boxes, buttons, and rows stretch to 1800+px reads as broken
+           (giant sparse buttons, absurd text line-length) even though it's
+           technically "using the space". Below the cap this is a no-op:
+           the default/compact/normal panel sizes are already narrower than
+           it, so nothing changes for them. */
+        width: 100%; max-width: 1100px; margin: 0 auto;
         animation: gpa-pane-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      /* Browser (an embedded page) and Games (boards/canvases with their own
+         fullscreen mode) are the two panes where more width actually helps
+         rather than just adding empty margin — let those two fill the full
+         available width instead of the shared reading-width cap above. */
+      .gpa-pane.active[data-pane="browser"], .gpa-pane.active[data-pane="games"] {
+        max-width: none;
       }
       @keyframes gpa-pane-in {
         from { opacity: 0; transform: translateY(3px); }
@@ -1344,6 +1359,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-actions { flex-wrap: wrap; }
       /* Page Insights: an action rail beside a flexible output column,
          instead of every control stacked in one long vertical list. */
+      /* The reading-width cap now lives one level up on .gpa-pane.active, so
+         this just fills whatever width that already-capped, centered parent
+         gives it — no separate cap needed here. */
       .gpa-scan-layout { display: flex; gap: 16px; flex: 1; min-height: 0; min-width: 0; }
       .gpa-scan-rail { flex: 0 0 250px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; overflow-x: hidden; }
       .gpa-scan-rail .gpa-row { flex-wrap: wrap; }
