@@ -372,6 +372,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button class="gpa-dropdown-item" data-tab="games"><span class="gpa-nav-ic">▣</span><span class="gpa-nav-label">Games</span></button>
           <button class="gpa-dropdown-item" data-tab="study"><span class="gpa-nav-ic">◈</span><span class="gpa-nav-label">Study</span></button>
           <button class="gpa-dropdown-item" data-tab="notes"><span class="gpa-nav-ic">▤</span><span class="gpa-nav-label">Notes</span></button>
+          <button class="gpa-dropdown-item" data-tab="humanize"><span class="gpa-nav-ic">✎</span><span class="gpa-nav-label">Humanize</span></button>
           <button class="gpa-dropdown-item" data-tab="saved"><span class="gpa-nav-ic">☆</span><span class="gpa-nav-label">Saved</span></button>
           <button class="gpa-dropdown-item" data-tab="theme"><span class="gpa-nav-ic">⚙</span><span class="gpa-nav-label">Settings</span></button>
         </div>
@@ -669,6 +670,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button id="gpa-notes-q-btn" class="gpa-btn primary">Ask</button>
         </div>
         <div id="gpa-notes-chat" class="gpa-chat" style="max-height:220px;"></div>
+      </div>
+
+      <div class="gpa-pane" data-pane="humanize">
+        <div class="gpa-row">
+          <textarea id="gpa-hum-input" class="gpa-sync-box" style="height:140px;" placeholder="Paste any text here — an essay, an email, a paragraph you wrote — from anywhere, not just this page. Get back a version that reads more naturally."></textarea>
+        </div>
+        <div class="gpa-row">
+          <button id="gpa-hum-go" class="gpa-btn primary">✎ Humanize</button>
+          <button id="gpa-hum-retry" class="gpa-btn" style="display:none;">🔄 Try again</button>
+        </div>
+        <div id="gpa-hum-status" class="gpa-sub" style="margin-bottom:6px;">Rewrites stiff or robotic phrasing so it reads the way a person would actually write it — meaning, facts, and length stay the same.</div>
+        <div id="gpa-hum-out" class="gpa-output"></div>
       </div>
 
       <div id="gpa-save-modal" class="gpa-modal" style="display:none;">
@@ -2364,13 +2377,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const NAV_LABELS_EN = {
     scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat', music: 'Music',
     browser: 'Browser', games: 'Games', study: 'Study', notes: 'Notes',
-    saved: 'Saved', theme: 'Settings'
+    humanize: 'Humanize', saved: 'Saved', theme: 'Settings'
   };
   const I18N = {
     es: {
       'Page Insights': 'Información de la página', 'Ask AI': 'Preguntar a la IA',
       'Chat': 'Chat', 'Music': 'Música', 'Browser': 'Navegador', 'Games': 'Juegos',
-      'Study': 'Estudio', 'Notes': 'Notas', 'Saved': 'Guardado', 'Settings': 'Ajustes',
+      'Study': 'Estudio', 'Notes': 'Notas', 'Humanize': 'Humanizar', 'Saved': 'Guardado', 'Settings': 'Ajustes',
       'Agent Console': 'Consola del Agente',
       'Sign in to continue': 'Inicia sesión para continuar',
       'Welcome back': 'Bienvenido de nuevo',
@@ -5861,13 +5874,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     });
   })();
 
+  // Shared by the selection-assistant bubble AND the standalone Humanize tab
+  // below, so both surfaces rewrite text the exact same way. Rewrites
+  // stiff/robotic phrasing into something that reads the way a person would
+  // actually write it — a writing-quality aid, not a tool for disguising
+  // text's origin. Meaning, facts, and length must stay intact.
+  const HUMANIZE_PROMPT = 'Rewrite the given text so it reads naturally, the way a person would actually write it — vary sentence length and structure, and cut stiff, repetitive, or overly formal phrasing. Keep the exact same meaning, facts, and length; do not add, remove, or invent any information.';
+
   // Text-selection assistant: select any text on the page → floating bubble
   // with Explain / Simplify / Translate / Define / Humanize / clean-copy / save.
   (function selectionAssistant() {
-    // Rewrites stiff/robotic phrasing into something that reads the way a
-    // person would actually write it — a writing-quality aid, not a tool for
-    // disguising text's origin. Meaning, facts, and length must stay intact.
-    const HUMANIZE_PROMPT = 'Rewrite the selected text so it reads naturally, the way a person would actually write it — vary sentence length and structure, and cut stiff, repetitive, or overly formal phrasing. Keep the exact same meaning, facts, and length; do not add, remove, or invent any information.';
     const ACTIONS = [
       ['Explain', 'Explain the selected text clearly and concisely.'],
       ['Simplify', 'Rewrite the selected text in much simpler words anyone can understand. Keep it short.'],
@@ -5924,6 +5940,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       pop.addEventListener('click', removePop);
     }
 
+    // Capture phase, not bubble: some sites (custom highlight tooltips,
+    // anti-copy/paywall scripts, rich editors) call stopPropagation() on
+    // their own mouseup handler, which would otherwise stop a bubble-phase
+    // listener on document from ever seeing the event. A capturing listener
+    // on document runs before the event reaches the page's own handlers, so
+    // it fires regardless of what they do with it afterward.
     onDoc('mouseup', (e) => {
       if (e.target.closest && (e.target.closest('#gpa-root-host') || e.target.closest('.gpa-sel-bubble') || e.target.closest('.gpa-sel-pop'))) return;
       setTimeout(() => {
@@ -5959,9 +5981,63 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         bubble.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - bubble.offsetWidth - 12)) + 'px';
         bubble.style.top = Math.max(8, rect.top - bubble.offsetHeight - 6) + 'px';
       }, 10);
-    });
+    }, true);
     onWin('scroll', removeBubble, true);
     onWin('keydown', (e) => { if (e.key === 'Escape') { removeBubble(); removePop(); } });
+  })();
+
+  // Standalone Humanize tab: same rewrite as the selection-assistant bubble
+  // (shares HUMANIZE_PROMPT above), but works on pasted text from anywhere —
+  // doesn't depend on the current page's own JS letting a selection/mouseup
+  // event through, which some sites intercept.
+  (function humanizeTool() {
+    const input = panel.querySelector('#gpa-hum-input');
+    const goBtn = panel.querySelector('#gpa-hum-go');
+    const retryBtn = panel.querySelector('#gpa-hum-retry');
+    const status = panel.querySelector('#gpa-hum-status');
+    const out = panel.querySelector('#gpa-hum-out');
+    let lastInput = '', lastOutput = '';
+
+    function renderOut(text) {
+      out.innerHTML = '';
+      const rep = document.createElement('div');
+      rep.className = 'gpa-msg ai';
+      out.appendChild(rep);
+      typeText(rep, text, out, () => {
+        appendModelBadge(rep);
+        addSaveButton(rep, text);
+      });
+    }
+
+    async function run(sourceText, isRetry) {
+      const btn = isRetry ? retryBtn : goBtn;
+      btn.disabled = true;
+      status.textContent = isRetry ? 'Rewriting a different way…' : 'Rewriting…';
+      try {
+        const userText = isRetry
+          ? `Text to rewrite:\n"""\n${sourceText}\n"""\n\nYour previous rewrite was:\n"""\n${lastOutput}\n"""\nWrite a different rewrite this time — vary the wording and sentence structure from that previous version while still following the instructions.`
+          : `Text to rewrite:\n"""\n${sourceText}\n"""`;
+        const sys = HUMANIZE_PROMPT + ' Reply in plain text only — no markdown symbols.';
+        const result = await callAI(userText, sys);
+        lastInput = sourceText;
+        lastOutput = result;
+        renderOut(stripConfidence(result));
+        retryBtn.style.display = 'inline-block';
+        status.textContent = 'Done. Meaning, facts, and length should match the original — check it over before using it.';
+      } catch (e) {
+        showError(out, e, currentProviderLabel());
+        status.textContent = '';
+      }
+      btn.disabled = false;
+    }
+
+    goBtn.addEventListener('click', () => {
+      const text = input.value.trim();
+      if (text.length < 2) { status.textContent = 'Paste some text first.'; return; }
+      retryBtn.style.display = 'none';
+      run(text, false);
+    });
+    retryBtn.addEventListener('click', () => { if (lastInput) run(lastInput, true); });
   })();
 
   // Table extractor: list every table on the page with CSV copy + Ask AI.
@@ -10871,7 +10947,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function applyFeatureFlags(flags) {
     if (JSON.stringify(flags) === JSON.stringify(featureFlags)) return;
     featureFlags = flags || {};
-    ['games', 'music', 'browser', 'notes', 'study'].forEach((tab) => {
+    ['games', 'music', 'browser', 'notes', 'study', 'humanize'].forEach((tab) => {
       const on = ownerMode || featureOn(tab);
       const item = panel.querySelector(`.gpa-dropdown-item[data-tab="${tab}"]`);
       if (item) item.style.display = on ? '' : 'none';
