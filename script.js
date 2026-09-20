@@ -6396,7 +6396,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // as the rest of this app does when something isn't reachable.
   const PROXY_SERVER_KEY = 'gpa_proxy_server_url';
   const PROXY_LAST_DEST_KEY = 'gpa_proxy_last_destination';
-  const DEFAULT_PROXY_SERVER = 'http://localhost:4141';
+  // https, not http: pages with a strict Content-Security-Policy
+  // (default-src 'self' https:, no frame-src set) refuse to frame a plain
+  // http: origin outright, no matter what this script does — the proxy
+  // server itself has to actually serve HTTPS for embedding to work there.
+  const DEFAULT_PROXY_SERVER = 'https://localhost:4141';
 
   const proxyUrlInput = panel.querySelector('#gpa-proxy-url');
   const proxyGoBtn = panel.querySelector('#gpa-proxy-go');
