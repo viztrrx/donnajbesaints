@@ -662,7 +662,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <input id="gpa-browser-url" class="gpa-input" placeholder="Enter a URL…" />
           <button id="gpa-browser-go" class="gpa-btn primary">Go</button>
         </div>
-        <div class="gpa-sub" style="margin-bottom:8px;">Sites that block embedding (banks, most social apps, soundcloud.com itself) won't load here — that's a security setting on their end which this doesn't try to bypass. Use the Music tab for actual SoundCloud playback.</div>
+        <div id="gpa-browser-proxy-row" class="gpa-row" style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;">
+            <input type="checkbox" id="gpa-browser-proxy-toggle" />
+            Route through my own local proxy (e.g. Scramjet) at localhost:4141
+          </label>
+        </div>
+        <div class="gpa-sub" style="margin-bottom:8px;">Sites that block embedding (banks, most social apps, soundcloud.com itself) won't load here by default — that's a security setting on their end. Turning on the toggle above sends loads to a proxy on your OWN machine instead (localhost:4141, e.g. Scramjet) if you have one running there — it does nothing if you don't, and it never affects anyone else who uses this script. Use the Music tab for actual SoundCloud playback.</div>
         <iframe id="gpa-browser-frame" class="gpa-iframe" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
         <div class="gpa-sub" style="margin:12px 0 6px;">🔎 Research mode — AI reads web sources and writes you a brief</div>
         <div class="gpa-row">
@@ -6357,16 +6363,49 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   });
   localVolume.addEventListener('input', () => { localAudio.volume = parseFloat(localVolume.value) / 100; });
 
-  // ---- Browser tab (plain iframe — only loads sites that allow embedding) --
+  // ---- Browser tab (plain iframe by default; an opt-in local proxy route) --
+  // By default this only loads sites that allow embedding — sites that
+  // refuse (banks, most social apps) keep refusing, on purpose, same as
+  // always. The one addition: an opt-in toggle that, when on, sends loads to
+  // localhost:4141 instead — where THIS device's own local proxy (e.g.
+  // github.com/MercuryWorkshop/scramjet, a separate project the user runs
+  // themselves) would be listening, if they have one running.
+  //
+  // There's deliberately no "detect whether something's listening there
+  // first" check: browsers block a plain fetch() probe from a page to a
+  // localhost/private address (Private Network Access) unless the local
+  // server opts in with a header a dev server like Vite's won't send, so
+  // that kind of check would silently report "not running" even when it is.
+  // A direct iframe navigation isn't restricted the same way, so the toggle
+  // is simply always available, and if nothing is listening the iframe just
+  // fails to load like any other broken address — the same honest-failure
+  // behavior the rest of this tab already relies on.
   const browserUrlInput = panel.querySelector('#gpa-browser-url');
   const browserGoBtn = panel.querySelector('#gpa-browser-go');
   const browserFrame = panel.querySelector('#gpa-browser-frame');
+  const browserProxyToggle = panel.querySelector('#gpa-browser-proxy-toggle');
+  const LOCAL_PROXY_ORIGIN = 'http://localhost:4141';
+  const LOCAL_PROXY_TOGGLE_KEY = 'gpa_browser_use_local_proxy';
+
+  browserProxyToggle.checked = localStorage.getItem(LOCAL_PROXY_TOGGLE_KEY) === '1';
+  browserProxyToggle.addEventListener('change', () => {
+    localStorage.setItem(LOCAL_PROXY_TOGGLE_KEY, browserProxyToggle.checked ? '1' : '0');
+  });
 
   function loadBrowserUrl() {
     let url = browserUrlInput.value.trim();
     if (!url) return;
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-    browserFrame.src = url;
+    if (browserProxyToggle.checked) {
+      // Scramjet's own demo app reads a ?goto= param on load and navigates
+      // its internal (sandboxed, same-origin-as-localhost) frame there —
+      // this script never loads Scramjet's client/service-worker code
+      // itself, it just hands the target URL to the user's own already-
+      // running instance.
+      browserFrame.src = `${LOCAL_PROXY_ORIGIN}/?goto=${encodeURIComponent(url)}`;
+    } else {
+      browserFrame.src = url;
+    }
   }
   browserGoBtn.addEventListener('click', loadBrowserUrl);
   browserUrlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadBrowserUrl(); });
