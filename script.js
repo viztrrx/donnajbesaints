@@ -405,13 +405,39 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <div id="gpa-snapshot-meta" class="gpa-sub" style="margin-top:8px;"></div>
             </div>
             <div class="gpa-card">
+              <div class="gpa-card-title">Quick actions</div>
+              <div class="gpa-row">
+                <button id="gpa-copy-text-btn" class="gpa-btn">📋 Copy page text</button>
+                <button id="gpa-copy-url-btn" class="gpa-btn">🔗 Copy page URL</button>
+              </div>
+              <div class="gpa-row">
+                <button id="gpa-print-btn" class="gpa-btn">🖨 Print page</button>
+              </div>
+              <div id="gpa-quick-action-status" class="gpa-sub"></div>
+            </div>
+            <div class="gpa-card">
+              <div class="gpa-card-title">Quick settings</div>
+              <div class="gpa-sub" style="margin-bottom:6px;">AI provider</div>
+              <div class="gpa-row">
+                <button class="gpa-btn provider-btn" data-provider="gemini">Gemini</button>
+                <button class="gpa-btn provider-btn primary" data-provider="openai">OpenAI</button>
+              </div>
+              <div class="gpa-sub" style="margin:10px 0 6px;">Page actions</div>
+              <div class="gpa-row">
+                <button class="gpa-btn autoconfirm-btn">✋ Confirm page clicks: ON</button>
+              </div>
+              <div class="gpa-row" style="margin-top:2px;">
+                <button id="gpa-more-settings-btn" class="gpa-btn">⚙ More settings…</button>
+              </div>
+            </div>
+            <div class="gpa-card">
               <div class="gpa-card-title">Automate</div>
               <div class="gpa-row">
                 <button id="gpa-quiz-btn" class="gpa-btn quiz-btn">✨ Solve quiz on this page</button>
               </div>
               <div class="gpa-row">
                 <button id="gpa-tutor-btn" class="gpa-btn">🎓 Tutor mode</button>
-                <button id="gpa-autofollow-btn" class="gpa-btn">📍 Auto-explain: ON</button>
+                <button id="gpa-autofollow-btn" class="gpa-btn">📍 Auto-explain</button>
               </div>
               <div class="gpa-row">
                 <button id="gpa-tables-btn" class="gpa-btn">📋 Extract tables</button>
@@ -783,7 +809,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Page actions</div>
         <div class="gpa-row">
-          <button id="gpa-autoconfirm-toggle" class="gpa-btn">✋ Confirm page clicks: ON</button>
+          <button id="gpa-autoconfirm-toggle" class="gpa-btn autoconfirm-btn">✋ Confirm page clicks: ON</button>
         </div>
         <div class="gpa-sub">When auto-confirm is ON, "Do it" clicks happen without asking — but anything risky (submit, send, delete, pay…) always still asks first.</div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Typing animation speed</div>
@@ -1374,7 +1400,21 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-scan-layout { display: flex; gap: 16px; flex: 1; min-height: 0; min-width: 0; }
       .gpa-scan-rail { flex: 0 0 250px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; overflow-x: hidden; }
       .gpa-scan-rail .gpa-row { flex-wrap: wrap; }
-      .gpa-scan-rail .gpa-btn { flex: 1; min-width: 90px; }
+      /* flex: 1 0 auto — grow yes, shrink NO, basis auto. This is the actual
+         Auto-explain bug: flex:1 alone means flex-basis:0% AND shrink:1, so
+         two buttons that don't really both fit get compressed into equal
+         halves below their own content width instead of wrapping, and
+         nowrap text then renders past the shrunk box's own border. Turning
+         shrink off removes that failure mode entirely — a button can never
+         be compressed smaller than its label needs, so when two don't fit
+         side by side, flex-wrap's only remaining option is to push the
+         second one onto its own line, at full (still readable) width.
+         Confirmed this is needed, not just basis:auto with shrink still on
+         — shrink:1 alone was still enough to compress and ellipsize labels
+         under the fixed 250px rail once a scrollbar ate a few of its
+         pixels. overflow/text-overflow remain as a last-resort safety net
+         for a single label too long even alone on its own full-width line. */
+      .gpa-scan-rail .gpa-btn { flex: 1 0 auto; min-width: 90px; overflow: hidden; text-overflow: ellipsis; }
       .gpa-scan-output-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overflow-x: hidden; gap: 10px; }
       /* Page snapshot: always populated the instant the tab opens (plain DOM
          stats, no AI call, no button to click) so the rail has real content
@@ -3917,9 +3957,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const btn = panel.querySelector('#gpa-autofollow-btn');
     if (!btn) return;
     const on = autoFollowOn();
-    btn.textContent = on ? '📍 Auto-explain: ON' : '📍 Auto-explain: OFF';
+    // Short, fixed-length label — state is shown by the primary/highlighted
+    // look (same convention as every other toggle button here), not by
+    // appending "ON"/"OFF" text, which previously ran wider than the
+    // button next to it in this two-up row and spilled past its own edge.
+    btn.textContent = '📍 Auto-explain';
     btn.classList.toggle('primary', on);
-    btn.title = 'After Tutor mode runs, float the explanation for whichever question is on screen and follow along as the quiz advances.';
+    btn.title = on
+      ? 'Auto-explain is ON. After Tutor mode runs, float the explanation for whichever question is on screen and follow along as the quiz advances. Click to turn off.'
+      : 'Auto-explain is OFF. Click to turn on: after Tutor mode runs, float the explanation for whichever question is on screen and follow along as the quiz advances.';
   }
 
   function setAutoFollow(on) {
@@ -4788,11 +4834,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const minutes = words ? Math.max(1, Math.round(words / 200)) : 0;
     const images = document.querySelectorAll('img').length;
     const links = document.querySelectorAll('a[href]').length;
+    const headings = document.querySelectorAll('h1,h2,h3,h4,h5,h6').length;
+    // Sentence count is a rough split, not a linguistic parser — good enough
+    // for an at-a-glance "how dense is this" number, not meant to be exact.
+    const sentenceCount = text ? (text.match(/[.!?]+(?=\s|$)/g) || []).length : 0;
+    const avgSentenceLen = sentenceCount ? Math.round(words / sentenceCount) : 0;
     const stats = [
       [words.toLocaleString(), 'words'],
       [minutes ? minutes + ' min' : '—', 'read time'],
       [images.toLocaleString(), 'images'],
-      [links.toLocaleString(), 'links']
+      [links.toLocaleString(), 'links'],
+      [avgSentenceLen ? avgSentenceLen.toLocaleString() : '—', 'words/sentence'],
+      [headings.toLocaleString(), 'headings']
     ];
     statsEl.innerHTML = '';
     stats.forEach(([num, label]) => {
@@ -4947,6 +5000,46 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       translatePageBtn.disabled = false;
     }
   });
+
+  // ---- Quick actions: plain browser APIs, no AI call needed --------------
+  const quickActionStatus = panel.querySelector('#gpa-quick-action-status');
+  function flashQuickAction(msg) {
+    if (!quickActionStatus) return;
+    quickActionStatus.textContent = msg;
+    setTimeout(() => { if (quickActionStatus.textContent === msg) quickActionStatus.textContent = ''; }, 2500);
+  }
+  const copyTextBtn = panel.querySelector('#gpa-copy-text-btn');
+  if (copyTextBtn) {
+    copyTextBtn.addEventListener('click', async () => {
+      try {
+        const clone = document.body.cloneNode(true);
+        clone.querySelectorAll('script,style,noscript,svg,canvas,iframe').forEach((el) => el.remove());
+        const full = (clone.innerText || clone.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+        await navigator.clipboard.writeText(full);
+        flashQuickAction('Copied ' + full.length.toLocaleString() + ' characters.');
+      } catch (e) { flashQuickAction('Could not copy — clipboard access was blocked.'); }
+    });
+  }
+  const copyUrlBtn = panel.querySelector('#gpa-copy-url-btn');
+  if (copyUrlBtn) {
+    copyUrlBtn.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(location.href); flashQuickAction('Copied the page URL.'); }
+      catch (e) { flashQuickAction('Could not copy — clipboard access was blocked.'); }
+    });
+  }
+  const printBtn = panel.querySelector('#gpa-print-btn');
+  if (printBtn) printBtn.addEventListener('click', () => window.print());
+
+  // Jumps straight to Settings from Page Insights, same as clicking its nav
+  // item — the two quick-access toggles above cover the ones relevant to
+  // this tab; everything else still lives in one place, not duplicated.
+  const moreSettingsBtn = panel.querySelector('#gpa-more-settings-btn');
+  if (moreSettingsBtn) {
+    moreSettingsBtn.addEventListener('click', () => {
+      const item = panel.querySelector('.gpa-dropdown-item[data-tab="theme"]');
+      if (item) item.click();
+    });
+  }
 
   captureBtn.addEventListener('click', async () => {
     const prevLabel = captureBtn.textContent;
@@ -5977,16 +6070,24 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // Auto-confirm for the "Do it" bar: when ON, harmless page clicks run
   // without asking. Risky verbs (submit, send, delete, pay…) always keep
   // their confirmation no matter what — that guard is not bypassable.
-  const autoConfirmBtn = panel.querySelector('#gpa-autoconfirm-toggle');
+  // Class-based rather than a single id, so the same toggle can appear a
+  // second time as a quick-access shortcut on Page Insights (right next to
+  // the "Do it" bar it actually governs) without the two copies drifting
+  // out of sync — both are just every element with this class.
+  const autoConfirmBtns = panel.querySelectorAll('.autoconfirm-btn');
   function renderAutoConfirmBtn() {
     const on = localStorage.getItem(AUTOCONFIRM_KEY) === 'on';
-    autoConfirmBtn.textContent = on ? '⚡ Confirm page clicks: OFF (auto)' : '✋ Confirm page clicks: ON';
-    autoConfirmBtn.classList.toggle('primary', on);
+    autoConfirmBtns.forEach((btn) => {
+      btn.textContent = on ? '⚡ Confirm page clicks: OFF (auto)' : '✋ Confirm page clicks: ON';
+      btn.classList.toggle('primary', on);
+    });
   }
-  autoConfirmBtn.addEventListener('click', () => {
-    const on = localStorage.getItem(AUTOCONFIRM_KEY) !== 'on';
-    localStorage.setItem(AUTOCONFIRM_KEY, on ? 'on' : 'off');
-    renderAutoConfirmBtn();
+  autoConfirmBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const on = localStorage.getItem(AUTOCONFIRM_KEY) !== 'on';
+      localStorage.setItem(AUTOCONFIRM_KEY, on ? 'on' : 'off');
+      renderAutoConfirmBtn();
+    });
   });
   renderAutoConfirmBtn();
 
