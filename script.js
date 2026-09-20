@@ -225,6 +225,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   };
   const clearInterval = function (id) { gpaIntervals.delete(id); return window.clearInterval(id); };
 
+  // Holds the mounted Welcome-pane 3D scene (declared early since applyTheme,
+  // called during initial setup, reads it via updateWelcome3dColor()).
+  let gpaWelcome3d = null; // { renderer, scene, camera, mesh, raf } once mounted
+
   // ---- Themes ---------------------------------------------------------
   const THEMES = {
     dark:      { bg: '#0b0b0f', panel: '#16161c', field: '#1e1e26', text: '#eaeaf0', sub: '#9a9aa8', accent: '#5b8cff', accentFg: '#ffffff', border: '#26262f' },
@@ -364,6 +368,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <svg class="gpa-chevron" viewBox="0 0 20 20" width="13" height="13"><path d="M5 7l5 6 5-6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="gpa-dropdown-menu" id="gpa-dropdown-menu">
+          <button class="gpa-dropdown-item" data-tab="welcome"><span class="gpa-nav-ic">☀</span><span class="gpa-nav-label">Welcome</span></button>
           <button class="gpa-dropdown-item active" data-tab="scan"><span class="gpa-nav-ic">◧</span><span class="gpa-nav-label">Page Insights</span></button>
           <button class="gpa-dropdown-item" data-tab="ask"><span class="gpa-nav-ic">✦</span><span class="gpa-nav-label">Ask AI</span></button>
           <button class="gpa-dropdown-item" data-tab="chat"><span class="gpa-nav-ic">◔</span><span class="gpa-nav-label">Chat</span><span id="gpa-chat-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
@@ -380,6 +385,44 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       </div>
       </nav>
       <main class="gpa-main" id="gpa-main">
+
+      <div class="gpa-pane" data-pane="welcome">
+        <div class="gpa-welcome-flow">
+          <div class="gpa-card">
+            <div class="gpa-row" style="flex-wrap:wrap; align-items:center;">
+              <div style="flex:1; min-width:160px;">
+                <div id="gpa-welcome-greeting" class="gpa-welcome-greeting">Welcome</div>
+                <div id="gpa-welcome-sub" class="gpa-sub"></div>
+              </div>
+              <canvas id="gpa-welcome-3d" width="140" height="140" style="display:none;"></canvas>
+            </div>
+          </div>
+
+          <div class="gpa-card">
+            <div class="gpa-card-title">Right now</div>
+            <div class="gpa-snapshot-grid">
+              <div class="gpa-snapshot-stat">
+                <div id="gpa-welcome-nyc-time" class="gpa-snapshot-num">--:--</div>
+                <div class="gpa-snapshot-label">NYC time</div>
+              </div>
+              <div class="gpa-snapshot-stat">
+                <div id="gpa-welcome-temp" class="gpa-snapshot-num">--°</div>
+                <div id="gpa-welcome-condition" class="gpa-snapshot-label">Lehigh Acres, FL</div>
+              </div>
+            </div>
+            <div id="gpa-welcome-weather-meta" class="gpa-sub" style="margin-top:8px;">Loading weather…</div>
+          </div>
+
+          <div class="gpa-card">
+            <div class="gpa-card-title">Lehigh Acres, FL — local news</div>
+            <div id="gpa-welcome-news" class="gpa-welcome-news-text">Looking for local news…</div>
+            <div class="gpa-row" style="margin-top:8px;">
+              <button id="gpa-welcome-news-refresh" class="gpa-btn">🔄 Refresh</button>
+            </div>
+            <div id="gpa-welcome-news-meta" class="gpa-sub"></div>
+          </div>
+        </div>
+      </div>
 
       <div class="gpa-pane active" data-pane="scan">
         <div class="gpa-scan-flow">
@@ -1218,6 +1261,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function applyTheme(name) {
     theme = THEMES[name] ? name : 'matte';
     localStorage.setItem(THEME_KEY, theme);
+    if (typeof updateWelcome3dColor === 'function') updateWelcome3dColor();
     const t = THEMES[theme];
     style.textContent = `
       * { box-sizing: border-box; font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
@@ -1405,7 +1449,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          vertical stack has neither problem, and buttons here get the exact
          same safe, content-width, wraps-naturally sizing every other card's
          buttons already have via .gpa-row's default flex-wrap. */
-      .gpa-scan-flow { display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; min-width: 0; }
+      .gpa-scan-flow, .gpa-welcome-flow { display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; min-width: 0; }
       /* .gpa-btn's base white-space:nowrap is safe everywhere else, but this
          tab's fixed sidebar (190px) can leave .gpa-main under 100px wide at
          the Compact preset — confirmed by measuring actual rendered widths,
@@ -1416,7 +1460,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          text in a fixed-width box" rule) is the fix; the row's flex-wrap
          alone can't help since that only moves whole buttons to new lines,
          not the text within one. */
-      .gpa-scan-flow .gpa-btn { white-space: normal; min-width: 0; text-align: center; }
+      .gpa-scan-flow .gpa-btn, .gpa-welcome-flow .gpa-btn { white-space: normal; min-width: 0; text-align: center; }
       /* text <input> elements default to a sizable browser-intrinsic
          min-width that flex: 1 alone doesn't override — confirmed via
          measurement as the last remaining overflow source at Compact
@@ -1424,7 +1468,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          above. min-width: 0 is the standard, universally-safe fix for a
          flex-item input; scoped here rather than on the shared .gpa-input
          rule to keep this change to the tab that was actually tested. */
-      .gpa-scan-flow .gpa-input { min-width: 0; }
+      .gpa-scan-flow .gpa-input, .gpa-welcome-flow .gpa-input { min-width: 0; }
+      /* Welcome pane: greeting heading, the small ambient 3D accent canvas,
+         and the news-summary paragraph. Kept minimal — everything else
+         (cards, stat grid, buttons) reuses Page Insights' existing classes
+         as-is, per the plan's "reuse, don't duplicate" rule. */
+      .gpa-welcome-greeting { font-size: 18px; font-weight: 700; color: ${t.text}; text-wrap: balance; line-height: 1.3; }
+      #gpa-welcome-3d { width: 140px; height: 140px; flex-shrink: 0; border-radius: 12px; }
+      .gpa-welcome-news-text { font-size: 13px; line-height: 1.6; color: ${t.text}; white-space: pre-wrap; overflow-wrap: break-word; }
       /* "Ask about it" is deliberately not a .gpa-card — no box, no border —
          it's a section heading inside the same flowing column, immediately
          followed by its own output area below. */
@@ -2501,12 +2552,246 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       if (item.dataset.tab === 'saved') renderSavedInsights();
       if (item.dataset.tab === 'study') renderDeck();
+      // Re-fetch weather/news if the user navigates back later in the
+      // session — the clock is already ticking continuously via its own
+      // interval and doesn't need a refresh here.
+      if (item.dataset.tab === 'welcome' && typeof refreshWelcomeData === 'function') refreshWelcomeData();
       if (item.dataset.tab === 'scan' && typeof updatePageSnapshot === 'function') updatePageSnapshot();
       // A hidden pane measures as zero, so games can only be sized once
       // the tab is actually visible.
       else requestAnimationFrame(() => { if (typeof fitGameToStage === 'function') fitGameToStage(); });
     });
   });
+
+  // ---- Welcome pane (landing screen shown right after sign-in) -----------
+  // Time-of-day greeting, a live NYC clock, real Lehigh Acres FL weather and
+  // news, and a small ambient 3D accent. Weather calls Open-Meteo directly
+  // (no worker involved — see worker.js's content-type-locked /read route);
+  // news reuses the app's own "AI picks a real URL -> worker /read -> AI
+  // summarizes only what's there" research pattern from the Browser tab.
+  function renderWelcomeGreeting() {
+    const greetEl = panel.querySelector('#gpa-welcome-greeting');
+    const subEl = panel.querySelector('#gpa-welcome-sub');
+    if (!greetEl) return;
+    const hour = new Date().getHours();
+    const part = hour < 5 ? 'Good night' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    greetEl.textContent = currentUser ? `${part}, ${currentUser}` : part;
+    if (subEl) {
+      subEl.textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    }
+  }
+
+  function renderNycClock() {
+    const el = panel.querySelector('#gpa-welcome-nyc-time');
+    if (!el) return;
+    try {
+      el.textContent = new Date().toLocaleTimeString('en-US', {
+        timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', second: '2-digit'
+      });
+    } catch (e) { el.textContent = '--:--'; }
+  }
+  let nycClockInterval = null;
+  function startNycClock() {
+    renderNycClock();
+    if (!nycClockInterval) nycClockInterval = setInterval(renderNycClock, 1000);
+  }
+
+  // WMO weather codes (Open-Meteo) -> short label + matching emoji, kept
+  // consistent with the app's existing emoji-icon convention.
+  const WMO_WEATHER = {
+    0: ['Clear sky', '☀️'], 1: ['Mainly clear', '🌤️'], 2: ['Partly cloudy', '⛅'], 3: ['Overcast', '☁️'],
+    45: ['Fog', '🌫️'], 48: ['Rime fog', '🌫️'],
+    51: ['Light drizzle', '🌦️'], 53: ['Drizzle', '🌦️'], 55: ['Dense drizzle', '🌧️'],
+    56: ['Freezing drizzle', '🌧️'], 57: ['Freezing drizzle', '🌧️'],
+    61: ['Light rain', '🌧️'], 63: ['Rain', '🌧️'], 65: ['Heavy rain', '🌧️'],
+    66: ['Freezing rain', '🌧️'], 67: ['Freezing rain', '🌧️'],
+    71: ['Light snow', '❄️'], 73: ['Snow', '❄️'], 75: ['Heavy snow', '❄️'], 77: ['Snow grains', '❄️'],
+    80: ['Rain showers', '🌦️'], 81: ['Rain showers', '🌧️'], 82: ['Violent showers', '⛈️'],
+    85: ['Snow showers', '🌨️'], 86: ['Snow showers', '🌨️'],
+    95: ['Thunderstorm', '⛈️'], 96: ['Thunderstorm, hail', '⛈️'], 99: ['Thunderstorm, hail', '⛈️']
+  };
+
+  async function fetchLehighWeather() {
+    const tempEl = panel.querySelector('#gpa-welcome-temp');
+    const condEl = panel.querySelector('#gpa-welcome-condition');
+    const metaEl = panel.querySelector('#gpa-welcome-weather-meta');
+    if (!tempEl) return;
+    metaEl.textContent = 'Loading weather…';
+    try {
+      const res = await window.fetch(
+        'https://api.open-meteo.com/v1/forecast?latitude=26.6151&longitude=-81.6155&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&temperature_unit=fahrenheit&timezone=America%2FNew_York'
+      );
+      if (!res.ok) throw new Error('bad response');
+      const data = await res.json();
+      const cur = data && data.current;
+      if (!cur || typeof cur.temperature_2m !== 'number') throw new Error('no current data');
+      const [label, emoji] = WMO_WEATHER[cur.weather_code] || ['Unknown', '🌡️'];
+      tempEl.textContent = `${Math.round(cur.temperature_2m)}°F`;
+      condEl.textContent = `${emoji} ${label} · Lehigh Acres, FL`;
+      const asOf = cur.time
+        ? new Date(cur.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        : new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      const wind = typeof cur.wind_speed_10m === 'number' ? ` · Wind ${Math.round(cur.wind_speed_10m)} mph` : '';
+      const humidity = typeof cur.relative_humidity_2m === 'number' ? ` · Humidity ${cur.relative_humidity_2m}%` : '';
+      metaEl.textContent = `Weather as of ${asOf}${wind}${humidity}`;
+    } catch (e) {
+      tempEl.textContent = '--°';
+      condEl.textContent = 'Lehigh Acres, FL';
+      metaEl.textContent = "Couldn't reach the weather service.";
+    }
+  }
+
+  async function fetchLehighNews() {
+    const newsEl = panel.querySelector('#gpa-welcome-news');
+    const metaEl = panel.querySelector('#gpa-welcome-news-meta');
+    const refreshBtn = panel.querySelector('#gpa-welcome-news-refresh');
+    if (!newsEl) return;
+    newsEl.textContent = 'Looking for local news…';
+    metaEl.textContent = '';
+    if (refreshBtn) refreshBtn.disabled = true;
+    try {
+      if (!OPENAI_PROXY) throw new Error('no proxy');
+      const urlOut = await callAI(
+        'Name ONE real, specific, currently-live local news web page about Lehigh Acres, Florida (or Lee County, FL news covering Lehigh Acres). Respond ONLY with a JSON object: {"url":"..."} — NEVER invent, guess, or approximate a URL. Include "url" ONLY when you are certain that exact address currently exists and is reachable; otherwise respond with {"url":null}. A missing URL is far better than a broken or made-up one.',
+        'You are a careful local-news researcher who never fabricates sources.'
+      );
+      let picked = null;
+      try { picked = JSON.parse(urlOut.match(/\{[\s\S]*\}/)[0]); } catch (e) { picked = null; }
+      const url = picked && typeof picked.url === 'string' ? picked.url.trim() : '';
+      if (!url) throw new Error('no verified url');
+      const r = await rawFetch(`${OPENAI_PROXY}/read?url=${encodeURIComponent(url)}`, {
+        headers: currentUser ? { 'X-GPA-User': currentUser } : {}
+      });
+      if (!r.ok) throw new Error('fetch failed');
+      const html = await r.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      doc.querySelectorAll('script,style,noscript,svg,nav,footer,header').forEach((el) => el.remove());
+      const txt = (doc.body.innerText || '').replace(/\s+\n/g, '\n').trim();
+      if (txt.length < 200) throw new Error('page too thin');
+      const summary = await callAI(
+        `Here is the raw text of a news page about Lehigh Acres, FL:\n\n${txt.slice(0, 8000)}`,
+        'Summarize ONLY what is actually stated in this text, in 2-3 plain sentences. Do not add any outside facts, dates, or claims not present in the text. No markdown symbols.'
+      );
+      newsEl.textContent = stripConfidence(summary);
+      metaEl.textContent = `Source: ${url} · Updated ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+    } catch (e) {
+      newsEl.textContent = 'No verified local news source found right now. Try refreshing in a bit.';
+      metaEl.textContent = '';
+    } finally {
+      if (refreshBtn) refreshBtn.disabled = false;
+    }
+  }
+
+  function refreshWelcomeData() {
+    fetchLehighWeather();
+    fetchLehighNews();
+  }
+  const welcomeRefreshBtn = panel.querySelector('#gpa-welcome-news-refresh');
+  if (welcomeRefreshBtn) welcomeRefreshBtn.addEventListener('click', fetchLehighNews);
+
+  // Small ambient 3D accent (Three.js, "Layered Separation" pattern): a
+  // single low-poly icosahedron, rotating about once per 45s — deliberately
+  // slow and small so it reads as ambient, never attention-grabbing.
+  function stopWelcome3d() {
+    if (gpaWelcome3d && gpaWelcome3d.raf) cancelAnimationFrame(gpaWelcome3d.raf);
+  }
+
+  function updateWelcome3dColor() {
+    if (!gpaWelcome3d || !gpaWelcome3d.mesh) return;
+    const accent = (THEMES[theme] || THEMES.matte).accent;
+    gpaWelcome3d.mesh.material.color.set(accent);
+  }
+
+  function mountWelcome3d() {
+    const canvas = panel.querySelector('#gpa-welcome-3d');
+    if (!canvas || typeof THREE === 'undefined') return;
+    if (gpaWelcome3d) { canvas.style.display = ''; return; } // already mounted
+    try {
+      const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(140, 140, false);
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 10);
+      camera.position.z = 3.2;
+      const geo = new THREE.IcosahedronGeometry(1.15, 0);
+      const mat = new THREE.MeshStandardMaterial({
+        color: (THEMES[theme] || THEMES.matte).accent, flatShading: true, roughness: 0.4, metalness: 0.1
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      scene.add(mesh);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+      const light = new THREE.DirectionalLight(0xffffff, 0.8);
+      light.position.set(2, 2, 3);
+      scene.add(light);
+
+      gpaWelcome3d = { renderer, scene, camera, mesh, raf: null };
+      canvas.style.display = '';
+
+      const motionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+      const reduceMotion = () => !!(motionQuery && motionQuery.matches);
+      // ~one full turn per 45s at 60fps.
+      const perFrame = (Math.PI * 2) / (45 * 60);
+      function frame() {
+        if (reduceMotion()) {
+          renderer.render(scene, camera); // one static frame, then stop
+          gpaWelcome3d.raf = null;
+          return;
+        }
+        mesh.rotation.x += perFrame * 0.6;
+        mesh.rotation.y += perFrame;
+        renderer.render(scene, camera);
+        gpaWelcome3d.raf = requestAnimationFrame(frame);
+      }
+      // The frame() loop only checks reduceMotion() on its own tick, so once
+      // it stops there's nothing left running to notice the preference
+      // turning back off — this listener is what restarts it.
+      if (motionQuery) {
+        const onMotionChange = () => { if (!reduceMotion() && gpaWelcome3d && gpaWelcome3d.raf === null) frame(); };
+        if (motionQuery.addEventListener) motionQuery.addEventListener('change', onMotionChange);
+        else if (motionQuery.addListener) motionQuery.addListener(onMotionChange); // older Safari
+      }
+      frame();
+    } catch (e) {
+      canvas.style.display = 'none';
+    }
+  }
+
+  let threeJsLoadState = 'idle'; // idle | loading | ready | failed
+  function loadThreeJs() {
+    const canvas = panel.querySelector('#gpa-welcome-3d');
+    if (threeJsLoadState === 'ready') { mountWelcome3d(); return; }
+    if (threeJsLoadState === 'loading' || threeJsLoadState === 'failed') return;
+    if (typeof THREE !== 'undefined') { threeJsLoadState = 'ready'; mountWelcome3d(); return; }
+    if (document.getElementById('gpa-threejs-script')) return; // another instance already injecting it
+    threeJsLoadState = 'loading';
+    const script = document.createElement('script');
+    script.id = 'gpa-threejs-script';
+    script.src = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js';
+    script.onload = () => { threeJsLoadState = 'ready'; mountWelcome3d(); };
+    script.onerror = () => {
+      threeJsLoadState = 'failed';
+      if (canvas) canvas.style.display = 'none';
+    };
+    document.head.appendChild(script);
+  }
+
+  function activateWelcomePane() {
+    panel.querySelectorAll('.gpa-dropdown-item').forEach((b) => b.classList.remove('active'));
+    panel.querySelectorAll('.gpa-pane').forEach((p) => p.classList.remove('active'));
+    const navItem = panel.querySelector('.gpa-dropdown-item[data-tab="welcome"]');
+    const pane = panel.querySelector('.gpa-pane[data-pane="welcome"]');
+    if (navItem) navItem.classList.add('active');
+    if (pane) pane.classList.add('active');
+    if (navItem && dropdownLabel) {
+      const badge = navItem.querySelector('.gpa-chat-badge');
+      dropdownLabel.textContent = badge ? navItem.textContent.replace(badge.textContent, '').trim() : navItem.textContent;
+    }
+    renderWelcomeGreeting();
+    startNycClock();
+    refreshWelcomeData();
+    loadThreeJs();
+  }
+
 (function wireReasoning() {
   const btns = panel.querySelectorAll('.gpa-reason');
   const note = panel.querySelector('#gpa-reason-note');
@@ -2535,12 +2820,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // and the admin console is a much larger job than this covers today.
   const LANG_KEY = 'gpa_language';
   const NAV_LABELS_EN = {
-    scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat', music: 'Music',
+    welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat', music: 'Music',
     browser: 'Browser', games: 'Games', study: 'Study', notes: 'Notes',
     humanize: 'Humanize', grammar: 'Grammar', saved: 'Saved', theme: 'Settings'
   };
   const I18N = {
     es: {
+      'Welcome': 'Bienvenida',
       'Page Insights': 'Información de la página', 'Ask AI': 'Preguntar a la IA',
       'Chat': 'Chat', 'Music': 'Música', 'Browser': 'Navegador', 'Games': 'Juegos',
       'Study': 'Estudio', 'Notes': 'Notas', 'Humanize': 'Humanizar', 'Grammar': 'Gramática', 'Saved': 'Guardado', 'Settings': 'Ajustes',
@@ -7404,6 +7690,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     try { if (typeof startChatPolling === 'function') startChatPolling(); } catch (e) { /* chat is best-effort */ }
     loginOverlay.style.display = 'none';
     setLockedChrome(false);
+    // Every sign-in — fresh or restored — lands on the Welcome pane first,
+    // not whichever pane happened to be marked active in the static HTML.
+    if (typeof activateWelcomePane === 'function') activateWelcomePane();
     refreshAccountUI();
     reapplyAllSettings();
     // The restored profile brought its own language with it, so re-translate
