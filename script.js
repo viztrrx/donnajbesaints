@@ -5875,11 +5875,28 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   })();
 
   // Shared by the selection-assistant bubble AND the standalone Humanize tab
-  // below, so both surfaces rewrite text the exact same way. Rewrites
-  // stiff/robotic phrasing into something that reads the way a person would
-  // actually write it — a writing-quality aid, not a tool for disguising
-  // text's origin. Meaning, facts, and length must stay intact.
-  const HUMANIZE_PROMPT = 'Rewrite the given text so it reads naturally, the way a person would actually write it — vary sentence length and structure, and cut stiff, repetitive, or overly formal phrasing. Keep the exact same meaning, facts, and length; do not add, remove, or invent any information.';
+  // below, so both surfaces rewrite text the exact same way. A writing-
+  // quality aid, not a tool for disguising text's origin — meaning, facts,
+  // and length must stay intact. The specific tics it targets are drawn from
+  // documented research on what actually reads as AI-generated: overused
+  // "AI vocabulary" and stock transitions catalogued by Wikipedia's
+  // WikiProject AI Cleanup (en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing),
+  // the "it's not X, it's Y" contrastive-antithesis pattern and rule-of-three
+  // overuse documented by GPTZero and others, and the perplexity/burstiness
+  // research showing AI text defaults to uniform sentence length and
+  // predictable word choice rather than the natural variation in human prose.
+  // VOICE targets a high-school-sophomore register (simpler vocabulary and
+  // sentence complexity) at the user's request — still bound by the same
+  // meaning/facts/length guardrail as everything else here.
+  const HUMANIZE_PROMPT = 'Rewrite the given text so it reads the way an actual person would write it — fix the specific habits that make AI-generated text sound artificial, not just swap in synonyms. '
+    + 'VOCABULARY: cut inflated, overused words like delve, tapestry, landscape, realm, boasts, showcase, underscore, testament, vibrant, intricate, pivotal, crucial, meticulous, robust, comprehensive, multifaceted, leverage, utilize, harness, foster, elevate, unlock, navigate, embark, garner, bolster, cultivate, seamless, cutting-edge, game-changer, groundbreaking, ever-evolving — use plainer, more specific words instead. '
+    + 'STOCK PHRASES: drop filler like "it\'s important to note", "it\'s worth noting", "in today\'s fast-paced world", "when it comes to X", "at the end of the day", "moreover", "furthermore", "in conclusion", "overall" — say the thing directly instead of announcing that you\'re about to say it. '
+    + 'STRUCTURE: break up the "it\'s not just X, it\'s Y" / "not only X but also Y" contrast pattern, forcing lists into exactly three items, and tacking a vague "-ing" clause onto sentence endings for false significance (e.g. "...further underscoring its importance"). Vary how sentences open and close. '
+    + 'RHYTHM: AI text defaults to uniform sentence length and safe, predictable phrasing — deliberately mix short, punchy sentences with longer ones, the way people actually write. '
+    + 'PUNCTUATION: don\'t use em dashes as an all-purpose connector; use commas, periods, or parentheses where a person actually would. '
+    + 'TONE: cut indiscriminate flattering adjectives (fascinating, remarkable, vibrant) applied to things that don\'t warrant them, and don\'t downplay something\'s importance right before asserting how important it is. '
+    + 'VOICE: write at the level of a high school sophomore — everyday vocabulary instead of advanced or academic-sounding words, simpler and more direct sentence structure instead of dense multi-clause sentences, and straightforward reasoning instead of elaborate, layered argumentation. If the original text uses a technical term the meaning depends on, keep the term but explain it plainly rather than swapping it for an even fancier synonym. '
+    + 'Keep the exact same meaning, facts, and length throughout — do not add, remove, or invent information.';
 
   // Text-selection assistant: select any text on the page → floating bubble
   // with Explain / Simplify / Translate / Define / Humanize / clean-copy / save.
