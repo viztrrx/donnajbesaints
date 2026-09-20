@@ -373,6 +373,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button class="gpa-dropdown-item" data-tab="study"><span class="gpa-nav-ic">◈</span><span class="gpa-nav-label">Study</span></button>
           <button class="gpa-dropdown-item" data-tab="notes"><span class="gpa-nav-ic">▤</span><span class="gpa-nav-label">Notes</span></button>
           <button class="gpa-dropdown-item" data-tab="humanize"><span class="gpa-nav-ic">✎</span><span class="gpa-nav-label">Humanize</span></button>
+          <button class="gpa-dropdown-item" data-tab="grammar"><span class="gpa-nav-ic">✓</span><span class="gpa-nav-label">Grammar</span></button>
           <button class="gpa-dropdown-item" data-tab="saved"><span class="gpa-nav-ic">☆</span><span class="gpa-nav-label">Saved</span></button>
           <button class="gpa-dropdown-item" data-tab="theme"><span class="gpa-nav-ic">⚙</span><span class="gpa-nav-label">Settings</span></button>
         </div>
@@ -669,7 +670,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <input id="gpa-notes-q" class="gpa-input" placeholder="Ask anything about the passage…" />
           <button id="gpa-notes-q-btn" class="gpa-btn primary">Ask</button>
         </div>
-        <div id="gpa-notes-chat" class="gpa-chat" style="max-height:220px;"></div>
+        <div id="gpa-notes-chat" class="gpa-chat"></div>
       </div>
 
       <div class="gpa-pane" data-pane="humanize">
@@ -682,6 +683,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         </div>
         <div id="gpa-hum-status" class="gpa-sub" style="margin-bottom:6px;">Rewrites stiff or robotic phrasing so it reads the way a person would actually write it — meaning, facts, and length stay the same.</div>
         <div id="gpa-hum-out" class="gpa-output"></div>
+      </div>
+
+      <div class="gpa-pane" data-pane="grammar">
+        <div class="gpa-row">
+          <textarea id="gpa-gram-input" class="gpa-sync-box" style="height:140px;" placeholder="Paste any text here to check for grammar, spelling, and punctuation errors — from anywhere, not just this page."></textarea>
+        </div>
+        <div class="gpa-row">
+          <button id="gpa-gram-go" class="gpa-btn primary">✓ Check grammar</button>
+        </div>
+        <div id="gpa-gram-status" class="gpa-sub" style="margin-bottom:6px;">Fixes actual errors only — style, tone, and word choice are left alone. Each fix is explained so you can learn from it.</div>
+        <div id="gpa-gram-out" class="gpa-output"></div>
       </div>
 
       <div id="gpa-save-modal" class="gpa-modal" style="display:none;">
@@ -1170,6 +1182,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const t = THEMES[theme];
     style.textContent = `
       * { box-sizing: border-box; font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      /* Scoped to this panel's own shadow root, so it never touches the host
+         page: anyone with reduced-motion turned on gets every transition and
+         animation in here collapsed to effectively instant, same as the
+         rest of a well-behaved page would. */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.001ms !important; animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important; scroll-behavior: auto !important;
+        }
+      }
       .gpa-particle-wrap { position: relative; }
       #gpa-particles {
         position: absolute; z-index: 0; pointer-events: none; display: none;
@@ -1238,11 +1260,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-sidebar {
         flex-shrink: 0; width: 190px; padding: 12px 8px;
         background: ${t.panel}; border-right: 1px solid ${t.border};
-        overflow-y: auto;
+        overflow-y: auto; overflow-x: hidden;
+        transition: width 0.26s cubic-bezier(0.16, 1, 0.3, 1), padding 0.26s cubic-bezier(0.16, 1, 0.3, 1),
+                    opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.26s cubic-bezier(0.16, 1, 0.3, 1),
+                    visibility 0s linear 0s;
       }
       /* Collapsed: just the active tool's content shows, full width — the
-         header's toggle button (always visible) brings the sidebar back. */
-      .gpa-panel.gpa-sidebar-hidden .gpa-sidebar { display: none; }
+         header's toggle button (always visible) brings the sidebar back.
+         Animated (width/opacity, not display:none) so both the manual
+         toggle and the auto-close-on-tab-select below have something to
+         actually animate; visibility switches to hidden only once the rest
+         of the transition finishes, so nothing sits invisible-but-clickable
+         mid-animation, and switches back to visible immediately on reopen. */
+      .gpa-panel.gpa-sidebar-hidden .gpa-sidebar {
+        width: 0; padding-left: 0; padding-right: 0; opacity: 0; border-color: transparent;
+        pointer-events: none; visibility: hidden;
+        transition-delay: 0s, 0s, 0s, 0s, 0.26s;
+      }
       .gpa-main {
         flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
         padding: 16px; user-select: text;
@@ -1272,10 +1306,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         font-size: 12.5px; font-weight: 500; color: ${t.sub}; line-height: 1.3;
         background: transparent; border: 1px solid transparent; border-radius: 9px;
         cursor: pointer;
-        transition: background 0.15s ease, color 0.15s ease;
+        transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
       }
       .gpa-nav-ic { flex-shrink: 0; width: 16px; text-align: center; opacity: 0.85; font-size: 13px; }
       .gpa-dropdown-item:hover { background: ${t.field}; color: ${t.text}; }
+      .gpa-dropdown-item:active { transform: scale(0.98); }
       .gpa-dropdown-item:focus-visible { outline: 2px solid ${t.accent}; outline-offset: 1px; }
       .gpa-dropdown-item.active {
         color: ${t.accentFg}; background: ${t.accent};
@@ -1293,7 +1328,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-pane { display: none; }
       .gpa-pane.active {
         display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0;
-        animation: gpa-pane-in 0.18s ease both;
+        animation: gpa-pane-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
       }
       @keyframes gpa-pane-in {
         from { opacity: 0; transform: translateY(3px); }
@@ -1376,10 +1411,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         color: ${t.sub}; font-size: 11.5px; flex: 1;
       }
       .gpa-output {
-        /* flex-shrink: 0 — inside the scrolling pane this box must size to
-           its content (up to max-height), or rows of buttons below/above
-           squeeze it down to a single visible line. */
-        margin-top: 8px; flex: 0 0 auto; max-height: 320px; overflow-y: auto;
+        /* flex: 1 1 auto with a min-height — grows to fill whatever room the
+           pane actually has (a lot, in the full-page panel size) instead of
+           capping out at a fixed height and leaving the rest of a large
+           panel empty, but still won't collapse below min-height when rows
+           of buttons above/below it are competing for space in a small
+           panel. Content beyond the box's size scrolls inside it. */
+        margin-top: 8px; flex: 1 1 auto; min-height: 100px; overflow-y: auto;
         font-size: 13px; line-height: 1.6; white-space: pre-wrap;
         overflow-wrap: break-word; word-break: break-word;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
@@ -1660,7 +1698,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         position: absolute; inset: 0; z-index: 10;
         background: ${t.bg}e8; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
         display: flex; align-items: center; justify-content: center; padding: 10px;
-        animation: gpa-pane-in 0.18s ease both;
+        animation: gpa-pane-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
       }
       .gpa-pause-card {
         width: 100%; max-width: 340px; padding: 18px;
@@ -2332,6 +2370,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const badge = item.querySelector('.gpa-chat-badge');
       dropdownLabel.textContent = badge ? item.textContent.replace(badge.textContent, '').trim() : item.textContent;
       dropdown.classList.remove('open');
+      // Picking a tab while the sidebar is open closes it right after —
+      // matches tapping a destination in a mobile nav drawer: you chose
+      // where to go, so the menu gets out of the way and the content gets
+      // the room back. The toggle button itself isn't part of this list, so
+      // this never fires from clicking it — only from an actual tab pick.
+      if (!panel.classList.contains('gpa-sidebar-hidden')) setSidebarHidden(true);
       if (item.dataset.tab !== 'games') stopActiveGame();
       if (item.dataset.tab === 'chat') {
         if (typeof startChatPolling === 'function') startChatPolling();
@@ -2377,13 +2421,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const NAV_LABELS_EN = {
     scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat', music: 'Music',
     browser: 'Browser', games: 'Games', study: 'Study', notes: 'Notes',
-    humanize: 'Humanize', saved: 'Saved', theme: 'Settings'
+    humanize: 'Humanize', grammar: 'Grammar', saved: 'Saved', theme: 'Settings'
   };
   const I18N = {
     es: {
       'Page Insights': 'Información de la página', 'Ask AI': 'Preguntar a la IA',
       'Chat': 'Chat', 'Music': 'Música', 'Browser': 'Navegador', 'Games': 'Juegos',
-      'Study': 'Estudio', 'Notes': 'Notas', 'Humanize': 'Humanizar', 'Saved': 'Guardado', 'Settings': 'Ajustes',
+      'Study': 'Estudio', 'Notes': 'Notas', 'Humanize': 'Humanizar', 'Grammar': 'Gramática', 'Saved': 'Guardado', 'Settings': 'Ajustes',
       'Agent Console': 'Consola del Agente',
       'Sign in to continue': 'Inicia sesión para continuar',
       'Welcome back': 'Bienvenido de nuevo',
@@ -5898,6 +5942,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     + 'VOICE: write at the level of a high school sophomore — everyday vocabulary instead of advanced or academic-sounding words, simpler and more direct sentence structure instead of dense multi-clause sentences, and straightforward reasoning instead of elaborate, layered argumentation. If the original text uses a technical term the meaning depends on, keep the term but explain it plainly rather than swapping it for an even fancier synonym. '
     + 'Keep the exact same meaning, facts, and length throughout — do not add, remove, or invent information.';
 
+  // Shared by the selection-assistant bubble AND the standalone Grammar tab
+  // below, same reasoning as HUMANIZE_PROMPT above. Deliberately narrower in
+  // scope than Humanize: fixes actual errors only, and explicitly leaves
+  // style/tone/word choice alone so the two tools stay clearly distinct.
+  const GRAMMAR_PROMPT = 'Proofread the given text for grammar, spelling, and punctuation errors only — do not change the writer\'s style, tone, word choice, or length beyond what is needed to fix an actual error. Reply with the corrected version first, then a blank line, then "Fixed:" followed by one short line per correction naming what was wrong and the fix. If there are no errors, reply with the text unchanged, then a blank line, then "No errors found."';
+
   // Text-selection assistant: select any text on the page → floating bubble
   // with Explain / Simplify / Translate / Define / Humanize / Grammar / clean-copy / save.
   (function selectionAssistant() {
@@ -5907,7 +5957,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       ['Translate', 'Translate the selected text to English. If it is already in English, translate it to Spanish.'],
       ['Define', 'Define the key terms, jargon, or names in the selected text — one per line, term first.'],
       ['Humanize', HUMANIZE_PROMPT, true],
-      ['Grammar', 'Proofread the selected text for grammar, spelling, and punctuation errors only — do not change the writer\'s style, tone, word choice, or length beyond what is needed to fix an actual error. Reply with the corrected version first, then a blank line, then "Fixed:" followed by one short line per correction naming what was wrong and the fix. If there are no errors, reply with the text unchanged, then a blank line, then "No errors found."'],
+      ['Grammar', GRAMMAR_PROMPT],
       ['📋 Clean', null],
       ['💾', 'save']
     ];
@@ -6056,6 +6106,40 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       run(text, false);
     });
     retryBtn.addEventListener('click', () => { if (lastInput) run(lastInput, true); });
+  })();
+
+  // Standalone Grammar tab: same proofread as the selection-assistant bubble
+  // (shares GRAMMAR_PROMPT above), but works on pasted text from anywhere,
+  // same reasoning as the standalone Humanize tab.
+  (function grammarTool() {
+    const input = panel.querySelector('#gpa-gram-input');
+    const goBtn = panel.querySelector('#gpa-gram-go');
+    const status = panel.querySelector('#gpa-gram-status');
+    const out = panel.querySelector('#gpa-gram-out');
+
+    goBtn.addEventListener('click', async () => {
+      const text = input.value.trim();
+      if (text.length < 2) { status.textContent = 'Paste some text first.'; return; }
+      goBtn.disabled = true;
+      status.textContent = 'Checking…';
+      try {
+        const sys = GRAMMAR_PROMPT + ' Reply in plain text only — no markdown symbols.';
+        const result = await callAI(`Text to proofread:\n"""\n${text}\n"""`, sys);
+        out.innerHTML = '';
+        const rep = document.createElement('div');
+        rep.className = 'gpa-msg ai';
+        out.appendChild(rep);
+        typeText(rep, stripConfidence(result), out, () => {
+          appendModelBadge(rep);
+          addSaveButton(rep, result);
+        });
+        status.textContent = 'Style, tone, and word choice were left alone — only actual errors were touched.';
+      } catch (e) {
+        showError(out, e, currentProviderLabel());
+        status.textContent = '';
+      }
+      goBtn.disabled = false;
+    });
   })();
 
   // Table extractor: list every table on the page with CSV copy + Ask AI.
@@ -10965,7 +11049,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function applyFeatureFlags(flags) {
     if (JSON.stringify(flags) === JSON.stringify(featureFlags)) return;
     featureFlags = flags || {};
-    ['games', 'music', 'browser', 'notes', 'study', 'humanize'].forEach((tab) => {
+    ['games', 'music', 'browser', 'notes', 'study', 'humanize', 'grammar'].forEach((tab) => {
       const on = ownerMode || featureOn(tab);
       const item = panel.querySelector(`.gpa-dropdown-item[data-tab="${tab}"]`);
       if (item) item.style.display = on ? '' : 'none';
