@@ -5530,6 +5530,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   let chatTimer = null;
   let chatSeen = new Set();
   let chatUnread = 0;
+  // Consecutive failed polls. When the worker is down or out of quota there is
+  // nothing to be gained by asking twenty times a minute, so each failure
+  // doubles the wait until one succeeds — which also lets chat recover on its
+  // own, without the user reloading the page.
+  let chatPollFailures = 0;
   // True for the poll right after (re)joining a room, so loading its history
   // doesn't get counted as a pile of new unread messages / mentions.
   let chatBootstrap = true;
@@ -5634,7 +5639,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     try {
       const res = await fetch(base + '/chat/poll?' + params.toString(), { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
-      if (!data.ok) { chatNote.textContent = data.error || 'Could not load messages.'; return; }
+      // A 5xx means the worker itself fell over. Say so plainly rather than
+      // leaving an empty pane, and count it so the retry backs off.
+      if (!res.ok) {
+        chatPollFailures++;
+        const why = (data && data.error && (data.error.detail || data.error.message)) || ('HTTP ' + res.status);
+        chatNote.textContent = `Chat is unavailable (${String(why).slice(0, 120)}). Retrying…`;
+        return;
+      }
+      if (!data.ok) {
+        chatPollFailures++;
+        chatNote.textContent = data.error || 'Could not load messages.';
+        return;
+      }
+      chatPollFailures = 0;
       chatNote.textContent = '';
       const atBottom = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 40;
       const visible = chatIsOpenAndVisible();
@@ -5660,6 +5678,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (added && atBottom && visible) chatLog.scrollTop = chatLog.scrollHeight;
       if (added) updateChatBadge();
     } catch (e) {
+      chatPollFailures++;
       chatNote.textContent = 'Offline — messages will load when you reconnect.';
     }
   }
@@ -5678,10 +5697,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // while the user isn't looking at Chat. Polls fast (near-instant) while
   // Chat is actually the thing on screen, and backs off while it's just
   // running in the background so it isn't hammering the worker all day.
-  const CHAT_POLL_ACTIVE_MS = 1500;
-  const CHAT_POLL_BACKGROUND_MS = 8000;
+  //
+  // The intervals are a budget decision as much as a feel decision: every poll
+  // is a read against the worker's KV allowance, so polling every 1.5s all day
+  // spends most of a day's reads on one signed-in person staring at something
+  // else. Three seconds still reads as instant in conversation.
+  const CHAT_POLL_ACTIVE_MS = 3000;
+  const CHAT_POLL_BACKGROUND_MS = 15000;
+  const CHAT_POLL_MAX_BACKOFF_MS = 120000;
   function scheduleChatPoll() {
-    const delay = chatIsOpenAndVisible() ? CHAT_POLL_ACTIVE_MS : CHAT_POLL_BACKGROUND_MS;
+    let delay = chatIsOpenAndVisible() ? CHAT_POLL_ACTIVE_MS : CHAT_POLL_BACKGROUND_MS;
+    if (chatPollFailures > 0) {
+      delay = Math.min(delay * Math.pow(2, chatPollFailures), CHAT_POLL_MAX_BACKOFF_MS);
+    }
     chatTimer = setTimeout(async () => {
       await chatPoll();
       scheduleChatPoll();

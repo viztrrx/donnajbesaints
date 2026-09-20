@@ -65,38 +65,50 @@
 // /admin/backup (GET) / /admin/restore (POST) — full state export/import
 // (config, moderation records, rooms, audit), owner only.
 
-export default {
-  async fetch(req, env) {
-    const cors = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key, X-GPA-User, X-GPA-Owner',
-      'Access-Control-Max-Age': '86400'
-    };
-    // Applied to every response this worker generates itself. no-store keeps
-    // admin payloads and per-user state out of shared caches; no-referrer
-    // stops the URL of a request (which may carry a room code) from being
-    // handed to the next site; nosniff stops a text response being re-read as
-    // something executable.
-    const SECURITY_HEADERS = {
-      'X-Content-Type-Options': 'nosniff',
-      'Referrer-Policy': 'no-referrer',
-      'Cache-Control': 'no-store',
-      'Vary': 'Origin'
-    };
-    const json = (obj, status) => new Response(JSON.stringify(obj), {
-      status: status || 200,
-      headers: { ...cors, ...SECURITY_HEADERS, 'Content-Type': 'application/json' }
-    });
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key, X-GPA-User, X-GPA-Owner',
+  'Access-Control-Max-Age': '86400'
+};
+// Applied to every response this worker generates itself. no-store keeps admin
+// payloads and per-user state out of shared caches; no-referrer stops the URL
+// of a request (which may carry a room code) from being handed to the next
+// site; nosniff stops a text response being re-read as something executable.
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Cache-Control': 'no-store',
+  'Vary': 'Origin'
+};
+const jsonResponse = (obj, status) => new Response(JSON.stringify(obj), {
+  status: status || 200,
+  headers: { ...CORS_HEADERS, ...SECURITY_HEADERS, 'Content-Type': 'application/json' }
+});
 
-    // Wrap the entire handler in try-catch to ensure CORS headers on all error responses
+export default {
+  // WHY THIS WRAPPER EXISTS: when a worker throws, Cloudflare replies with a
+  // bare 500 carrying no Access-Control-Allow-Origin header. The browser then
+  // reports "blocked by CORS policy" and hides the actual error, which sends
+  // you hunting for a CORS bug that was never there. Catching here means the
+  // real reason always reaches the client, with CORS headers on it.
+  async fetch(req, env) {
     try {
-      return await handleRequest(req, env, cors, SECURITY_HEADERS, json);
-    } catch (error) {
-      console.error('Worker error:', error);
-      return json({
-        error: 'internal server error',
-        message: error.message || 'An unexpected error occurred'
+      return await handleRequest(req, env);
+    } catch (err) {
+      // Also goes to the Workers live log (dashboard → the worker → Logs), so
+      // the full error is recoverable server-side even though the response
+      // deliberately carries only a short message.
+      console.error('Worker error:', err);
+      return jsonResponse({
+        error: {
+          message: 'The worker hit an unexpected error handling this request.',
+          type: 'worker_exception',
+          // The message only — never a stack (names internals) and never the
+          // request body (may carry an API key).
+          detail: String((err && err.message) || err).slice(0, 200),
+          path: (() => { try { return new URL(req.url).pathname; } catch (e) { return ''; } })()
+        }
       }, 500);
     }
   },
@@ -114,7 +126,9 @@ export default {
   }
 };
 
-async function handleRequest(req, env, cors, SECURITY_HEADERS, json) {
+async function handleRequest(req, env) {
+    const cors = CORS_HEADERS;
+    const json = jsonResponse;
 
     // Moderation state for one user: active (default), blocked, or locked,
     // plus a kick counter the client compares against to force a one-time
@@ -748,14 +762,29 @@ async function handleRequest(req, env, cors, SECURITY_HEADERS, json) {
     // shared secret rather than a username check — usernames here are
     // self-asserted, so gating on them alone would stop nobody.
     //
-    // Messages are stored in the KV key's METADATA with an empty value, so
-    // polling a room is a single list() call with no per-message reads, and
-    // they expire on their own via TTL rather than needing a cleanup job.
-    // The TTL is a backstop only — the real daily reset is the Cron Trigger
-    // at the bottom of this file, which wipes every room's messages outright.
-    const CHAT_TTL = 60 * 60 * 24 * 7;   // messages live a week at most
-    const CHAT_MAX = 120;                // messages returned per poll
-    const pad = (n) => String(n).padStart(13, '0');
+    // STORAGE: one key per room holding that room's recent messages, read with
+    // a single get().
+    //
+    // This used to be one KV key per message, with a poll doing a list() over
+    // the room's prefix. That reads nicely but it is the wrong operation to put
+    // on a timer: clients poll every 1.5s while the chat is open, so a single
+    // signed-in user spends thousands of list operations a day — and list is
+    // the scarcest KV operation by a wide margin (the free plan allows far more
+    // reads than lists). Once the allowance is gone, list() throws, the worker
+    // returns an uncaught 500 with no CORS header, and the browser blames CORS.
+    // A poll is now one read against a much larger budget.
+    //
+    // The trade: a send is read-modify-write, so two messages posted in the
+    // same instant can cost one of them. For a room this size that is a fair
+    // price for a chat that keeps working; a busier room wants Durable Objects,
+    // which is a different design, not a bigger number here.
+    const CHAT_TTL = 60 * 60 * 24 * 7;   // a room's log lives a week at most
+    const CHAT_MAX = 120;                // messages kept (and returned) per room
+    const roomLogKey = (id) => 'roomlog:' + String(id).toLowerCase().slice(0, 40);
+    const readRoomLog = async (kv, id) => {
+      const stored = await kv.get(roomLogKey(id), 'json');
+      return Array.isArray(stored) ? stored : [];
+    };
     const roomKey = (id) => 'room:' + String(id).toLowerCase().slice(0, 40);
     // Per-room moderation settings (slow mode + bans), kept separate from
     // roomKey's name/codeHash record so this also works for the public room,
@@ -830,10 +859,13 @@ async function handleRequest(req, env, cors, SECURITY_HEADERS, json) {
       // devices) never has it to return.
       const mod = await getMod(kv, user);
       if (mod.shadowMuted) return json({ ok: true, ts });
-      const key = `msg:${access.id}:${pad(ts)}:${Math.random().toString(36).slice(2, 7)}`;
-      const meta = { u: user, t: text, ts, owner: userLower === OWNER };
       try {
-        await kv.put(key, '', { expirationTtl: CHAT_TTL, metadata: meta });
+        const log = await readRoomLog(kv, access.id);
+        log.push({ u: user, t: text, ts, owner: userLower === OWNER });
+        // Keep the newest CHAT_MAX so one room's log can't grow past the
+        // 25MB per-value ceiling however long it runs.
+        const trimmed = log.slice(-CHAT_MAX);
+        await kv.put(roomLogKey(access.id), JSON.stringify(trimmed), { expirationTtl: CHAT_TTL });
       } catch (e) {
         return json({ ok: false, error: 'could not store message' }, 200);
       }
@@ -846,12 +878,18 @@ async function handleRequest(req, env, cors, SECURITY_HEADERS, json) {
       const access = await checkRoomAccess(kv, url.searchParams.get('room'), url.searchParams.get('code'));
       if (!access.ok) return json({ ok: false, error: access.error, messages: [] }, 200);
       const since = parseInt(url.searchParams.get('since') || '0', 10) || 0;
-      const listed = await kv.list({ prefix: `msg:${access.id}:` });
-      const messages = (listed.keys || [])
-        .map((k) => k.metadata)
-        .filter((m) => m && m.ts > since)
-        .sort((a, b) => a.ts - b.ts)
-        .slice(-CHAT_MAX);
+      // A storage hiccup here must not take the whole panel down with it: the
+      // client polls this every couple of seconds, so it answers with a
+      // readable error and an empty list rather than throwing.
+      let messages;
+      try {
+        messages = (await readRoomLog(kv, access.id))
+          .filter((m) => m && m.ts > since)
+          .sort((a, b) => a.ts - b.ts)
+          .slice(-CHAT_MAX);
+      } catch (e) {
+        return json({ ok: false, error: 'chat storage is temporarily unavailable', messages: [], now: Date.now() }, 200);
+      }
       return json({ ok: true, room: access.id, messages, now: Date.now() });
     }
 
@@ -897,8 +935,7 @@ async function handleRequest(req, env, cors, SECURITY_HEADERS, json) {
         if (!id || id === 'public') return json({ error: 'cannot delete that room' }, 400);
         await kv.delete(roomKey(id));
         await kv.delete(roomCfgKey(id));
-        const msgs = await kv.list({ prefix: `msg:${id}:` });
-        for (const k of msgs.keys) await kv.delete(k.name);
+        await kv.delete(roomLogKey(id));
         await logAudit(kv, { route: '/admin/rooms', action, target: id, admin });
         return json({ ok: true, deleted: id });
       }
@@ -1463,16 +1500,22 @@ async function handleRequest(req, env, cors, SECURITY_HEADERS, json) {
 }
 
 // Deletes every stored chat message across every room (public and private).
-// Rooms themselves (their codes) are untouched — only the msg: entries under
-// them. Paginates past KV's 1000-keys-per-list() page so this stays correct
-// even if a very chatty day left more than one page of messages.
+// Rooms themselves (their codes) are untouched — only the message logs under
+// them. Runs once a day from the Cron Trigger, so a list() here is fine; it is
+// per-poll listing that this file deliberately avoids.
+//
+// The msg: prefix is the old one-key-per-message layout. It is swept too so a
+// worker upgraded mid-life doesn't strand the previous scheme's keys in KV
+// (they also carry their own TTL, so this only hurries them along).
 async function clearAllChatMessages(kv) {
   let deleted = 0;
-  let cursor;
-  do {
-    const listed = await kv.list({ prefix: 'msg:', cursor });
-    for (const k of listed.keys) { await kv.delete(k.name); deleted++; }
-    cursor = listed.list_complete ? undefined : listed.cursor;
-  } while (cursor);
+  for (const prefix of ['roomlog:', 'msg:']) {
+    let cursor;
+    do {
+      const listed = await kv.list({ prefix, cursor });
+      for (const k of listed.keys) { await kv.delete(k.name); deleted++; }
+      cursor = listed.list_complete ? undefined : listed.cursor;
+    } while (cursor);
+  }
   return deleted;
 }
