@@ -1,10 +1,10 @@
 /*!
- * Gemini Page Assistant — injectable console/bookmarklet AI overlay
+ * Agent Console — injectable console/bookmarklet AI overlay (OpenAI only)
  * -------------------------------------------------------------
  * WHAT THIS DOES
  *  - "Page Insights" tab: reads the visible TEXT of the current page
  *    (document.body.innerText) and/or captures an actual SCREENSHOT (via
- *    getDisplayMedia), and sends either or both to Gemini/OpenAI to
+ *    getDisplayMedia), and sends either or both to OpenAI to
  *    summarize, analyze, or answer questions. Includes a "Solve quiz on
  *    this page" button that also reads dropdown (<select>) options and
  *    radio/checkbox choices the AI can't see from plain page text, then
@@ -35,7 +35,7 @@
  *    their own proxy server, and it never routes anyone else's traffic.
  *  - A "Theme" section to change the panel's color scheme, plus optional
  *    ambient background particles (several styles, adjustable play area)
- *    and AI provider/typing-speed/response-font controls.
+ *    and typing-speed/response-font controls.
  *  - All sections are switched via a dropdown in place of tabs.
  *  - Draggable panel. Minimizing flies it to the bottom-right corner as
  *    a resting spot (still fully draggable from there); the minimized
@@ -43,11 +43,9 @@
  *    not any company's actual logo — see note in Settings section).
  *
  * SETUP
- *  1. Get a free Gemini API key from https://aistudio.google.com/apikey
- *     — and/or an OpenAI API key from https://platform.openai.com/api-keys
- *     (starts with "sk-"). Pick which one to use via "AI provider" in the
- *     Theme tab; each key is asked for and stored separately, so you can
- *     switch back and forth without re-entering anything.
+ *  1. Get an OpenAI API key from https://platform.openai.com/api-keys
+ *     (starts with "sk-"), or have the owner assign you one from the admin
+ *     console. OpenAI is the only AI provider this script uses.
  *  2. For the Music search feature: get a free YouTube Data API v3 key
  *     at console.cloud.google.com — create/select a project, enable
  *     "YouTube Data API v3" under APIs & Services, then create an API
@@ -55,13 +53,11 @@
  *  3. Host this file somewhere you control (a GitHub Gist "raw" URL,
  *     a repo on GitHub Pages, etc).
  *  4. On any page, open DevTools console and run:
- *       fetch('https://YOUR-RAW-URL/gemini-page-assistant.js').then(r=>r.text()).then(eval)
+ *       fetch('https://YOUR-RAW-URL/script.js').then(r=>r.text()).then(eval)
  *  5. The first time you use each feature, it'll ask you to paste the
  *     relevant API key. Keys are stored in localStorage FOR THAT SITE'S
  *     ORIGIN ONLY (browser security — a script can't share localStorage
- *     across different domains). You'll be asked again on a new domain
- *     unless you paste your own Gemini key directly into API_KEY_DEFAULT
- *     below before hosting your own copy.
+ *     across different domains). You'll be asked again on a new domain.
  *
  * SCREEN CAPTURE
  *  - "Capture Screen" uses the browser's native getDisplayMedia prompt —
@@ -78,30 +74,30 @@
  *  - Page text is truncated (see MAX_PAGE_CHARS) and screenshots are
  *    downscaled (see MAX_IMAGE_WIDTH) to keep requests fast and within
  *    token limits.
- *  - Uses the public Generative Language REST API directly from the
- *    browser with your API key as a query param — that's how Google's
- *    docs show client-side usage, but it does mean the key is visible
- *    in network requests made from your own browser session.
+ *  - Calls OpenAI's Chat Completions API, through the worker proxy when
+ *    one is configured (OPENAI_PROXY), otherwise directly from the browser.
  */
 (function () {
   'use strict';
 
   // ---- Config -------------------------------------------------------
-  const MODEL = 'gemini-3.6-flash';
-  const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
-  const STORAGE_KEY = 'gpa_gemini_api_key';
   const OPENAI_STORAGE_KEY = 'gpa_openai_api_key';
   // Set once a user declines the "paste your key" prompt while the proxy is
   // configured, so they aren't nagged every call — the owner may have
   // assigned them a key server-side via the admin console's "Assign key".
   const OPENAI_KEY_SKIP = 'gpa_openai_key_skip';
-  // Whether the worker says this account has an owner-assigned key for each
-  // provider. Booleans only — the key itself never leaves the worker (see
+  // Whether the worker says this account has an owner-assigned OpenAI key.
+  // Boolean only — the key itself never leaves the worker (see
   // applyAssignedKeys).
-  const serverAssignedKeys = { openai: false, gemini: false };
-  const OPENAI_MODEL = 'gpt-5';
+  const serverAssignedKeys = { openai: false };
+  // Default models. Every page load and every sign-in writes these back into
+  // the admin model settings (see enforceDefaultModels), so a session always
+  // starts on gpt-4.1-mini with gpt-5 for hard tasks.
+  const OPENAI_MODEL = 'gpt-4.1-mini';
+  const SMART_MODEL_DEFAULT = 'gpt-5';
   const REASON_KEY = 'gpa_reason';
 const REASONING_MODELS = new Set([
+  'gpt-5',
   'gpt-6-astra',
   'gpt-5.6-luna',
   // add other reasoning-capable IDs you allow-list, e.g.:
@@ -122,7 +118,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // When it's on, every user is shown a one-time notice that usage is recorded.
   const TELEMETRY_ENABLED = true;
   const TELEMETRY_ENDPOINT = OPENAI_PROXY; // same worker; blank disables tracking
-  const PROVIDER_KEY = 'gpa_ai_provider';
+  // Leftovers from the removed Gemini support, deleted on startup so an old
+  // Gemini key doesn't linger in this site's storage.
+  (function purgeGeminiLeftovers() {
+    ['gpa_gemini_api_key', 'gpa_ai_provider'].forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } });
+  })();
   // Tells the AI what it is and what the console can do, so questions like
   // "what can you do?" get a real answer. Injected into the chat-facing
   // system prompts (Ask AI + page Q&A), not into the JSON-only ones.
@@ -171,7 +171,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const CUSTOM_COLOR_KEY = 'gpa_custom_accent';
   const MAX_PAGE_CHARS = 18000;
   const MAX_IMAGE_WIDTH = 1280;
-  const API_KEY_DEFAULT = ''; // paste your own key here if hosting a private copy
 
   // Preloaded music library — pulled straight from your GitHub repo. Add
   // audio files to your repo, then list them here as raw.githubusercontent.com
@@ -395,7 +394,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 <div id="gpa-welcome-sub" class="gpa-sub"></div>
                 <div class="gpa-welcome-ai-status">
                   <span class="gpa-welcome-ai-line"><span id="gpa-welcome-ai-dot-openai" class="gpa-status-dot"></span>OpenAI: <span id="gpa-welcome-ai-text-openai">checking…</span></span>
-                  <span class="gpa-welcome-ai-line"><span id="gpa-welcome-ai-dot-gemini" class="gpa-status-dot"></span>Gemini: <span id="gpa-welcome-ai-text-gemini">checking…</span></span>
                 </div>
               </div>
               <canvas id="gpa-welcome-3d" width="140" height="140" style="display:none;"></canvas>
@@ -489,12 +487,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
           <div class="gpa-card">
             <div class="gpa-card-title">Quick settings</div>
-            <div class="gpa-sub" style="margin-bottom:6px;">AI provider</div>
-            <div class="gpa-row">
-              <button class="gpa-btn provider-btn" data-provider="gemini">Gemini</button>
-              <button class="gpa-btn provider-btn primary" data-provider="openai">OpenAI</button>
-            </div>
-            <div class="gpa-sub" style="margin:10px 0 6px;">Page actions</div>
+            <div class="gpa-sub" style="margin-bottom:6px;">Page actions</div>
             <div class="gpa-row">
               <button class="gpa-btn autoconfirm-btn">✋ Confirm page clicks: ON</button>
               <button id="gpa-more-settings-btn" class="gpa-btn">⚙ More settings…</button>
@@ -883,11 +876,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button id="gpa-cloud-pull" class="gpa-btn" style="flex:1;">Download</button>
         </div>
         <div id="gpa-cloud-msg" class="gpa-sub" style="margin-top:4px;"></div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">AI provider</div>
-        <div class="gpa-row">
-          <button class="gpa-btn provider-btn" data-provider="gemini">Gemini</button>
-          <button class="gpa-btn provider-btn primary" data-provider="openai">OpenAI</button>
-        </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Language</div>
         <div class="gpa-row">
           <button class="gpa-btn lang-btn primary" data-lang="en">English</button>
@@ -922,7 +910,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button class="gpa-btn icon-btn" data-icon="bolt">Bolt</button>
           <button class="gpa-btn icon-btn" data-icon="orbit">Orbit</button>
           <button class="gpa-btn icon-btn" data-icon="chat">Chat</button>
-          <button class="gpa-btn icon-btn" data-icon="letter">Letter (G/O)</button>
+          <button class="gpa-btn icon-btn" data-icon="letter">Letter (O)</button>
         </div>
         <div class="gpa-sub" style="margin:14px 0 6px;">Minimized button look</div>
         <div class="gpa-row">
@@ -960,7 +948,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <input type="range" id="gpa-particle-size" class="gpa-range" min="0" max="260" step="10" />
         </div>
         <div class="gpa-row" style="margin-top:8px; flex-wrap: wrap;">
-          <button id="gpa-clear-key" class="gpa-btn">Clear saved Gemini key</button>
           <button id="gpa-clear-openai-key" class="gpa-btn">Clear saved OpenAI key</button>
           <button id="gpa-clear-yt-key" class="gpa-btn">Clear saved YouTube key</button>
         </div>
@@ -1118,10 +1105,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               whatever key that user already had saved.
             </div>
             <div class="gpa-row">
-              <select id="gpa-adm-key-provider" class="gpa-input" style="flex:1;">
-                <option value="openai">OpenAI</option>
-                <option value="gemini">Gemini</option>
-              </select>
               <select id="gpa-adm-key-target" class="gpa-input" style="flex:1;">
                 <option value="specific">Specific user(s)</option>
                 <option value="all">Everyone</option>
@@ -1155,7 +1138,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <div class="gpa-admin-pane" data-apane="tools">
             <div class="gpa-sub" style="margin:4px 0 4px;">Base AI model</div>
             <div class="gpa-row"><select id="gpa-adm-model-sel" class="gpa-input"></select></div>
-            <div class="gpa-row"><input id="gpa-adm-model" class="gpa-input" placeholder="Custom model id (e.g. gemini-2.5-flash)" autocomplete="off" style="display:none;" /></div>
+            <div class="gpa-row"><input id="gpa-adm-model" class="gpa-input" placeholder="Custom model id (e.g. gpt-4.1-mini)" autocomplete="off" style="display:none;" /></div>
             <div class="gpa-sub" style="margin:12px 0 4px;">Smart model — used on hard tasks</div>
             <div class="gpa-row"><select id="gpa-adm-smart-sel" class="gpa-input"></select></div>
             <div class="gpa-row"><input id="gpa-adm-smart" class="gpa-input" placeholder="Custom model id" autocomplete="off" style="display:none;" /></div>
@@ -1165,10 +1148,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div class="gpa-admin-note">
               Hard tasks — quizzes, multi-part or math-heavy questions — automatically switch to the
               Smart model when auto-upgrade is on, so tough questions get a better answer without
-              slowing down the easy ones. Suggestion: keep the base fast and cheap (gpt-4o-mini) and
-              set Smart to something stronger — gpt-4o, gpt-4.1, a gpt-5.x, or a reasoning model like
-              o4-mini for hard math. The override applies to whichever provider is selected in
-              Settings; the ids listed are OpenAI's (pick Custom… for a Gemini model).
+              slowing down the easy ones. Every page load and sign-in resets these to gpt-4.1-mini
+              (base) and gpt-5 (smart); a change here lasts until the next reload or sign-in.
             </div>
             <div class="gpa-sub" style="margin:12px 0 4px;">System-prompt prefix (prepended to every AI call)</div>
             <textarea id="gpa-adm-sysprefix" class="gpa-sync-box" style="height:70px;" placeholder="Extra standing instructions for the AI on every request…"></textarea>
@@ -1246,8 +1227,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   // Original, non-trademarked icon options for the minimized button — not
-  // reproductions of any company's actual logo. "Letter" shows G or O
-  // depending on whichever AI provider is currently active.
+  // reproductions of any company's actual logo. "Letter" shows O.
   const MINI_ICONS = {
     dot: '✦',
     sparkle: '<svg viewBox="0 0 24 24"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"/></svg>',
@@ -1259,8 +1239,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function renderMiniIcon() {
     const style = localStorage.getItem(ICON_KEY) || 'dot';
     if (style === 'letter') {
-      const provider = localStorage.getItem(PROVIDER_KEY) || 'openai';
-      minimized.textContent = provider === 'openai' ? 'O' : 'G';
+      minimized.textContent = 'O';
     } else {
       minimized.innerHTML = MINI_ICONS[style] || MINI_ICONS.dot;
     }
@@ -1840,8 +1819,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         width: 34px; height: 28px; padding: 0; border: 1px solid ${t.border};
         border-radius: 6px; background: ${t.field}; cursor: pointer;
       }
-      .provider-btn { flex: 1; }
-      .provider-btn.primary { background: ${t.accent}; color: #fff; border-color: ${t.accent}; }
       .speed-btn, .font-btn, .particle-btn, .icon-btn, .size-btn, .look-btn, .colormode-btn { flex: 1; padding: 6px 4px; font-size: 11px; }
       .speed-btn.primary, .font-btn.primary, .particle-btn.primary, .icon-btn.primary, .size-btn.primary, .look-btn.primary, .colormode-btn.primary { background: ${t.accent}; color: #fff; border-color: ${t.accent}; }
       .gpa-range {
@@ -2841,22 +2818,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     sendBeat('beat', currentUser);
   }
 
-  // Live per-provider status for the Welcome pane: "API key not set" (no
+  // Live OpenAI status for the Welcome pane: "API key not set" (no
   // local key and no owner assignment — no network call at all, so this
   // never risks the blocking key prompt), "Currently down" (a key exists
   // but a real ping to it failed), or online. The ping is a models-list GET
-  // — free/metadata-only on both OpenAI and Gemini, never a paid completion,
+  // — free/metadata-only, never a paid completion,
   // so checking this on every pane visit costs nothing.
-  async function checkAiProviderStatus(provider) {
-    const dotEl = panel.querySelector(`#gpa-welcome-ai-dot-${provider}`);
-    const textEl = panel.querySelector(`#gpa-welcome-ai-text-${provider}`);
+  async function checkAiProviderStatus() {
+    const dotEl = panel.querySelector('#gpa-welcome-ai-dot-openai');
+    const textEl = panel.querySelector('#gpa-welcome-ai-text-openai');
     if (!dotEl || !textEl) return;
 
-    const localKey = provider === 'openai'
-      ? readStoredKey(OPENAI_STORAGE_KEY)
-      : (sanitizeKey(API_KEY_DEFAULT) || readStoredKey(STORAGE_KEY));
-    const assigned = provider === 'openai' ? serverAssignedKeys.openai : serverAssignedKeys.gemini;
-    const hasKey = !!(localKey || (OPENAI_PROXY && assigned));
+    const localKey = readStoredKey(OPENAI_STORAGE_KEY);
+    const hasKey = !!(localKey || (OPENAI_PROXY && serverAssignedKeys.openai));
 
     if (!hasKey) {
       dotEl.className = 'gpa-status-dot unset';
@@ -2875,11 +2849,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       return;
     }
     try {
-      const path = provider === 'openai' ? '/v1/models' : '/gemini/v1beta/models';
       const headers = {};
-      if (localKey) headers[provider === 'openai' ? 'Authorization' : 'X-GPA-Key'] = provider === 'openai' ? `Bearer ${localKey}` : localKey;
+      if (localKey) headers['Authorization'] = `Bearer ${localKey}`;
       if (currentUser) headers['X-GPA-User'] = currentUser;
-      const res = await rawFetch(`${OPENAI_PROXY}${path}`, { headers });
+      const res = await rawFetch(`${OPENAI_PROXY}/v1/models`, { headers });
       if (res.ok) {
         dotEl.className = 'gpa-status-dot online';
         textEl.textContent = 'Online';
@@ -2893,8 +2866,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
   }
   function checkAllAiStatus() {
-    checkAiProviderStatus('openai');
-    checkAiProviderStatus('gemini');
+    checkAiProviderStatus();
   }
   // Steady-state refresh cadence for the status line — every 10 minutes
   // while the Welcome pane exists, via the file's shadowed setInterval so
@@ -2913,11 +2885,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // anything — the blocking prompt() is only acceptable as a *response* to
   // an explicit action like pressing Refresh or opening Ask AI/Chat.
   function hasUsableAiKey() {
-    const provider = localStorage.getItem(PROVIDER_KEY) || 'openai';
-    if (provider === 'openai') {
-      return !!(readStoredKey(OPENAI_STORAGE_KEY) || (OPENAI_PROXY && serverAssignedKeys.openai));
-    }
-    return !!(sanitizeKey(API_KEY_DEFAULT) || readStoredKey(STORAGE_KEY) || (OPENAI_PROXY && serverAssignedKeys.gemini));
+    return !!(readStoredKey(OPENAI_STORAGE_KEY) || (OPENAI_PROXY && serverAssignedKeys.openai));
   }
 
   async function fetchLehighNews(auto) {
@@ -2928,7 +2896,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // Auto-refresh (pane load / tab revisit) never interrupts with the API
     // key prompt — only an explicit Refresh click may trigger that.
     if (auto && !hasUsableAiKey()) {
-      newsEl.textContent = 'Local news summarizes a real article with AI. Set up a provider key in Ask AI, then tap Refresh here.';
+      newsEl.textContent = 'Local news summarizes a real article with AI. Set up an OpenAI key in Ask AI, then tap Refresh here.';
       metaEl.textContent = '';
       return;
     }
@@ -3285,10 +3253,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     applyTheme('custom');
   });
 
-  panel.querySelector('#gpa-clear-key').addEventListener('click', () => {
-    localStorage.removeItem(STORAGE_KEY);
-    showToast('Saved Gemini API key cleared for this site.');
-  });
   panel.querySelector('#gpa-clear-openai-key').addEventListener('click', () => {
     localStorage.removeItem(OPENAI_STORAGE_KEY);
     localStorage.removeItem(OPENAI_KEY_SKIP);
@@ -3297,20 +3261,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   panel.querySelector('#gpa-clear-yt-key').addEventListener('click', () => {
     localStorage.removeItem(YT_STORAGE_KEY);
     showToast('Saved YouTube API key cleared for this site.');
-  });
-
-  // ---- AI provider toggle (Gemini / OpenAI) ------------------------------
-  const providerBtns = panel.querySelectorAll('.provider-btn');
-  function setProviderUI(p) {
-    providerBtns.forEach((b) => b.classList.toggle('primary', b.dataset.provider === p));
-  }
-  setProviderUI(localStorage.getItem(PROVIDER_KEY) || 'openai');
-  providerBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      localStorage.setItem(PROVIDER_KEY, btn.dataset.provider);
-      setProviderUI(btn.dataset.provider);
-      renderMiniIcon(); // in case "Letter" style is active — it tracks the provider
-    });
   });
 
   // ---- Minimized-button icon toggle --------------------------------------
@@ -3764,14 +3714,22 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function adminAuthHeaders(token, extra) {
     return { ...(extra || {}), Authorization: 'Bearer ' + String(token || '').trim() };
   }
-  // Defaults to ON with gpt-6-astra as the smart model until the owner
-  // explicitly sets either value — an explicit 'off' or a different smart
-  // model always wins over these defaults.
+  // Auto-upgrade defaults to ON until the owner explicitly turns it off.
   function autoUpgradeOn() { const v = admGet(ADMIN_KEYS.AUTO_UPGRADE); return v === null ? true : v === 'on'; }
-  function smartModel() { return (admGet(ADMIN_KEYS.SMART_MODEL) || '').trim() || 'gpt-6-astra'; }
+  function smartModel() { return (admGet(ADMIN_KEYS.SMART_MODEL) || '').trim() || SMART_MODEL_DEFAULT; }
+  // Writes the default base and smart models into storage. Runs once when the
+  // script loads and again on every sign-in (see enterApp), so each session
+  // starts on gpt-4.1-mini / gpt-5 no matter what was picked before.
+  function enforceDefaultModels() {
+    try {
+      localStorage.setItem(ADMIN_KEYS.MODEL, OPENAI_MODEL);
+      localStorage.setItem(ADMIN_KEYS.SMART_MODEL, SMART_MODEL_DEFAULT);
+    } catch (e) { /* storage blocked — smartModel()/effectiveModel() fall back to the same defaults */ }
+  }
+  enforceDefaultModels();
   // The model for a request. On a task flagged `hard`, when auto-upgrade is on
   // and a smart model is set, escalate to it; otherwise use the base override,
-  // else the provider default.
+  // else the default base model.
   function effectiveModel(dflt, hard) {
     if (hard && autoUpgradeOn() && smartModel()) return smartModel();
     const m = (admGet(ADMIN_KEYS.MODEL) || '').trim();
@@ -3792,71 +3750,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function effectiveMaxPageChars() { const n = parseInt(admGet(ADMIN_KEYS.MAXCHARS), 10); return (n && n >= 1000) ? n : MAX_PAGE_CHARS; }
   function effectiveTemp() { const v = parseFloat(admGet(ADMIN_KEYS.TEMP)); return isNaN(v) ? null : Math.max(0, Math.min(2, v)); }
   function adminSysPrefix() { const p = (admGet(ADMIN_KEYS.SYSPREFIX) || '').trim(); return p ? p + '\n\n' : ''; }
-
-  // ---- Gemini API helpers -----------------------------------------------
-  function getApiKey(optional) {
-    let key = sanitizeKey(API_KEY_DEFAULT) || readStoredKey(STORAGE_KEY);
-    // When the owner has assigned this account a key, the worker attaches it
-    // to the upstream call itself — there is nothing for the user to paste,
-    // and the key deliberately never reaches this browser.
-    if (!key && optional) return null;
-    if (!key) {
-      key = sanitizeKey(prompt('Paste your Gemini API key (from aistudio.google.com/apikey):'));
-      if (key) localStorage.setItem(STORAGE_KEY, key);
-    }
-    return key || null;
-  }
-
-  async function callGemini(userText, systemText, imageDataUrls, hard) {
-    // Route through the worker when one is configured: it applies the same
-    // block/quota rules as the OpenAI path and, for users the owner assigned a
-    // key to, attaches that key server-side so it never touches this browser.
-    const viaProxy = !!OPENAI_PROXY;
-    const key = getApiKey(viaProxy && serverAssignedKeys.gemini);
-    if (!key && !viaProxy) throw new Error('No API key provided.');
-
-    const parts = [];
-    if (userText) parts.push({ text: userText });
-    if (imageDataUrls && imageDataUrls.length) {
-      imageDataUrls.forEach((dataUrl) => {
-        const match = dataUrl.match(/^data:(.+);base64,(.*)$/);
-        if (match) parts.push({ inline_data: { mime_type: match[1], data: match[2] } });
-      });
-    }
-    if (!parts.length) throw new Error('Nothing to send.');
-
-    const body = { contents: [{ role: 'user', parts }] };
-    if (systemText) body.systemInstruction = { parts: [{ text: systemText }] };
-
-    const geminiModel = effectiveModel(MODEL, hard);
-    noteModelUsed(geminiModel, 'Gemini', hard);
-    // The key travels in a header (or, through the proxy, in a body field the
-    // worker strips before forwarding) — never in the query string, where it
-    // would be recorded in browser history, Referer headers and every log
-    // between here and Google.
-    const headers = { 'Content-Type': 'application/json' };
-    let endpoint;
-    if (viaProxy) {
-      endpoint = `${OPENAI_PROXY}/gemini/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`;
-      if (key) { headers['X-GPA-Key'] = key; body._gpa_key = key; }
-      if (typeof currentUser !== 'undefined' && currentUser) headers['X-GPA-User'] = currentUser;
-    } else {
-      endpoint = `${API_BASE}${encodeURIComponent(geminiModel)}:generateContent`;
-      headers['x-goog-api-key'] = key;
-    }
-    const res = await rawFetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body)
-    });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Gemini API error (${res.status}): ${redactSecrets(errText).slice(0, 300)}`);
-    }
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '(no response)';
-    return text;
-  }
 
   // ---- OpenAI API helpers -------------------------------------------------
   function getOpenAiKey() {
@@ -4084,8 +3977,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     payload.model = effectiveModel(OPENAI_MODEL, hard);
     if (modelSupportsReasoning(payload.model)) payload.reasoning_effort = reasoningEffort;
     noteModelUsed(payload.model, 'OpenAI', hard);
+    // Reasoning models (gpt-5 and friends) reject any temperature but the
+    // default, so the admin temperature only applies to the others.
     const temp = effectiveTemp();
-    if (temp !== null) payload.temperature = temp;
+    if (temp !== null && !modelSupportsReasoning(payload.model)) payload.temperature = temp;
 
     const res = await rawFetch(endpoint, {
       method: 'POST',
@@ -4135,17 +4030,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       + parts.join('\n') + '\n\n';
   }
 
-  // Dispatches to whichever provider is selected in the Theme tab.
+  // Every AI request goes through here to OpenAI.
   async function callAI(userText, systemText, imageDataUrls, hard) {
     if (aiBlocked) throw new Error('Access to this tool has been blocked by the owner.');
-    const provider = localStorage.getItem(PROVIDER_KEY) || 'openai';
     // Order matters: admin standing instructions, then saved context, then the
     // caller's own system text LAST — the JSON-only rules several callers rely
     // on have to be the final word, or the model narrates instead of obeying.
     const sys = adminSysPrefix() + buildContextMemory() + (systemText || '');
-    return provider === 'openai'
-      ? callOpenAI(userText, sys, imageDataUrls, hard)
-      : callGemini(userText, sys, imageDataUrls, hard);
+    return callOpenAI(userText, sys, imageDataUrls, hard);
   }
 
   // Real second-pass check for quiz/answer-grid results: sends the draft
@@ -4187,7 +4079,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       return `${label} rejected your API key. Double-check it (or clear and re-enter it) in the Theme tab.`;
     }
     if (status === '429' || /quota|credit|rate.?limit/i.test(msg)) {
-      return `${label} says you're out of credits or hitting a rate limit. Check your billing/usage there, or switch providers in the Theme tab.`;
+      return `${label} says you're out of credits or hitting a rate limit. Check your billing/usage there.`;
     }
     if (status === '404' || /model.*(not found|no longer available)/i.test(msg)) {
       return `${label}'s model name may have changed on their end and needs updating in the script.`;
@@ -4208,7 +4100,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   function currentProviderLabel() {
-    return (localStorage.getItem(PROVIDER_KEY) || 'openai') === 'openai' ? 'OpenAI' : 'Gemini';
+    return 'OpenAI';
   }
 
   // ---- Typewriter effect for AI responses ---------------------------------
@@ -6500,7 +6392,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   // ---- Ask AI: pasted / attached images (multimodal input) ----
   // Images pasted or attached ride along with the next question so the AI can
-  // read and interpret them as context. Both providers accept data: URLs.
+  // read and interpret them as context. OpenAI accepts data: URLs.
   let pendingImages = [];
   const MAX_ASK_IMAGES = 6;
   const imageStrip = panel.querySelector('#gpa-ask-images');
@@ -6671,7 +6563,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       + 'Reply in plain text only — no markdown symbols (no asterisks, headers, or lists). '
       + 'Then, on its own final line, write exactly "CONFIDENCE: NN" where NN (0-100) is your confidence that the answer is accurate.';
 
-    // Fold the running conversation into the message so BOTH providers get memory.
+    // Fold the running conversation into the message so the model gets memory.
     const transcript = askHistory.slice(-ASK_MEMORY_TURNS)
       .map((m) => (m.role === 'user' ? 'USER: ' : 'ASSISTANT: ') + m.content)
       .join('\n');
@@ -8103,7 +7995,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const savedCustom = localStorage.getItem(CUSTOM_COLOR_KEY);
       if (savedCustom) THEMES.custom = { ...THEMES.dark, accent: savedCustom };
       applyTheme(THEMES[savedTheme] ? savedTheme : 'matte');
-      if (typeof setProviderUI === 'function') setProviderUI(localStorage.getItem(PROVIDER_KEY) || 'openai');
       if (typeof setSpeedUI === 'function') setSpeedUI(localStorage.getItem(SPEED_KEY) || 'normal');
       if (typeof setFontUI === 'function') setFontUI(localStorage.getItem(FONT_KEY) || 'mono');
       if (typeof setIconUI === 'function') setIconUI(localStorage.getItem(ICON_KEY) || 'dot');
@@ -8138,6 +8029,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function enterApp(user) {
     currentUser = user;
     localStorage.setItem(SESSION_KEY, user);
+    // Every sign-in, fresh or restored, starts on the default models.
+    enforceDefaultModels();
     // Record the open in the local usage log, and mirror it to the shared
     // telemetry bin if the owner turned that on. Wrapped so a logging hiccup
     // can never block a sign-in.
@@ -11923,8 +11816,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const TELE_SID = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
   let heartbeatTimer = null;
   // Set true while this user is blocked, so callAI refuses locally too — the
-  // worker already refuses the OpenAI proxy, but Gemini goes direct to Google
-  // and only this client-side guard stops it.
+  // worker already refuses the proxy, and this also covers direct calls.
   let aiBlocked = false;
   // True once the owner unlocks the admin console this session. Gates the
   // "use a better model" suggestion so it only reaches whoever can act on it.
@@ -11934,7 +11826,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // ---- "Answered by" attribution -------------------------------------------
   // Records which model and provider actually served the most recent request,
   // so every rendered answer can say where it came from. Set at request time
-  // by callGemini/callOpenAI, read by appendModelBadge right after the answer
+  // by callOpenAI, read by appendModelBadge right after the answer
   // renders. Calls are sequential per user action, so one slot is enough.
   let lastAIModel = '';
   let lastAIProvider = '';
@@ -12057,9 +11949,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // nothing to paste.
   function applyAssignedKeys(flags) {
     const prevOpenai = serverAssignedKeys.openai;
-    const prevGemini = serverAssignedKeys.gemini;
     serverAssignedKeys.openai = !!(flags && flags.openai);
-    serverAssignedKeys.gemini = !!(flags && flags.gemini);
     // Nothing to prompt for while the server is covering this user.
     if (serverAssignedKeys.openai) { try { localStorage.removeItem(OPENAI_KEY_SKIP); } catch (e) { /* ignore */ } }
     // This runs on every heartbeat/status poll (as often as every 15s), so
@@ -12067,7 +11957,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // otherwise that ping would run far more often than its own 10-minute
     // timer intends. A real, brand-new assignment still shows up right away.
     if (typeof checkAllAiStatus === 'function'
-      && (prevOpenai !== serverAssignedKeys.openai || prevGemini !== serverAssignedKeys.gemini)) {
+      && prevOpenai !== serverAssignedKeys.openai) {
       checkAllAiStatus();
     }
   }
@@ -12936,7 +12826,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const token = teleToken.value.trim();
       const base = adminBase();
       if (!token || !base) { msg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
-      const provider = panel.querySelector('#gpa-adm-key-provider').value;
+      const provider = 'openai';
       const all = keyTargetSel.value === 'all';
       const users = all ? [] : panel.querySelector('#gpa-adm-key-users').value.split(',').map((u) => u.trim()).filter(Boolean);
       if (!all && !users.length) { msg.textContent = 'Enter at least one username, or switch the target to Everyone.'; return; }
@@ -13096,9 +12986,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       add('Panel storage', location.hostname, true);
       add('Online', navigator.onLine ? 'yes' : 'no (offline)', navigator.onLine);
       add('Provider', currentProviderLabel(), true);
-      add('Base model', (admGet(ADMIN_KEYS.MODEL) || 'provider default'), true);
+      add('Base model', (admGet(ADMIN_KEYS.MODEL) || OPENAI_MODEL), true);
       add('Smart model', (smartModel() || 'not set') + (autoUpgradeOn() ? ' (auto-upgrade ON)' : ' (auto-upgrade off)'), true);
-      add('Gemini key', localStorage.getItem(STORAGE_KEY) ? 'saved' : 'missing', !!localStorage.getItem(STORAGE_KEY));
       add('OpenAI key', localStorage.getItem(OPENAI_STORAGE_KEY) ? 'saved' : 'missing', !!localStorage.getItem(OPENAI_STORAGE_KEY));
       add('YouTube key', localStorage.getItem(YT_STORAGE_KEY) ? 'saved' : 'missing', !!localStorage.getItem(YT_STORAGE_KEY));
       add('Signed in as', currentUser || 'nobody', !!currentUser);
@@ -13162,9 +13051,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
     // ---- Power tools ----
     // Known OpenAI chat model ids (Sept 2026). The Custom… option future-proofs
-    // the list and covers Gemini ids; an invalid id just returns a clear 404.
+    // the list; an invalid id just returns a clear 404.
     const MODEL_OPTIONS = [
-      ['', 'Provider default'],
+      ['', 'Default'],
       ['gpt-4o-mini', 'gpt-4o-mini — fast & cheap'],
       ['gpt-4o', 'gpt-4o — stronger, multimodal'],
       ['gpt-4.1-mini', 'gpt-4.1-mini'],
@@ -13209,7 +13098,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     fillModelSelect(modelSel);
     fillModelSelect(smartSel);
     const refreshBase = wireModelPicker(modelSel, panel.querySelector('#gpa-adm-model'), ADMIN_KEYS.MODEL, OPENAI_MODEL);
-    const refreshSmart = wireModelPicker(smartSel, panel.querySelector('#gpa-adm-smart'), ADMIN_KEYS.SMART_MODEL, 'gpt-6-astra');
+    const refreshSmart = wireModelPicker(smartSel, panel.querySelector('#gpa-adm-smart'), ADMIN_KEYS.SMART_MODEL, SMART_MODEL_DEFAULT);
 
     const autoUpgradeBtn = panel.querySelector('#gpa-adm-autoupgrade');
     function refreshAutoUpgrade() {
@@ -13274,7 +13163,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       wrap.innerHTML = '';
       // sessionOnly entries live in memory for this session only and are never
       // written to localStorage — see sessionSecrets.
-      [['Gemini', STORAGE_KEY, false], ['OpenAI', OPENAI_STORAGE_KEY, false], ['YouTube', YT_STORAGE_KEY, false],
+      [['OpenAI', OPENAI_STORAGE_KEY, false], ['YouTube', YT_STORAGE_KEY, false],
        ['Admin token', ADMIN_KEYS.TELE_TOKEN, true], ['Owner code', ADMIN_KEYS.OWNER_CODE, true]].forEach(([label, key, sessionOnly]) => {
         const v = (sessionOnly ? admGet(key) : localStorage.getItem(key)) || '';
         const row = document.createElement('div');
