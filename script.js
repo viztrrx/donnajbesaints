@@ -510,6 +510,679 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function gpsCube() {
     return '<div class="gps-cube" aria-hidden="true"><i class="f1"></i><i class="f2"></i><i class="f3"></i><i class="f4"></i><i class="f5"></i><i class="f6"></i></div>';
   }
+
+  // ---- Rooms: shared hero system for every tool pane ------------------------
+  // Each tool pane opens with a hero: a small 3D scene with its own metaphor,
+  // a live status line and the pane's primary actions. Scenes are built from
+  // plain elements colored only by theme tokens, and every moving part is
+  // driven by real state written to data-* attributes on the hero (see the
+  // rooms module near the end of the file). Inactive panes are display:none,
+  // so their scenes cost nothing while you're elsewhere.
+  let gpxAiStart = null; // (hard) => room   set by the rooms module
+  let gpxAiEnd = null;   // (room, ok, err)
+  Object.assign(GPS_ICONS, {
+    send: gpsSvg('<path d="M4.5 12L20 4.5 16 20l-4.2-6.3z"/><path d="M11.8 13.7L20 4.5"/>'),
+    attach: gpsSvg('<path d="M20 11.5l-7.8 7.8a4.8 4.8 0 0 1-6.8-6.8l8.3-8.3a3.2 3.2 0 0 1 4.5 4.5l-8.2 8.2a1.6 1.6 0 0 1-2.3-2.3l7.4-7.4"/>'),
+    mic: gpsSvg('<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/>'),
+    plus: gpsSvg('<path d="M12 5v14M5 12h14"/>'),
+    trash: gpsSvg('<path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.9 12.2h9.2l.9-12.2"/>'),
+    refresh: gpsSvg('<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4v4.5H15"/>'),
+    home: gpsSvg('<path d="M4 11l8-6.5 8 6.5M6.5 9.5V19.5h11V9.5"/>'),
+    external: gpsSvg('<path d="M14 4.5h5.5V10M19.5 4.5L11 13M17 14v5.5H4.5V7H10"/>'),
+    camera: gpsSvg('<path d="M4 8h3.5l1.8-2.5h5.4L16.5 8H20v11H4z"/><circle cx="12" cy="13.2" r="3.4"/>'),
+    upload: gpsSvg('<path d="M12 15.5V4.5M7.5 9L12 4.5 16.5 9M4.5 15v4.5h15V15"/>'),
+    scan: gpsSvg('<path d="M4 8V4.5h3.5M16.5 4.5H20V8M20 16v3.5h-3.5M7.5 19.5H4V16M4 12h16"/>'),
+    globe: gpsSvg('<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.9 5.2 3.9 8.5s-1.3 6.1-3.9 8.5c-2.6-2.4-3.9-5.2-3.9-8.5S9.4 5.9 12 3.5z"/>'),
+    copy: gpsSvg('<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V5.5a1.5 1.5 0 0 0-1.5-1.5H6a1.5 1.5 0 0 0-1.5 1.5V14A1.5 1.5 0 0 0 6 15.5h2.5"/>'),
+    link: gpsSvg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+    print: gpsSvg('<path d="M7 9V4.5h10V9M7 16.5H4.5V9h15v7.5H17"/><rect x="7" y="13.5" width="10" height="6" rx="1"/>'),
+    quiz: gpsSvg('<rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8.5l1.5 1.5 3-3M8 15l1.5 1.5 3-3M15 9h1.5M15 15.5h1.5"/>'),
+    cap: gpsSvg('<path d="M2.5 9.5L12 5l9.5 4.5L12 14z"/><path d="M6.5 11.5v4.3c1.5 1.5 3.3 2.2 5.5 2.2s4-.7 5.5-2.2v-4.3M21.5 9.5V15"/>'),
+    pin: gpsSvg('<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10" r="2.3"/>'),
+    table: gpsSvg('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"/>'),
+    eye: gpsSvg('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>'),
+    bolt: gpsSvg('<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>'),
+    note: gpsSvg('<path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14 3.5V8.5h5M9 12.5h7M9 16h5"/>'),
+    music: gpsSvg('<path d="M9 17.5V5.5l10.5-2v12"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17" cy="15.5" r="2.5"/>'),
+    pause: gpsSvg('<path d="M8 5.5v13M16 5.5v13"/>'),
+    prev: gpsSvg('<path d="M6 5.5v13M18.5 5.5L9 12l9.5 6.5z"/>'),
+    next: gpsSvg('<path d="M18 5.5v13M5.5 5.5L15 12l-9.5 6.5z"/>'),
+    volume: gpsSvg('<path d="M4.5 9.5h3.5L13 5v14l-5-4.5H4.5z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'),
+    folder: gpsSvg('<path d="M3.5 6.5h6l2 2.5h9v10H3.5z"/>'),
+    calendar: gpsSvg('<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/>'),
+    timer: gpsSvg('<circle cx="12" cy="13.5" r="7"/><path d="M12 13.5V9.5M9.5 3h5"/>'),
+    wand: gpsSvg('<path d="M4 20L15 9M13.5 6.5l4 4M17 3.5v2M20.5 7h-2M19.5 4.5L18 6"/>'),
+    chat: gpsSvg('<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>'),
+    users: gpsSvg('<circle cx="9" cy="8.5" r="3.3"/><path d="M3 19.5c.9-3.1 3.2-4.8 6-4.8s5.1 1.7 6 4.8"/><path d="M15.5 5.6a3.3 3.3 0 0 1 0 6.1M17.5 14.9c1.7.6 2.9 2.2 3.5 4.6"/>'),
+    key: gpsSvg('<circle cx="8" cy="15" r="4.2"/><path d="M11 12l8.5-8.5M16.5 6.5l2.5 2.5M14.5 8.5l2 2"/>'),
+    cards: gpsSvg('<rect x="6.5" y="6.5" width="13" height="13" rx="2"/><path d="M4.5 16.5V5.5a1.5 1.5 0 0 1 1.5-1.5h10"/>'),
+    pen: gpsSvg('<path d="M15.5 4.5l4 4L8.5 19.5H4.5v-4z"/><path d="M13 7l4 4"/>'),
+    spell: gpsSvg('<path d="M4 16L8 5h.3L12 16M5.3 12.5h5.4"/><path d="M13.5 15l2.5 2.5 4.5-6"/>'),
+    game: gpsSvg('<rect x="3" y="7.5" width="18" height="10" rx="4"/><path d="M7.5 11v3.5M5.8 12.8h3.4"/><circle cx="15.5" cy="11.5" r="1" fill="currentColor"/><circle cx="17.8" cy="14" r="1" fill="currentColor"/>'),
+    lab: gpsSvg('<path d="M9.5 3.5h5M10.5 3.5v6L5 19a1.2 1.2 0 0 0 1 1.5h12a1.2 1.2 0 0 0 1-1.5l-5.5-9.5v-6"/><path d="M7.5 14.5h9"/>'),
+    sun: gpsSvg('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>'),
+    settings: gpsSvg('<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/>'),
+    book: gpsSvg('<path d="M4.5 5.5c2.8-1 5.3-.8 7.5.8 2.2-1.6 4.7-1.8 7.5-.8v13c-2.8-1-5.3-.8-7.5.8-2.2-1.6-4.7-1.8-7.5-.8z"/><path d="M12 6.3v13"/>'),
+    x: gpsSvg('<path d="M6 6l12 12M18 6L6 18"/>')
+  });
+
+  // Per-room scene markup. Each is a distinct metaphor; the rooms module only
+  // writes data-* attributes and a couple of CSS variables into the hero.
+  const GPX_SCENES = {
+    ask: '<div class="gv gv-core"><div class="gv-core-rig"><i class="gv-ring gv-r1"><u><b></b></u></i><i class="gv-ring gv-r2"><u><b></b></u></i><i class="gv-ring gv-r3"><u><b></b></u></i></div><span class="gv-nucleus"></span></div>',
+    scan: '<div class="gv gv-pages"><div class="gv-pages-rig"><i class="gv-sheet gv-s3"></i><i class="gv-sheet gv-s2"></i><i class="gv-sheet gv-s1"><b></b><b></b><b></b><b></b><b></b><b></b><em class="gv-beam"></em></i></div></div>',
+    chat: '<div class="gv gv-bubbles"><div class="gv-b-rig"><i class="gv-bub gv-b1"></i><i class="gv-bub gv-b2"></i><i class="gv-bub gv-b3"></i><span class="gv-hub"></span></div></div>',
+    music: '<div class="gv gv-disc"><div class="gv-disc-rig"><i class="gv-progress"></i><i class="gv-vinyl"><span></span></i></div><i class="gv-arm"></i></div>',
+    browser: '<div class="gv gv-tunnel"><i class="gv-dev"></i><div class="gv-tube"><i></i><i></i><i></i><i></i><b class="gv-flow"></b></div><i class="gv-win"><s></s><s></s><s></s></i></div>',
+    games: '<div class="gv gv-blocks"><div class="gv-blocks-rig"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>',
+    saved: '<div class="gv gv-library"><div class="gv-lib-rig"><i></i><i></i><i></i><i></i></div><span class="gv-count" data-bind="count">0</span></div>',
+    study: '<div class="gv gv-flash"><div class="gv-flash-rig"><i class="gv-card-f">Q</i><i class="gv-card-b">A</i></div><i class="gv-ring-p"></i></div>',
+    notes: '<div class="gv gv-notes"><div class="gv-notes-rig"><i class="gv-doc gv-d2"></i><i class="gv-doc gv-d1"><b></b><b></b><b></b><b></b><b></b></i><i class="gv-sticky"></i></div></div>',
+    humanize: '<div class="gv gv-morph"><i class="gv-sheet-a"><b></b><b></b><b></b><b></b></i><span class="gv-arrow"></span><i class="gv-sheet-b"><b></b><b></b><b></b><b></b></i></div>',
+    grammar: '<div class="gv gv-gram"><i class="gv-gsheet"><b></b><b class="gv-bad"></b><b></b><b class="gv-bad"></b><b></b><em class="gv-beam"></em></i></div>'
+  };
+  // Hero: scene + copy + actions. `actions` is raw markup that usually holds
+  // the pane's real primary buttons (moved here, ids unchanged).
+  function gpxHero(o) {
+    return `<section class="gpx-hero" data-room="${o.room}" data-state="idle">`
+      + `<div class="gpx-visual" aria-hidden="true">${o.scene || GPX_SCENES[o.room] || ''}<div class="gpx-floor"></div></div>`
+      + `<div class="gpx-copy">`
+      + `<div class="gpx-status" role="status" aria-live="polite"><i></i><span class="gpx-status-t">${o.status || 'Ready'}</span></div>`
+      + `<h2 class="gpx-title">${o.title}</h2>`
+      + (o.desc ? `<p class="gpx-desc">${o.desc}</p>` : '')
+      + (o.meta ? `<div class="gpx-meta">${o.meta}</div>` : '')
+      + (o.actions ? `<div class="gpx-actions">${o.actions}</div>` : '')
+      + `</div></section>`;
+  }
+  // Icon + label inside a button whose text the code never rewrites.
+  const gpxLbl = (icon, text) => `${GPS_ICONS[icon]}<span>${text}</span>`;
+  // A designed empty state. `action` is optional markup.
+  function gpxEmpty(o) {
+    return `<div class="gpx-empty ${o.cls || ''}">`
+      + `<div class="gpx-empty-art" aria-hidden="true">${GPS_ICONS[o.icon] || ''}</div>`
+      + `<div class="gpx-empty-title">${o.title}</div>`
+      + (o.desc ? `<p class="gpx-empty-desc">${o.desc}</p>` : '')
+      + (o.action ? `<div class="gpx-empty-actions">${o.action}</div>` : '')
+      + `</div>`;
+  }
+  const GPX_CSS = `
+      /* ===== Product-wide design layer ======================================
+         The Settings system (tokens, radii, elevation, motion) applied to
+         every pane. System tokens live on the panel so everything inherits
+         them; component rules below restyle the shared building blocks. */
+      .gpa-panel {
+        --gps-r1: calc(8px * var(--gpa-rs)); --gps-r2: calc(12px * var(--gpa-rs)); --gps-r3: calc(16px * var(--gpa-rs));
+        --gps-ease: cubic-bezier(0.16, 1, 0.3, 1); --gps-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+        --gps-t1: 140ms; --gps-t2: 240ms; --gps-t3: 420ms;
+        --gps-soft: color-mix(in srgb, var(--gpa-text) 6%, transparent);
+        --gps-e1: 0 1px 0 color-mix(in srgb, var(--gpa-text) 5%, transparent) inset;
+        --gps-e2: 0 1px 0 color-mix(in srgb, var(--gpa-text) 6%, transparent) inset, 0 10px 28px -12px rgba(0,0,0,0.45);
+        --gpx-ok: #34d399; --gpx-warn: #fbbf24; --gpx-err: #f87171;
+      }
+      .gpa-panel svg { flex-shrink: 0; }
+
+      /* ---- Navigation: same language as the Settings rail ---- */
+      .gpa-dropdown-item { min-height: 36px; gap: 10px; font-size: 13px; }
+      .gpa-dropdown-item .gpa-nav-ic { width: 18px; height: 18px; display: grid; place-items: center; opacity: 1; }
+      .gpa-dropdown-item .gpa-nav-ic svg { width: 18px; height: 18px; }
+      .gpa-dropdown-item.active { color: var(--gpa-text); background: color-mix(in srgb, var(--gpa-accent) 14%, transparent); }
+      .gpa-dropdown-item.active .gpa-nav-ic { color: var(--gpa-accent); }
+      .gpa-dropdown-item.active::before {
+        content: ''; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0;
+        background: var(--gpa-accent); box-shadow: 0 0 10px var(--gpa-accent);
+      }
+      .gpa-pane.active { animation: gpa-room-in 280ms var(--gps-ease) both; }
+      @keyframes gpa-room-in { from { opacity: 0; transform: translateY(8px) scale(0.995); } to { opacity: 1; transform: none; } }
+
+      /* ---- Shared components ---- */
+      .gpa-card { box-shadow: var(--gps-e1); border-radius: var(--gps-r3); }
+      .gpa-card-title { font-size: 13px; font-weight: 600; letter-spacing: -0.005em; margin-bottom: 0; }
+      .gpa-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 34px; line-height: 1.2; }
+      .gpa-btn svg { width: 16px; height: 16px; }
+      .gpa-btn:hover { border-color: color-mix(in srgb, var(--gpa-accent) 55%, var(--gpa-border)); background: var(--gpa-field); }
+      .gpa-btn.primary:hover { box-shadow: 0 6px 20px -8px var(--gpa-accent); background: var(--gpa-accent); }
+      .gpa-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+      .gpa-btn:focus-visible, .gpa-input:focus-visible, .gpa-sync-box:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 2px; }
+      .gpx-btn-ghost { background: transparent; border-color: transparent; color: var(--gpa-sub); }
+      .gpx-btn-ghost:hover { color: var(--gpa-text); background: var(--gps-soft); }
+      .gpx-icon-btn { min-width: 36px; padding-left: 0; padding-right: 0; }
+      .gpa-input, .gpa-sync-box { border-radius: var(--gps-r2); }
+      .gpa-sync-box { border: 1px solid var(--gpa-border); background: var(--gpa-field); color: var(--gpa-text); transition: border-color var(--gps-t1) ease, box-shadow var(--gps-t1) ease; }
+      .gpa-sync-box:focus { border-color: var(--gpa-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 18%, transparent); outline: none; }
+      .gpa-output { border-radius: var(--gps-r3); box-shadow: var(--gps-e1); }
+      .gpa-chip { transition: border-color var(--gps-t1) ease, transform var(--gps-t2) var(--gps-spring); }
+      .gpa-chip:hover { transform: translateY(-1px); }
+
+      /* Loading: shimmering skeleton instead of bare "Loading…" */
+      .gpa-skeleton { gap: 9px; padding: 4px 0; }
+      .gpa-skeleton-line {
+        height: 10px; border-radius: 999px;
+        background: linear-gradient(90deg, color-mix(in srgb, var(--gpa-text) 8%, transparent) 0%, color-mix(in srgb, var(--gpa-accent) 22%, transparent) 50%, color-mix(in srgb, var(--gpa-text) 8%, transparent) 100%);
+        background-size: 220% 100%; animation: gpx-shimmer 1.4s linear infinite;
+      }
+      @keyframes gpx-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+      /* Errors: title, plain explanation, and the redacted technical detail */
+      .gpa-error {
+        display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: var(--gps-r2);
+        background: color-mix(in srgb, var(--gpx-err) 9%, var(--gpa-field)); border: 1px solid color-mix(in srgb, var(--gpx-err) 45%, var(--gpa-border));
+        color: var(--gpa-text); font-family: 'Geist', -apple-system, 'Segoe UI', sans-serif; white-space: normal;
+      }
+      .gpa-error-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: color-mix(in srgb, var(--gpx-err) 18%, transparent); color: var(--gpx-err); }
+      .gpa-error-icon svg { width: 16px; height: 16px; }
+      .gpa-error-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 13px; line-height: 1.5; }
+      .gpa-error-title { font-weight: 600; }
+      .gpa-error-details { font-size: 12px; color: var(--gpa-sub); }
+      .gpa-error-details summary { cursor: pointer; width: fit-content; }
+      .gpa-error-details code { display: block; margin-top: 6px; padding: 8px; border-radius: var(--gps-r1); background: var(--gpa-bg); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+      /* Toasts */
+      .gpa-toast {
+        border-radius: var(--gps-r2); border: 1px solid var(--gpa-border);
+        background: color-mix(in srgb, var(--gpa-panel) 94%, transparent); backdrop-filter: blur(10px);
+        box-shadow: 0 16px 36px -14px rgba(0,0,0,0.6); padding-left: 14px; border-left: 3px solid var(--gpa-accent);
+      }
+      .gpa-toast.danger { border-left-color: var(--gpx-err); }
+
+      /* Modals share the dialog look from Settings */
+      .gpa-modal { backdrop-filter: blur(3px); }
+      .gpa-modal-card, .gpa-langpick-card, .gpa-ann-card {
+        border-radius: calc(16px * var(--gpa-rs)) !important; box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7) !important;
+        animation: gps-pop 280ms var(--gps-spring) both;
+      }
+      .gpa-modal-title { font-size: 15px; letter-spacing: -0.005em; }
+
+      /* ===== Rooms ===== */
+      .gpx-room { container: room / inline-size; display: flex; flex-direction: column; gap: 14px; flex: 1; min-height: 0; min-width: 0; }
+      .gpx-room .gpa-btn { white-space: normal; }
+      .gpx-card { display: flex; flex-direction: column; gap: 10px; }
+      .gpx-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .gpx-card-head > svg { width: 18px; height: 18px; color: var(--gpa-accent); }
+      .gpx-card-head .gpa-card-title { flex: 1; min-width: 0; }
+      .gpx-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+      .gpx-span-2 { grid-column: span 2; }
+      .gpx-split { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+      .gpx-main, .gpx-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+      .gpx-side { position: sticky; top: 0; }
+      .gpx-stack { display: flex; flex-direction: column; gap: 8px; }
+      .gpx-stack .gpa-btn { justify-content: flex-start; }
+      .gpx-field-label { font-size: 12px; font-weight: 600; color: var(--gpa-sub); }
+      .gpx-section-label { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gpa-sub); padding: 0 2px; }
+      .gpx-section-label:empty { display: none; }
+      .gpx-note:empty { display: none; }
+      .gpx-chip {
+        display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 10px; border-radius: 999px;
+        font: 600 11.5px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-text);
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); white-space: nowrap;
+      }
+      .gpx-chip-accent { border-color: color-mix(in srgb, var(--gpa-accent) 50%, var(--gpa-border)); background: color-mix(in srgb, var(--gpa-accent) 12%, var(--gpa-field)); }
+      .gpx-composer { gap: 8px; align-items: stretch; }
+      .gpx-composer .gpa-input { min-width: 0; }
+      .gpx-composer-dock {
+        padding: 6px; border-radius: calc(16px * var(--gpa-rs)); border: 1px solid var(--gpa-border);
+        background: var(--gpa-card-bg); box-shadow: var(--gps-e2); flex-shrink: 0;
+      }
+      .gpx-composer-dock .gpa-input { border-color: transparent; background: transparent; }
+      .gpx-composer-dock .gpa-input:focus { box-shadow: none; border-color: transparent; }
+      .gpx-composer-dock:focus-within { border-color: var(--gpa-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 16%, transparent), var(--gps-e2); }
+      .gpx-details { border-radius: var(--gps-r3); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); padding: 0 14px; }
+      .gpx-details > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; font-size: 13px; font-weight: 600; list-style: none; }
+      .gpx-details > summary::-webkit-details-marker { display: none; }
+      .gpx-details > summary::after { content: ''; margin-left: auto; width: 8px; height: 8px; border-right: 1.6px solid var(--gpa-sub); border-bottom: 1.6px solid var(--gpa-sub); transform: rotate(45deg); transition: transform var(--gps-t2) var(--gps-ease); }
+      .gpx-details[open] > summary::after { transform: rotate(225deg); }
+      .gpx-details[open] { padding-bottom: 14px; }
+      .gpx-details > summary svg { width: 16px; height: 16px; color: var(--gpa-accent); }
+      .gpx-inline-error { padding: 10px 12px; border-radius: var(--gps-r2); font-size: 12.5px; color: var(--gpa-text); background: color-mix(in srgb, var(--gpx-err) 10%, var(--gpa-field)); border: 1px solid color-mix(in srgb, var(--gpx-err) 45%, var(--gpa-border)); }
+
+      /* ---- Hero ---- */
+      .gpx-hero {
+        position: relative; display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 20px; align-items: center;
+        padding: 12px 20px 12px 12px; flex-shrink: 0; overflow: hidden; isolation: isolate;
+        border-radius: calc(20px * var(--gpa-rs)); border: 1px solid var(--gpa-border);
+        background: radial-gradient(70% 140% at 0% 50%, color-mix(in srgb, var(--gpa-glow) 12%, transparent), transparent 70%), var(--gpa-card-bg);
+        box-shadow: var(--gps-e2);
+        transition: border-color var(--gps-t3) ease;
+      }
+      .gpx-hero[data-state="working"] { border-color: color-mix(in srgb, var(--gpa-accent) 55%, var(--gpa-border)); }
+      .gpx-hero[data-state="error"] { border-color: color-mix(in srgb, var(--gpx-err) 55%, var(--gpa-border)); }
+      .gpx-visual {
+        position: relative; height: 150px; display: grid; place-items: center; overflow: hidden; perspective: 700px;
+        border-radius: var(--gps-r3); border: 1px solid var(--gpa-border);
+        background: radial-gradient(90% 80% at 50% 10%, color-mix(in srgb, var(--gpa-glow) 18%, transparent), transparent 70%), var(--gpa-bg2);
+      }
+      .gpx-floor {
+        position: absolute; left: -30%; right: -30%; bottom: -60%; height: 110%; z-index: -1; pointer-events: none;
+        transform: rotateX(78deg); transform-origin: 50% 0%;
+        background:
+          repeating-linear-gradient(90deg, color-mix(in srgb, var(--gpa-text) 9%, transparent) 0 1px, transparent 1px 26px),
+          repeating-linear-gradient(0deg, color-mix(in srgb, var(--gpa-text) 9%, transparent) 0 1px, transparent 1px 26px);
+        -webkit-mask-image: radial-gradient(60% 55% at 50% 0%, #000, transparent 75%); mask-image: radial-gradient(60% 55% at 50% 0%, #000, transparent 75%);
+      }
+      .gpx-copy { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+      .gpx-title { margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.15; }
+      .gpx-desc { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--gpa-sub); max-width: 62ch; }
+      .gpx-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+      .gpx-meta:empty { display: none; }
+      .gpx-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; align-items: center; }
+      .gpx-actions .gpa-input { flex: 1 1 160px; min-width: 0; }
+      .gpx-status {
+        display: inline-flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; min-height: 24px; padding: 0 10px 0 8px;
+        border-radius: 999px; font: 500 11.5px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-sub);
+        background: var(--gpa-field); border: 1px solid var(--gpa-border);
+      }
+      .gpx-status > i, .gpx-status .gpa-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gpa-sub); flex-shrink: 0; }
+      .gpx-status-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gpx-hero[data-state="working"] .gpx-status { color: var(--gpa-text); }
+      .gpx-hero[data-state="working"] .gpx-status > i { background: var(--gpa-accent); box-shadow: 0 0 0 0 var(--gpa-accent); animation: gpx-ping 1.2s ease-out infinite; }
+      .gpx-hero[data-state="done"] .gpx-status > i, .gpx-hero[data-live="1"] .gpx-status > i { background: var(--gpx-ok); box-shadow: 0 0 8px var(--gpx-ok); }
+      .gpx-hero[data-state="error"] .gpx-status { color: var(--gpa-text); }
+      .gpx-hero[data-state="error"] .gpx-status > i { background: var(--gpx-err); }
+      @keyframes gpx-ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gpa-accent) 70%, transparent); } 100% { box-shadow: 0 0 0 8px transparent; } }
+
+      /* Compact hero once a conversation is under way */
+      .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-hero,
+      .gpx-room-convo:has(.gpa-chat-msg) .gpx-hero { grid-template-columns: 64px minmax(0, 1fr); padding: 8px 14px 8px 8px; }
+      .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-visual,
+      .gpx-room-convo:has(.gpa-chat-msg) .gpx-visual { height: 64px; }
+      .gpx-room-convo:has(#gpa-chat:not(:empty)) .gv,
+      .gpx-room-convo:has(.gpa-chat-msg) .gv { position: absolute; left: 50%; top: 50%; translate: -50% -50%; scale: 0.46; }
+      .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-floor,
+      .gpx-room-convo:has(.gpa-chat-msg) .gpx-floor { display: none; }
+      .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-title,
+      .gpx-room-convo:has(.gpa-chat-msg) .gpx-title { order: -1; }
+      .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-desc,
+      .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-meta,
+      .gpx-room-convo:has(.gpa-chat-msg) .gpx-desc { display: none; }
+      .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-title,
+      .gpx-room-convo:has(.gpa-chat-msg) .gpx-title { font-size: 16px; }
+      .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-copy,
+      .gpx-room-convo:has(.gpa-chat-msg) .gpx-copy { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 12px; }
+      .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-actions,
+      .gpx-room-convo:has(.gpa-chat-msg) .gpx-actions { margin: 0 0 0 auto; }
+
+      /* ---- Empty states ---- */
+      .gpx-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 16px; text-align: center; }
+      .gpx-empty-art {
+        position: relative; display: grid; place-items: center; width: 64px; height: 64px; margin: 0 auto 6px;
+        border-radius: 18px; color: var(--gpa-accent); transform: perspective(300px) rotateX(14deg) rotateY(-14deg);
+        background: linear-gradient(145deg, color-mix(in srgb, var(--gpa-accent) 20%, var(--gpa-field)), var(--gpa-field));
+        border: 1px solid color-mix(in srgb, var(--gpa-accent) 35%, var(--gpa-border));
+        box-shadow: 10px 14px 24px -12px rgba(0,0,0,0.6), 0 0 30px -10px var(--gpa-glow), inset 0 1px 0 color-mix(in srgb, var(--gpa-text) 10%, transparent);
+      }
+      .gpx-empty-art svg { width: 28px; height: 28px; }
+      .gpx-empty-title { font-size: 14px; font-weight: 600; }
+      .gpx-empty-desc { margin: 0 auto; font-size: 12.5px; line-height: 1.5; color: var(--gpa-sub); max-width: 46ch; }
+      .gpx-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+      .gpx-empty-inline { padding: 16px 8px; }
+      .gpx-suggest {
+        min-height: 34px; padding: 0 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 500;
+        background: var(--gpa-field); color: var(--gpa-text); border: 1px solid var(--gpa-border);
+        transition: border-color var(--gps-t1) ease, transform var(--gps-t2) var(--gps-spring);
+      }
+      .gpx-suggest:hover { border-color: var(--gpa-accent); transform: translateY(-1px); }
+      .gpx-convo { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 120px; }
+      .gpx-convo .gpa-chat { flex: 1; }
+      .gpx-convo #gpa-chat:empty { flex: 0; min-height: 0; }
+      .gpx-convo #gpa-chat:not(:empty) ~ .gpx-empty-ask { display: none; }
+      .gpa-chat-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 32px 12px; font-size: 12.5px; }
+      .gpa-chat-empty::before {
+        content: ''; width: 48px; height: 48px; border-radius: 14px; transform: perspective(300px) rotateX(14deg) rotateY(-14deg);
+        background: linear-gradient(145deg, color-mix(in srgb, var(--gpa-accent) 22%, var(--gpa-field)), var(--gpa-field));
+        border: 1px solid color-mix(in srgb, var(--gpa-accent) 35%, var(--gpa-border)); box-shadow: 8px 12px 20px -12px rgba(0,0,0,0.6);
+      }
+
+      /* ---- Page Insights ---- */
+      .gpx-context { align-items: center; padding: 8px; border-radius: var(--gps-r2); background: var(--gpa-field); border: 1px solid var(--gpa-border); }
+      .gpx-tool-feature, .gpx-tool {
+        display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 4px 12px; align-items: center; padding: 12px;
+        border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-field);
+        transition: border-color var(--gps-t1) ease, transform var(--gps-t2) var(--gps-spring), box-shadow var(--gps-t2) ease;
+      }
+      .gpx-tool:hover, .gpx-tool-feature:hover { border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); transform: translateY(-1px); box-shadow: var(--gps-e2); }
+      .gpx-tool-feature {
+        grid-template-columns: 48px minmax(0, 1fr) auto;
+        background: linear-gradient(135deg, color-mix(in srgb, var(--gpa-accent) 12%, var(--gpa-field)), var(--gpa-field));
+      }
+      .gpx-tool-feature .quiz-btn { width: auto; padding: 10px 16px; }
+      .gpx-tool > .gpa-btn { grid-column: 1 / -1; width: 100%; }
+      .gpx-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .gpx-tool-ic {
+        display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--gps-r2); color: var(--gpa-accent);
+        background: color-mix(in srgb, var(--gpa-accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--gpa-accent) 30%, transparent);
+        transform: perspective(200px) rotateY(-10deg);
+      }
+      .gpx-tool-feature .gpx-tool-ic { width: 48px; height: 48px; }
+      .gpx-tool-ic svg { width: 20px; height: 20px; }
+      .gpx-tool-name { font-size: 13px; font-weight: 600; }
+      .gpx-tool-desc { font-size: 12px; line-height: 1.45; color: var(--gpa-sub); }
+
+      /* ---- Music ---- */
+      .gpx-seg { flex-shrink: 0; }
+      .gpx-seg .gps-seg-btn, .gpx-seg-inline .gps-seg-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+      .gpx-seg svg, .gpx-seg-inline svg { width: 16px; height: 16px; }
+      .gpx-seg-inline { display: inline-grid; }
+      .gpx-src-panel { display: none; }
+      .gpx-src-panel.is-active { display: flex; animation: gps-in var(--gps-t2) var(--gps-ease) both; }
+      .gpx-now { font: 500 12px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-text); }
+      .gpx-now:empty { display: none; }
+      .gpx-player { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: var(--gps-r3); background: linear-gradient(135deg, color-mix(in srgb, var(--gpa-accent) 12%, var(--gpa-field)), var(--gpa-field)); border: 1px solid color-mix(in srgb, var(--gpa-accent) 30%, var(--gpa-border)); }
+      .gpx-player-title { font-size: 14px; font-weight: 600; }
+      .gpx-player-row { justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+      .gpx-player-ctrls { display: flex; gap: 8px; }
+      .gpx-play { min-width: 44px; min-height: 44px; border-radius: 50%; }
+      .gpx-volume { display: flex; align-items: center; gap: 8px; min-width: 140px; color: var(--gpa-sub); }
+      .gpx-volume svg { width: 16px; height: 16px; }
+      .gpx-empty-library { padding: 20px 8px; }
+      .gpa-local-playlist:not(:empty) ~ .gpx-empty-library { display: none; }
+
+      /* ---- Proxy ---- */
+      .gpx-browser {
+        display: flex; flex-direction: column; flex: 1; min-height: 360px; overflow: hidden;
+        border-radius: calc(18px * var(--gpa-rs)); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); box-shadow: var(--gps-e2);
+      }
+      .gpx-browser-bar { display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--gpa-panel); border-bottom: 1px solid var(--gpa-border); }
+      .gpx-browser-nav { display: flex; gap: 4px; }
+      .gpx-address { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 999px; background: var(--gpa-field); border: 1px solid var(--gpa-border); color: var(--gpa-sub); }
+      .gpx-address:focus-within { border-color: var(--gpa-accent); }
+      .gpx-address svg { width: 16px; height: 16px; }
+      .gpx-address .gpa-input { border: none; background: transparent; padding-left: 0; box-shadow: none; }
+      .gpx-loadbar { height: 2px; background: transparent; overflow: hidden; position: relative; }
+      .gpx-room[data-proxy="connecting"] .gpx-loadbar::after {
+        content: ''; position: absolute; top: 0; bottom: 0; width: 35%; background: linear-gradient(90deg, transparent, var(--gpa-accent), transparent);
+        animation: gpx-load 1.1s var(--gps-ease) infinite;
+      }
+      @keyframes gpx-load { from { left: -35%; } to { left: 100%; } }
+      .gpx-browser-status { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; border-bottom: 1px solid var(--gpa-border); }
+      .gpx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gpa-sub); }
+      .gpx-room[data-proxy="connected"] .gpx-dot { background: var(--gpx-ok); box-shadow: 0 0 8px var(--gpx-ok); }
+      .gpx-room[data-proxy="connecting"] .gpx-dot { background: var(--gpa-accent); animation: gpx-ping 1.2s ease-out infinite; }
+      .gpx-room[data-proxy="error"] .gpx-dot { background: var(--gpx-err); }
+      #gpa-proxy-status { color: var(--gpa-text) !important; }
+      .gpx-browser .gpx-inline-error { margin: 8px; }
+      .gpx-browser-view { position: relative; flex: 1; min-height: 280px; display: flex; }
+      .gpx-browser-view .gpa-iframe { flex: 1; border: none; border-radius: 0; min-height: 280px; height: auto; background: var(--gpa-bg); }
+      .gpx-browser .gpx-details { border: none; border-top: 1px solid var(--gpa-border); border-radius: 0; background: transparent; }
+
+      /* ---- Games ---- */
+      .gpx-games { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
+      .gpx-games .game-btn {
+        flex-direction: column; gap: 6px; min-height: 76px; padding: 10px 6px; font-size: 12px; border-radius: var(--gps-r2);
+        transition: border-color var(--gps-t1) ease, transform var(--gps-t2) var(--gps-spring), box-shadow var(--gps-t2) ease;
+      }
+      .gpx-games .game-btn i {
+        display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; font: 700 12px 'Geist Mono', ui-monospace, monospace; font-style: normal;
+        color: var(--gpa-accent-fg); background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2));
+        box-shadow: 0 6px 14px -8px var(--gpa-accent); transform: perspective(200px) rotateX(12deg);
+      }
+      .gpx-games .game-btn:hover { transform: translateY(-2px); box-shadow: var(--gps-e2); }
+      .gpx-games .game-btn.primary { background: color-mix(in srgb, var(--gpa-accent) 14%, var(--gpa-field)); color: var(--gpa-text); border-color: var(--gpa-accent); }
+      .gpa-game-stage { border-radius: var(--gps-r3); }
+
+      /* ---- Saved / Study / Notes / editors ---- */
+      .gpx-cal-head { justify-content: space-between; align-items: center; }
+      .gpx-saved-list { max-height: none !important; }
+      .gpx-pomo-face {
+        display: grid; place-items: center; margin: 4px auto; width: 150px; height: 150px; border-radius: 50%;
+        background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--gpa-accent) 20%, var(--gpa-field)), var(--gpa-field) 70%);
+        border: 1px solid color-mix(in srgb, var(--gpa-accent) 35%, var(--gpa-border));
+        box-shadow: inset 0 -10px 24px -12px rgba(0,0,0,0.6), 0 16px 30px -18px var(--gpa-glow);
+      }
+      .gpx-pomo-face .gpa-pomo-time { font: 600 30px 'Geist Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+      .gpx-pomo-row { justify-content: center; }
+      .gpx-study { display: flex; flex-direction: column; gap: 12px; }
+      .gpx-editor .gpa-row { flex-wrap: wrap; }
+
+      /* ===== Scenes (each room's 3D metaphor) ===== */
+      .gv { position: relative; display: grid; place-items: center; width: 150px; height: 130px; transform-style: preserve-3d; }
+      .gv i, .gv b, .gv u, .gv span, .gv s, .gv em { display: block; font-style: normal; text-decoration: none; }
+
+      /* Ask: AI core with orbit rings */
+      .gv-core { --spin: 9s; }
+      .gpx-hero[data-state="working"] .gv-core { --spin: 1.4s; }
+      .gv-core-rig { position: absolute; inset: 10px 20px; transform-style: preserve-3d; transform: rotateX(66deg); }
+      .gv-ring { position: absolute; inset: 0; transform-style: preserve-3d; }
+      .gv-ring u { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--gpa-accent) 60%, transparent); animation: gv-spin var(--spin) linear infinite; }
+      .gv-r2 { transform: rotateY(58deg); } .gv-r2 u { animation-duration: calc(var(--spin) * 1.3); border-color: color-mix(in srgb, var(--gpa-accent2) 55%, transparent); }
+      .gv-r3 { transform: rotateY(-58deg); } .gv-r3 u { animation-duration: calc(var(--spin) * 1.7); animation-direction: reverse; }
+      .gv-ring b { position: absolute; top: -5px; left: calc(50% - 5px); width: 10px; height: 10px; border-radius: 50%; background: var(--gpa-accent2); box-shadow: 0 0 12px var(--gpa-accent2); }
+      .gv-nucleus {
+        position: relative; width: 40px; height: 40px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, #fff 0%, var(--gpa-accent) 38%, var(--gpa-accent2) 100%);
+        box-shadow: 0 0 28px var(--gpa-accent), inset -6px -8px 14px rgba(0,0,0,0.3);
+        transition: box-shadow var(--gps-t3) ease;
+      }
+      .gpx-hero[data-state="working"] .gv-nucleus { animation: gv-pulse 1.1s ease-in-out infinite; }
+      .gpx-hero[data-state="error"] .gv-nucleus { background: radial-gradient(circle at 35% 30%, #fff 0%, var(--gpx-err) 45%, #7f1d1d 100%); box-shadow: 0 0 22px var(--gpx-err); }
+      .gpx-hero[data-state="error"] .gv-ring u { border-color: color-mix(in srgb, var(--gpx-err) 50%, transparent); animation-play-state: paused; }
+      @keyframes gv-spin { to { transform: rotate(360deg); } }
+      @keyframes gv-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); box-shadow: 0 0 44px var(--gpa-accent); } }
+
+      /* Page Insights: stacked page layers with a scan beam */
+      .gv-pages-rig { position: relative; width: 92px; height: 118px; transform-style: preserve-3d; transform: rotateX(56deg) rotateZ(-36deg); }
+      .gv-sheet { position: absolute; inset: 0; border-radius: 6px; border: 1px solid var(--gpa-border); background: var(--gpa-panel); box-shadow: 0 10px 20px -8px rgba(0,0,0,0.6); }
+      .gv-s3 { transform: translateZ(0); opacity: 0.55; } .gv-s2 { transform: translateZ(14px); opacity: 0.8; }
+      .gv-s1 { transform: translateZ(28px); padding: 12px 10px; display: flex !important; flex-direction: column; gap: 7px; overflow: hidden; background: var(--gpa-field); }
+      .gv-s1 b { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-text) 22%, transparent); transition: background var(--gps-t3) ease; }
+      .gv-s1 b:nth-child(1) { width: 70%; height: 7px; } .gv-s1 b:nth-child(2) { width: 92%; } .gv-s1 b:nth-child(3) { width: 80%; }
+      .gv-s1 b:nth-child(4) { width: 88%; } .gv-s1 b:nth-child(5) { width: 60%; } .gv-s1 b:nth-child(6) { width: 75%; }
+      .gpx-hero[data-context="1"] .gv-s1 b { background: color-mix(in srgb, var(--gpa-accent) 60%, transparent); }
+      .gpx-hero[data-context="1"] .gv-s1 b:nth-child(odd) { box-shadow: 0 0 8px color-mix(in srgb, var(--gpa-accent) 60%, transparent); }
+      .gv-beam { position: absolute; left: 0; right: 0; top: -20%; height: 20%; opacity: 0; background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--gpa-accent) 55%, transparent), transparent); }
+      .gpx-hero[data-state="working"] .gv-beam { opacity: 1; animation: gv-beam 1.3s ease-in-out infinite; }
+      @keyframes gv-beam { from { top: -20%; } to { top: 100%; } }
+      .gpx-hero[data-state="error"] .gv-s1 { border-color: var(--gpx-err); }
+
+      /* Chat: message bubbles orbiting a room hub */
+      .gv-b-rig { position: relative; width: 120px; height: 100px; transform-style: preserve-3d; transform: rotateX(18deg) rotateY(-22deg); animation: gv-sway 8s ease-in-out infinite; }
+      @keyframes gv-sway { 0%, 100% { transform: rotateX(18deg) rotateY(-22deg); } 50% { transform: rotateX(14deg) rotateY(-8deg); } }
+      .gv-hub { position: absolute; left: calc(50% - 16px); top: calc(50% - 16px); width: 32px; height: 32px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, var(--gpa-accent) 45%, var(--gpa-accent2)); box-shadow: 0 0 22px var(--gpa-accent); transition: filter var(--gps-t3) ease; }
+      .gv-bub { position: absolute; height: 24px; border-radius: 12px 12px 12px 4px; background: var(--gpa-field); border: 1px solid var(--gpa-border); box-shadow: 0 10px 18px -10px rgba(0,0,0,0.6); }
+      .gv-bub::after { content: ''; position: absolute; left: 10px; right: 12px; top: 10px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--gpa-text) 30%, transparent); }
+      .gv-b1 { width: 64px; left: -6px; top: 4px; transform: translateZ(40px); }
+      .gv-b2 { width: 54px; right: -10px; top: 30px; transform: translateZ(20px); border-radius: 12px 12px 4px 12px; background: var(--gpa-accent); border-color: var(--gpa-accent); }
+      .gv-b2::after { background: color-mix(in srgb, var(--gpa-accent-fg) 55%, transparent); }
+      .gv-b3 { width: 70px; left: 8px; bottom: 0; transform: translateZ(60px); }
+      .gpx-hero[data-live="0"] .gv-hub { filter: grayscale(1) brightness(0.6); box-shadow: none; }
+      .gpx-hero[data-live="0"] .gv-bub { opacity: 0.45; }
+      .gpx-hero[data-pulse="1"] .gv-b3 { animation: gv-pop 600ms var(--gps-spring); }
+      @keyframes gv-pop { 0% { transform: translateZ(60px) scale(0.6); } 100% { transform: translateZ(60px) scale(1); } }
+
+      /* Music: vinyl disc, tonearm and a real progress ring */
+      .gv-disc { --p: 0; }
+      .gv-disc-rig { position: relative; width: 116px; height: 116px; transform-style: preserve-3d; transform: rotateX(52deg) rotateZ(-10deg); }
+      .gv-vinyl {
+        position: absolute; inset: 8px; border-radius: 50%;
+        background: repeating-radial-gradient(circle, #111 0 2px, #1c1c1c 2px 3px), #111;
+        box-shadow: 0 16px 24px -10px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(255,255,255,0.06);
+        animation: gv-spin 2.4s linear infinite; animation-play-state: paused;
+      }
+      .gv-vinyl::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 20deg, transparent 0 20%, rgba(255,255,255,0.12) 25%, transparent 32% 70%, rgba(255,255,255,0.08) 75%, transparent 82%); }
+      .gv-vinyl span { position: absolute; inset: 34%; border-radius: 50%; background: radial-gradient(circle, var(--gpa-bg) 0 8%, var(--gpa-accent) 9% 60%, var(--gpa-accent2) 100%); }
+      .gv-progress { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(var(--gpa-accent) calc(var(--p) * 1%), color-mix(in srgb, var(--gpa-text) 12%, transparent) 0); -webkit-mask: radial-gradient(circle, transparent 64%, #000 65%); mask: radial-gradient(circle, transparent 64%, #000 65%); }
+      .gv-arm { position: absolute; right: 12px; top: 10px; width: 5px; height: 70px; border-radius: 3px; background: linear-gradient(180deg, var(--gpa-text), var(--gpa-sub)); transform-origin: 50% 6px; transform: rotate(-28deg); transition: transform 600ms var(--gps-ease); box-shadow: 0 6px 12px -4px rgba(0,0,0,0.6); }
+      .gv-arm::before { content: ''; position: absolute; top: -4px; left: -4px; width: 13px; height: 13px; border-radius: 50%; background: var(--gpa-sub); }
+      .gpx-hero[data-playing="1"] .gv-vinyl { animation-play-state: running; }
+      .gpx-hero[data-playing="1"] .gv-arm { transform: rotate(8deg); }
+
+      /* Proxy: device, tunnel rings and a browser window */
+      .gv-tunnel { width: 176px; perspective: 400px; }
+      .gv-dev { position: absolute; left: 4px; top: calc(50% - 18px); width: 28px; height: 36px; border-radius: 6px; border: 1.5px solid var(--gpa-text); background: var(--gpa-field); }
+      .gv-win { position: absolute; right: 2px; top: calc(50% - 26px); width: 46px; height: 52px; border-radius: 6px; border: 1px solid var(--gpa-border); background: var(--gpa-panel); padding: 12px 6px 6px; display: flex !important; flex-direction: column; gap: 5px; box-shadow: 0 10px 20px -8px rgba(0,0,0,0.6); }
+      .gv-win::before { content: ''; position: absolute; top: 5px; left: 6px; width: 16px; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--gpa-text) 40%, transparent); }
+      .gv-win s { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--gpa-text) 18%, transparent); }
+      .gv-tube { position: absolute; left: 36px; right: 52px; top: calc(50% - 24px); height: 48px; display: flex !important; align-items: center; justify-content: space-around; transform-style: preserve-3d; }
+      .gv-tube i { width: 12px; height: 44px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--gpa-accent) 55%, transparent); transform: rotateY(60deg); opacity: 0.55; }
+      .gv-flow { position: absolute; left: 0; right: 0; top: calc(50% - 1px); height: 2px; background: color-mix(in srgb, var(--gpa-text) 18%, transparent); overflow: hidden; }
+      .gpx-hero[data-proxy="connecting"] .gv-tube i { animation: gv-ringwave 1.2s ease-in-out infinite; }
+      .gpx-hero[data-proxy="connecting"] .gv-tube i:nth-child(2) { animation-delay: 0.15s; } .gpx-hero[data-proxy="connecting"] .gv-tube i:nth-child(3) { animation-delay: 0.3s; } .gpx-hero[data-proxy="connecting"] .gv-tube i:nth-child(4) { animation-delay: 0.45s; }
+      @keyframes gv-ringwave { 0%, 100% { opacity: 0.35; transform: rotateY(60deg) scale(0.9); } 50% { opacity: 1; transform: rotateY(60deg) scale(1.1); border-color: var(--gpa-accent); } }
+      .gpx-hero[data-proxy="connected"] .gv-flow { background: linear-gradient(90deg, var(--gpa-accent), var(--gpa-accent2)); box-shadow: 0 0 10px var(--gpa-accent); }
+      .gpx-hero[data-proxy="connected"] .gv-tube i { opacity: 1; border-color: var(--gpa-accent); }
+      .gpx-hero[data-proxy="connected"] .gv-win s { background: color-mix(in srgb, var(--gpa-accent) 55%, transparent); }
+      .gpx-hero[data-proxy="error"] .gv-flow { background: linear-gradient(90deg, var(--gpx-err) 0 40%, transparent 40% 60%, var(--gpx-err) 60%); }
+      .gpx-hero[data-proxy="error"] .gv-tube i { border-color: color-mix(in srgb, var(--gpx-err) 60%, transparent); }
+
+      /* Games: isometric blocks */
+      .gv-blocks-rig { display: grid !important; grid-template-columns: repeat(3, 28px); gap: 6px; transform-style: preserve-3d; transform: rotateX(56deg) rotateZ(45deg); }
+      .gv-blocks-rig i { width: 28px; height: 28px; border-radius: 6px; background: var(--gpa-field); border: 1px solid var(--gpa-border); box-shadow: -4px 4px 0 color-mix(in srgb, var(--gpa-text) 10%, transparent), -8px 8px 14px -6px rgba(0,0,0,0.6); transform: translateZ(0); transition: transform var(--gps-t3) var(--gps-spring); }
+      .gv-blocks-rig i:nth-child(2), .gv-blocks-rig i:nth-child(4), .gv-blocks-rig i:nth-child(9) { background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2)); border-color: var(--gpa-accent); }
+      .gv-blocks-rig i:nth-child(5) { transform: translateZ(14px); }
+      .gpx-hero[data-playing="1"] .gv-blocks-rig i { animation: gv-bob 1.6s ease-in-out infinite; }
+      .gpx-hero[data-playing="1"] .gv-blocks-rig i:nth-child(3n+2) { animation-delay: 0.2s; } .gpx-hero[data-playing="1"] .gv-blocks-rig i:nth-child(3n) { animation-delay: 0.4s; }
+      @keyframes gv-bob { 0%, 100% { transform: translateZ(0); } 50% { transform: translateZ(12px); } }
+      .gpx-hero[data-paused="1"] .gv-blocks-rig { filter: saturate(0.3) brightness(0.8); }
+
+      /* Saved: fanned library cards with a real count */
+      .gv-lib-rig { position: relative; width: 70px; height: 92px; transform-style: preserve-3d; transform: rotateX(20deg) rotateY(-18deg); }
+      .gv-lib-rig i { position: absolute; inset: 0; border-radius: 8px; border: 1px solid var(--gpa-border); background: var(--gpa-field); box-shadow: 0 12px 20px -10px rgba(0,0,0,0.6); transform-origin: 50% 100%; transition: transform var(--gps-t3) var(--gps-spring); }
+      .gv-lib-rig i::after { content: ''; position: absolute; left: 10px; right: 10px; top: 12px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-text) 25%, transparent); box-shadow: 0 10px 0 color-mix(in srgb, var(--gpa-text) 14%, transparent), 0 20px 0 color-mix(in srgb, var(--gpa-text) 14%, transparent); }
+      .gv-lib-rig i:nth-child(1) { transform: rotate(-16deg) translateZ(0); } .gv-lib-rig i:nth-child(2) { transform: rotate(-6deg) translateZ(10px); }
+      .gv-lib-rig i:nth-child(3) { transform: rotate(5deg) translateZ(20px); } .gv-lib-rig i:nth-child(4) { transform: rotate(15deg) translateZ(30px); background: linear-gradient(160deg, color-mix(in srgb, var(--gpa-accent) 30%, var(--gpa-field)), var(--gpa-field)); border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); }
+      .gpx-hero:hover .gv-lib-rig i:nth-child(1) { transform: rotate(-24deg); } .gpx-hero:hover .gv-lib-rig i:nth-child(4) { transform: rotate(22deg) translateZ(30px); }
+      .gpx-hero[data-empty="1"] .gv-lib-rig i { background: transparent; border-style: dashed; box-shadow: none; }
+      .gv-count { position: absolute; right: 16px; bottom: 12px; min-width: 30px; height: 30px; padding: 0 8px; display: grid !important; place-items: center; border-radius: 999px; font: 700 13px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-accent-fg); background: var(--gpa-accent); box-shadow: 0 6px 16px -6px var(--gpa-accent); }
+
+      /* Study: a flashcard that flips, ringed by real mastery progress */
+      .gv-flash { --p: 0; }
+      .gv-flash-rig { position: relative; width: 78px; height: 100px; transform-style: preserve-3d; animation: gv-flip 6s var(--gps-ease) infinite; }
+      .gpx-hero[data-empty="1"] .gv-flash-rig { animation: none; transform: rotateY(-18deg); }
+      .gv-card-f, .gv-card-b { position: absolute; inset: 0; display: grid !important; place-items: center; border-radius: 10px; backface-visibility: hidden; font: 700 26px 'Geist', sans-serif; box-shadow: 0 14px 24px -12px rgba(0,0,0,0.7); }
+      .gv-card-f { background: var(--gpa-field); border: 1px solid var(--gpa-border); color: var(--gpa-text); }
+      .gv-card-b { background: linear-gradient(145deg, var(--gpa-accent), var(--gpa-accent2)); color: var(--gpa-accent-fg); transform: rotateY(180deg); }
+      @keyframes gv-flip { 0%, 35% { transform: rotateY(-18deg); } 50%, 85% { transform: rotateY(162deg); } 100% { transform: rotateY(342deg); } }
+      .gv-ring-p { position: absolute; inset: 6px 24px; border-radius: 50%; background: conic-gradient(var(--gpa-accent) calc(var(--p) * 1%), color-mix(in srgb, var(--gpa-text) 10%, transparent) 0); -webkit-mask: radial-gradient(circle, transparent 66%, #000 67%); mask: radial-gradient(circle, transparent 66%, #000 67%); transform: rotateX(70deg) translateZ(-40px); }
+
+      /* Notes: document stack, highlighter and a sticky note */
+      .gv-notes-rig { position: relative; width: 96px; height: 112px; transform-style: preserve-3d; transform: rotateX(24deg) rotateY(-24deg); }
+      .gv-doc { position: absolute; inset: 0; border-radius: 6px; border: 1px solid var(--gpa-border); background: var(--gpa-panel); box-shadow: 0 14px 24px -12px rgba(0,0,0,0.7); }
+      .gv-d2 { transform: translate(10px, 8px) translateZ(-16px); opacity: 0.7; }
+      .gv-d1 { background: var(--gpa-field); padding: 14px 12px; display: flex !important; flex-direction: column; gap: 8px; }
+      .gv-d1 b { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-text) 22%, transparent); transform-origin: left; }
+      .gv-d1 b:nth-child(1) { width: 60%; height: 7px; background: color-mix(in srgb, var(--gpa-text) 45%, transparent); }
+      .gv-d1 b:nth-child(2) { width: 90%; } .gv-d1 b:nth-child(3) { width: 78%; background: color-mix(in srgb, var(--gpa-accent) 55%, transparent); height: 7px; } .gv-d1 b:nth-child(4) { width: 85%; } .gv-d1 b:nth-child(5) { width: 55%; }
+      .gv-sticky { position: absolute; right: -18px; top: -10px; width: 34px; height: 34px; border-radius: 4px; transform: translateZ(26px) rotate(8deg); background: linear-gradient(145deg, var(--gpa-accent2), color-mix(in srgb, var(--gpa-accent2) 70%, #000)); box-shadow: 0 10px 16px -8px rgba(0,0,0,0.6); }
+      .gpx-hero[data-state="working"] .gv-d1 b { animation: gv-write 1.6s var(--gps-ease) infinite; }
+      .gpx-hero[data-state="working"] .gv-d1 b:nth-child(2) { animation-delay: 0.15s; } .gpx-hero[data-state="working"] .gv-d1 b:nth-child(3) { animation-delay: 0.3s; } .gpx-hero[data-state="working"] .gv-d1 b:nth-child(4) { animation-delay: 0.45s; } .gpx-hero[data-state="working"] .gv-d1 b:nth-child(5) { animation-delay: 0.6s; }
+      @keyframes gv-write { 0% { transform: scaleX(0); } 60%, 100% { transform: scaleX(1); } }
+      .gpx-hero[data-has="0"] .gv-sticky { opacity: 0.35; }
+
+      /* Humanize: a stiff sheet becomes a natural one */
+      .gv-morph { width: 176px; perspective: 500px; }
+      .gv-sheet-a, .gv-sheet-b { position: absolute; top: calc(50% - 46px); width: 62px; height: 92px; border-radius: 6px; border: 1px solid var(--gpa-border); padding: 12px 9px; display: flex !important; flex-direction: column; gap: 9px; box-shadow: 0 14px 22px -12px rgba(0,0,0,0.7); }
+      .gv-sheet-a { left: 6px; background: var(--gpa-panel); transform: rotateY(24deg); }
+      .gv-sheet-a b { height: 5px; width: 100%; border-radius: 0; background: color-mix(in srgb, var(--gpa-text) 22%, transparent); }
+      .gv-sheet-b { right: 6px; background: var(--gpa-field); transform: rotateY(-24deg); border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); }
+      .gv-sheet-b b { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-accent) 55%, transparent); }
+      .gv-sheet-b b:nth-child(1) { width: 80%; } .gv-sheet-b b:nth-child(2) { width: 100%; } .gv-sheet-b b:nth-child(3) { width: 62%; } .gv-sheet-b b:nth-child(4) { width: 88%; }
+      .gv-arrow { position: absolute; left: calc(50% - 12px); top: calc(50% - 1px); width: 24px; height: 2px; background: var(--gpa-accent); }
+      .gv-arrow::after { content: ''; position: absolute; right: -1px; top: -4px; width: 8px; height: 8px; border-right: 2px solid var(--gpa-accent); border-top: 2px solid var(--gpa-accent); transform: rotate(45deg); }
+      .gpx-hero[data-state="working"] .gv-arrow { animation: gv-nudge 0.9s ease-in-out infinite; }
+      .gpx-hero[data-state="working"] .gv-sheet-b b { animation: gv-write 1.4s var(--gps-ease) infinite; transform-origin: left; }
+      @keyframes gv-nudge { 0%, 100% { transform: translateX(-4px); } 50% { transform: translateX(4px); } }
+
+      /* Grammar: squiggles that resolve into checks */
+      .gv-gsheet { position: relative; width: 104px; height: 112px; border-radius: 8px; border: 1px solid var(--gpa-border); background: var(--gpa-field); padding: 16px 12px; display: flex !important; flex-direction: column; gap: 12px; overflow: hidden; transform: rotateX(20deg) rotateY(-20deg); box-shadow: 0 16px 26px -14px rgba(0,0,0,0.7); }
+      .gv-gsheet b { position: relative; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-text) 24%, transparent); }
+      .gv-gsheet b:nth-child(2) { width: 80%; } .gv-gsheet b:nth-child(4) { width: 70%; } .gv-gsheet b:nth-child(5) { width: 55%; }
+      .gv-gsheet .gv-bad::after { content: ''; position: absolute; left: 0; right: 0; bottom: -5px; height: 4px; background: radial-gradient(circle at 2px 0, transparent 2px, var(--gpx-err) 2px 3px, transparent 3px) 0 0 / 6px 4px repeat-x; }
+      .gpx-hero[data-state="done"] .gv-gsheet .gv-bad::after, .gpx-hero[data-fixed="1"] .gv-gsheet .gv-bad::after { background: var(--gpx-ok); height: 2px; bottom: -4px; border-radius: 2px; }
+      .gpx-hero[data-state="working"] .gv-gsheet .gv-beam { opacity: 1; animation: gv-beam 1.2s ease-in-out infinite; }
+
+      /* Welcome: the Three.js scene, with a CSS orb until/unless it loads */
+      .gpx-hero-welcome .gpx-visual canvas { position: relative; z-index: 1; width: 140px; height: 140px; }
+      .gv-orb { position: absolute; }
+      .gv-orb span { width: 60px; height: 60px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, var(--gpa-accent) 40%, var(--gpa-accent2)); box-shadow: 0 0 36px var(--gpa-accent); }
+      .gv-orb i { position: absolute; inset: 20px 10px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--gpa-accent) 50%, transparent); transform: rotateX(70deg); animation: gv-spin 10s linear infinite; }
+      .gv-orb i:nth-child(2) { transform: rotateX(70deg) rotateY(50deg); animation-duration: 14s; }
+      .gpx-hero-welcome .gpx-visual:has(canvas:not([style*="none"])) .gv-orb { display: none; }
+      .gpx-status-row { display: flex; }
+      .gpa-welcome-ai-line.gpx-status { gap: 8px; }
+      .gpa-welcome-quick { flex: 0 1 auto !important; min-width: 0 !important; }
+
+      /* Base .gpa-sub is flex:1 for rows; in column layouts it must not grow. */
+      .gpx-room > .gpa-sub, .gpx-card > .gpa-sub, .gpx-copy > .gpa-sub, .gpx-main > .gpa-sub, .gpx-card > p.gpa-sub { flex: none; }
+      .gpx-card > .gpa-sub:empty, .gpx-room > .gpa-sub:empty { display: none; }
+      .gpx-card > p.gpa-sub { margin: 0; }
+      .gpx-room-convo .gpa-chat-log { flex: 1; min-height: 180px; }
+      .gpx-room-convo #gpa-chat-log:empty { display: none; }
+      .gpx-room-convo #gpa-chat-log:not(:empty) ~ .gpx-empty-chat { display: none; }
+      .gpx-empty-chat { flex: 1; justify-content: center; border-radius: var(--gps-r3); border: 1px dashed var(--gpa-border); }
+      .gpx-convo { flex: 1 0 auto; }
+      .gpx-browser { flex: 1 0 auto; min-height: 420px; }
+      .gpx-room > * { flex-shrink: 0; }
+      .gpx-room-convo > .gpa-chat-log { flex-shrink: 1; }
+      .gpx-room > .gpx-convo:has(#gpa-chat:not(:empty)) { flex: 1 1 0; min-height: 160px; }
+      .gpx-room[data-proxy="connected"] .gpx-dot { background: var(--gpa-accent); box-shadow: 0 0 8px var(--gpa-accent); }
+      .gpx-grid { align-items: start; }
+      .gpa-row:has(> #gpa-clear-highlights[style*="none"]) { display: none; }
+      .gv-sticky { top: 4px; right: -14px; }
+      /* Segmented controls outside Settings */
+      .gpx-seg, .gpx-seg-inline {
+        display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; padding: 4px;
+        border-radius: var(--gps-r2); background: var(--gpa-field); border: 1px solid var(--gpa-border);
+      }
+      .gpx-seg-inline { display: inline-grid; grid-auto-columns: auto; }
+      .gpx-seg .gps-seg-btn, .gpx-seg-inline .gps-seg-btn {
+        min-height: 34px; padding: 0 12px; border: none; border-radius: var(--gps-r1); background: transparent; color: var(--gpa-sub);
+        font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
+        transition: background var(--gps-t2) var(--gps-ease), color var(--gps-t1) ease, box-shadow var(--gps-t2) ease;
+      }
+      .gpx-seg .gps-seg-btn:hover, .gpx-seg-inline .gps-seg-btn:hover { color: var(--gpa-text); background: var(--gps-soft); }
+      .gpx-seg .gps-seg-btn.primary, .gpx-seg-inline .gps-seg-btn.primary {
+        color: var(--gpa-text); background: var(--gpa-card-bg);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--gpa-accent) 55%, transparent), 0 4px 12px -6px rgba(0,0,0,0.5);
+      }
+      .gpx-seg .gps-seg-btn:focus-visible, .gpx-seg-inline .gps-seg-btn:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 2px; }
+
+      /* Typing indicator for AI replies in progress */
+      .gpx-typing-dots { display: inline-flex; gap: 5px; align-items: center; height: 18px; padding: 0 2px; }
+      .gpx-typing-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--gpa-accent); opacity: 0.35; animation: gpx-dot 1.1s ease-in-out infinite; }
+      .gpx-typing-dots i:nth-child(2) { animation-delay: 0.15s; } .gpx-typing-dots i:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes gpx-dot { 0%, 100% { opacity: 0.35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-4px); } }
+      .gpx-hero[data-playing="1"] .gpx-status > i { background: var(--gpa-accent); box-shadow: 0 0 8px var(--gpa-accent); }
+      .gpx-hero[data-playing="1"] .gpx-status { color: var(--gpa-text); }
+      /* Study: flashcards as real 3D cards */
+      .gpx-study .gpa-flip { perspective: 1100px; min-height: 200px; }
+      .gpx-study .gpa-flip-inner { min-height: 200px; transition: transform 0.6s var(--gps-ease); }
+      .gpx-study .gpa-flip:hover .gpa-flip-inner { transform: rotateX(2deg) rotateY(-1.5deg); }
+      .gpx-study .gpa-flip.flipped .gpa-flip-inner, .gpx-study .gpa-flip.flipped:hover .gpa-flip-inner { transform: rotateY(180deg); }
+      .gpx-study .gpa-flip-face {
+        padding: 28px; font-size: 17px; font-weight: 600; line-height: 1.45; border-radius: calc(18px * var(--gpa-rs));
+        background: radial-gradient(90% 90% at 0% 0%, color-mix(in srgb, var(--gpa-glow) 14%, transparent), transparent 70%), var(--gpa-card-bg);
+        box-shadow: 0 24px 40px -24px rgba(0,0,0,0.7), inset 0 1px 0 color-mix(in srgb, var(--gpa-text) 8%, transparent);
+      }
+      .gpx-study .gpa-flip-back { background: linear-gradient(145deg, color-mix(in srgb, var(--gpa-accent) 22%, var(--gpa-card-bg)), var(--gpa-card-bg)); border-color: color-mix(in srgb, var(--gpa-accent) 55%, var(--gpa-border)); }
+      .gpx-study > .gpa-row { gap: 8px; }
+
+      /* ---- Responsive ---- */
+      @container room (max-width: 780px) {
+        .gpx-split { grid-template-columns: minmax(0, 1fr); }
+        .gpx-side { position: static; }
+      }
+      @container room (max-width: 560px) {
+        .gpx-hero { grid-template-columns: minmax(0, 1fr); padding: 10px; gap: 12px; }
+        .gpx-visual { height: 124px; }
+        .gpx-copy { padding: 0 6px 6px; }
+        .gpx-title { font-size: 19px; }
+        .gpx-grid { grid-template-columns: minmax(0, 1fr); }
+        .gpx-span-2 { grid-column: auto; }
+        .gpx-tools { grid-template-columns: minmax(0, 1fr); }
+        .gpx-tool-feature { grid-template-columns: 40px minmax(0, 1fr); }
+        .gpx-tool-feature .quiz-btn { grid-column: 1 / -1; width: 100%; }
+        .gpx-tool-feature .gpx-tool-ic { width: 40px; height: 40px; }
+        .gpx-games { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+        .gpx-browser-bar { flex-wrap: wrap; }
+        .gpx-address { order: 5; flex-basis: 100%; }
+        .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-hero,
+        .gpx-room-convo:has(.gpa-chat-msg) .gpx-hero { grid-template-columns: 56px minmax(0, 1fr); }
+        .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-visual,
+        .gpx-room-convo:has(.gpa-chat-msg) .gpx-visual { height: 56px; }
+      }
+      @media (pointer: coarse) {
+        .gpa-btn, .gpx-suggest { min-height: 44px; }
+        .gpx-icon-btn { min-width: 44px; }
+      }
+    `;
   const GPS_CSS = `
       /* ===== Settings control center ======================================
          Design system (all values below derive from these):
@@ -1209,452 +1882,554 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <svg class="gpa-chevron" viewBox="0 0 20 20" width="13" height="13"><path d="M5 7l5 6 5-6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="gpa-dropdown-menu" id="gpa-dropdown-menu">
-          <button class="gpa-dropdown-item" data-tab="welcome"><span class="gpa-nav-ic">☀</span><span class="gpa-nav-label">Welcome</span></button>
-          <button class="gpa-dropdown-item active" data-tab="scan"><span class="gpa-nav-ic">◧</span><span class="gpa-nav-label">Page Insights</span></button>
-          <button class="gpa-dropdown-item" data-tab="ask"><span class="gpa-nav-ic">✦</span><span class="gpa-nav-label">Ask AI</span></button>
-          <button class="gpa-dropdown-item" data-tab="chat"><span class="gpa-nav-ic">◔</span><span class="gpa-nav-label">Chat</span><span id="gpa-chat-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
-          <button class="gpa-dropdown-item" data-tab="music"><span class="gpa-nav-ic">♫</span><span class="gpa-nav-label">Music</span></button>
-          <button class="gpa-dropdown-item" data-tab="browser"><span class="gpa-nav-ic">◫</span><span class="gpa-nav-label">Proxy</span></button>
-          <button class="gpa-dropdown-item" data-tab="games"><span class="gpa-nav-ic">▣</span><span class="gpa-nav-label">Games</span></button>
-          <button class="gpa-dropdown-item" data-tab="study"><span class="gpa-nav-ic">◈</span><span class="gpa-nav-label">Study</span></button>
-          <button class="gpa-dropdown-item" data-tab="notes"><span class="gpa-nav-ic">▤</span><span class="gpa-nav-label">Notes</span></button>
-          <button class="gpa-dropdown-item" data-tab="humanize"><span class="gpa-nav-ic">✎</span><span class="gpa-nav-label">Humanize</span></button>
-          <button class="gpa-dropdown-item" data-tab="grammar"><span class="gpa-nav-ic">✓</span><span class="gpa-nav-label">Grammar</span></button>
-          <button class="gpa-dropdown-item" data-tab="saved"><span class="gpa-nav-ic">☆</span><span class="gpa-nav-label">Saved</span></button>
-          <button class="gpa-dropdown-item" data-tab="theme"><span class="gpa-nav-ic">⚙</span><span class="gpa-nav-label">Settings</span></button>
+          <button class="gpa-dropdown-item" data-tab="welcome"><span class="gpa-nav-ic">${GPS_ICONS.sun}</span><span class="gpa-nav-label">Welcome</span></button>
+          <button class="gpa-dropdown-item active" data-tab="scan"><span class="gpa-nav-ic">${GPS_ICONS.scan}</span><span class="gpa-nav-label">Page Insights</span></button>
+          <button class="gpa-dropdown-item" data-tab="ask"><span class="gpa-nav-ic">${GPS_ICONS.ai}</span><span class="gpa-nav-label">Ask AI</span></button>
+          <button class="gpa-dropdown-item" data-tab="chat"><span class="gpa-nav-ic">${GPS_ICONS.users}</span><span class="gpa-nav-label">Chat</span><span id="gpa-chat-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
+          <button class="gpa-dropdown-item" data-tab="music"><span class="gpa-nav-ic">${GPS_ICONS.music}</span><span class="gpa-nav-label">Music</span></button>
+          <button class="gpa-dropdown-item" data-tab="browser"><span class="gpa-nav-ic">${GPS_ICONS.globe}</span><span class="gpa-nav-label">Proxy</span></button>
+          <button class="gpa-dropdown-item" data-tab="games"><span class="gpa-nav-ic">${GPS_ICONS.game}</span><span class="gpa-nav-label">Games</span></button>
+          <button class="gpa-dropdown-item" data-tab="study"><span class="gpa-nav-ic">${GPS_ICONS.cards}</span><span class="gpa-nav-label">Study</span></button>
+          <button class="gpa-dropdown-item" data-tab="notes"><span class="gpa-nav-ic">${GPS_ICONS.note}</span><span class="gpa-nav-label">Notes</span></button>
+          <button class="gpa-dropdown-item" data-tab="humanize"><span class="gpa-nav-ic">${GPS_ICONS.wand}</span><span class="gpa-nav-label">Humanize</span></button>
+          <button class="gpa-dropdown-item" data-tab="grammar"><span class="gpa-nav-ic">${GPS_ICONS.spell}</span><span class="gpa-nav-label">Grammar</span></button>
+          <button class="gpa-dropdown-item" data-tab="saved"><span class="gpa-nav-ic">${GPS_ICONS.book}</span><span class="gpa-nav-label">Saved</span></button>
+          <button class="gpa-dropdown-item" data-tab="theme"><span class="gpa-nav-ic">${GPS_ICONS.settings}</span><span class="gpa-nav-label">Settings</span></button>
         </div>
       </div>
       </nav>
       <main class="gpa-main" id="gpa-main">
 
       <div class="gpa-pane" data-pane="welcome">
-        <div class="gpa-welcome-flow">
-          <div class="gpa-card gpa-welcome-hero">
-            <div class="gpa-row" style="flex-wrap:wrap; align-items:center;">
-              <div style="flex:1; min-width:160px;">
-                <div id="gpa-welcome-greeting" class="gpa-welcome-greeting">Welcome</div>
-                <div id="gpa-welcome-sub" class="gpa-sub"></div>
-                <div class="gpa-welcome-ai-status">
-                  <span class="gpa-welcome-ai-line"><span id="gpa-welcome-ai-dot-openai" class="gpa-status-dot"></span>OpenAI: <span id="gpa-welcome-ai-text-openai">checking…</span></span>
+        <div class="gpx-room gpa-welcome-flow">
+          <section class="gpx-hero gpx-hero-welcome" data-room="welcome" data-state="idle">
+            <div class="gpx-visual" aria-hidden="true">
+              <div class="gv gv-orb"><i></i><i></i><span></span></div>
+              <canvas id="gpa-welcome-3d" width="140" height="140" style="display:none;"></canvas>
+              <div class="gpx-floor"></div>
+            </div>
+            <div class="gpx-copy">
+              <div class="gpa-welcome-ai-status gpx-status-row">
+                <span class="gpa-welcome-ai-line gpx-status"><span id="gpa-welcome-ai-dot-openai" class="gpa-status-dot"></span><span>OpenAI · <span id="gpa-welcome-ai-text-openai">checking…</span></span></span>
+              </div>
+              <h2 id="gpa-welcome-greeting" class="gpa-welcome-greeting gpx-title">Welcome</h2>
+              <p id="gpa-welcome-sub" class="gpa-sub gpx-desc"></p>
+              <div class="gpx-actions gpa-welcome-quick-row">
+                <button class="gpa-btn gpa-welcome-quick" data-jump="ask">${gpxLbl('chat', 'Ask AI')}</button>
+                <button class="gpa-btn gpa-welcome-quick" data-jump="notes">${gpxLbl('note', 'Notes')}</button>
+                <button class="gpa-btn gpa-welcome-quick" data-jump="chat">${gpxLbl('users', 'Chat')}</button>
+                <button class="gpa-btn gpa-welcome-quick" data-jump="study">${gpxLbl('cards', 'Study')}</button>
+              </div>
+            </div>
+          </section>
+
+          <div class="gpx-grid">
+            <div class="gpa-card gpx-card">
+              <div class="gpx-card-head">${GPS_ICONS.sun}<div class="gpa-card-title">Right now</div></div>
+              <div class="gpa-snapshot-grid">
+                <div class="gpa-snapshot-stat">
+                  <div id="gpa-welcome-nyc-time" class="gpa-snapshot-num">--:--</div>
+                  <div class="gpa-snapshot-label">NYC time</div>
+                </div>
+                <div class="gpa-snapshot-stat">
+                  <div id="gpa-welcome-temp" class="gpa-snapshot-num">--°</div>
+                  <div id="gpa-welcome-condition" class="gpa-snapshot-label">Lehigh Acres, FL</div>
+                </div>
+                <div class="gpa-snapshot-stat">
+                  <div id="gpa-welcome-active-num" class="gpa-snapshot-num">--</div>
+                  <div class="gpa-snapshot-label"><span id="gpa-welcome-active-dot" class="gpa-live-dot" style="display:none;"></span>Active now</div>
                 </div>
               </div>
-              <canvas id="gpa-welcome-3d" width="140" height="140" style="display:none;"></canvas>
+              <div id="gpa-welcome-weather-meta" class="gpa-sub" style="margin-top:8px;">Loading weather…</div>
+              <div id="gpa-welcome-sun-meta" class="gpa-sub"></div>
             </div>
-          </div>
 
-          <div class="gpa-card">
-            <div class="gpa-card-title">Right now</div>
-            <div class="gpa-snapshot-grid">
-              <div class="gpa-snapshot-stat">
-                <div id="gpa-welcome-nyc-time" class="gpa-snapshot-num">--:--</div>
-                <div class="gpa-snapshot-label">NYC time</div>
-              </div>
-              <div class="gpa-snapshot-stat">
-                <div id="gpa-welcome-temp" class="gpa-snapshot-num">--°</div>
-                <div id="gpa-welcome-condition" class="gpa-snapshot-label">Lehigh Acres, FL</div>
-              </div>
-              <div class="gpa-snapshot-stat">
-                <div id="gpa-welcome-active-num" class="gpa-snapshot-num">--</div>
-                <div class="gpa-snapshot-label"><span id="gpa-welcome-active-dot" class="gpa-live-dot" style="display:none;"></span>Active now</div>
+            <div class="gpa-card gpx-card">
+              <div class="gpx-card-head">${GPS_ICONS.account}<div class="gpa-card-title">Your activity</div></div>
+              <div class="gpa-snapshot-grid">
+                <div class="gpa-snapshot-stat">
+                  <div id="gpa-welcome-opens" class="gpa-snapshot-num">--</div>
+                  <div class="gpa-snapshot-label">Sessions opened</div>
+                </div>
+                <div class="gpa-snapshot-stat">
+                  <div id="gpa-welcome-member-since" class="gpa-snapshot-num">--</div>
+                  <div class="gpa-snapshot-label">Member since</div>
+                </div>
               </div>
             </div>
-            <div id="gpa-welcome-weather-meta" class="gpa-sub" style="margin-top:8px;">Loading weather…</div>
-            <div id="gpa-welcome-sun-meta" class="gpa-sub"></div>
-          </div>
 
-          <div class="gpa-card">
-            <div class="gpa-card-title">Your activity</div>
-            <div class="gpa-snapshot-grid">
-              <div class="gpa-snapshot-stat">
-                <div id="gpa-welcome-opens" class="gpa-snapshot-num">--</div>
-                <div class="gpa-snapshot-label">Sessions opened</div>
+            <div class="gpa-card gpx-card gpx-span-2">
+              <div class="gpx-card-head">${GPS_ICONS.globe}<div class="gpa-card-title">Lehigh Acres, FL · local news</div>
+                <button id="gpa-welcome-news-refresh" class="gpa-btn gpx-btn-ghost">${gpxLbl('refresh', 'Refresh')}</button>
               </div>
-              <div class="gpa-snapshot-stat">
-                <div id="gpa-welcome-member-since" class="gpa-snapshot-num">--</div>
-                <div class="gpa-snapshot-label">Member since</div>
-              </div>
+              <div id="gpa-welcome-news" class="gpa-welcome-news-text">Looking for local news…</div>
+              <div id="gpa-welcome-news-meta" class="gpa-sub"></div>
             </div>
-          </div>
-
-          <div class="gpa-card">
-            <div class="gpa-card-title">Quick actions</div>
-            <div class="gpa-row gpa-welcome-quick-row">
-              <button class="gpa-btn gpa-welcome-quick" data-jump="ask">💬 Ask AI</button>
-              <button class="gpa-btn gpa-welcome-quick" data-jump="notes">📝 Notes</button>
-              <button class="gpa-btn gpa-welcome-quick" data-jump="chat">👥 Chat</button>
-              <button class="gpa-btn gpa-welcome-quick" data-jump="study">🎓 Study</button>
-            </div>
-          </div>
-
-          <div class="gpa-card">
-            <div class="gpa-card-title">Lehigh Acres, FL — local news</div>
-            <div id="gpa-welcome-news" class="gpa-welcome-news-text">Looking for local news…</div>
-            <div class="gpa-row" style="margin-top:8px;">
-              <button id="gpa-welcome-news-refresh" class="gpa-btn">🔄 Refresh</button>
-            </div>
-            <div id="gpa-welcome-news-meta" class="gpa-sub"></div>
           </div>
         </div>
       </div>
 
       <div class="gpa-pane active" data-pane="scan">
-        <div class="gpa-scan-flow">
-          <div class="gpa-card">
-            <div class="gpa-card-title">Read the page</div>
-            <div class="gpa-row">
-              <button id="gpa-scan-btn" class="gpa-btn">Scan page text</button>
+        <div class="gpx-room gpa-scan-flow">
+          ${gpxHero({ room: 'scan', title: 'Page Insights', status: 'Nothing read yet',
+            desc: 'Read this page or a screenshot of it, then summarize, analyze or ask anything. You can also paste a screenshot anywhere in this panel.',
+            actions: `<button id="gpa-scan-btn" class="gpa-btn primary">Scan page text</button>
               <button id="gpa-capture-btn" class="gpa-btn">Capture screen</button>
               <button id="gpa-upload-btn" class="gpa-btn">Upload image</button>
               <input type="file" id="gpa-image-upload" accept="image/*" style="display:none" />
-              <button id="gpa-translate-page-btn" class="gpa-btn">🌐 Translate this page</button>
-            </div>
-            <div class="gpa-sub">or paste (Ctrl+V) a screenshot anywhere in this panel</div>
-          </div>
+              <button id="gpa-translate-page-btn" class="gpa-btn">Translate this page</button>` })}
 
-          <div class="gpa-card">
-            <div class="gpa-card-title">Page snapshot</div>
-            <div id="gpa-snapshot-stats" class="gpa-snapshot-grid"></div>
-            <div id="gpa-snapshot-meta" class="gpa-sub" style="margin-top:8px;"></div>
-          </div>
+          <div class="gpx-split">
+            <div class="gpx-main">
+              <section class="gpa-card gpx-card gpa-scan-ask-section">
+                <div class="gpx-card-head">${GPS_ICONS.chat}<div class="gpa-card-title">Ask about it</div></div>
+                <div id="gpa-ask-empty-hint" class="gpx-empty gpx-empty-inline">
+                  <div class="gpx-empty-art" aria-hidden="true">${GPS_ICONS.scan}</div>
+                  <div class="gpx-empty-title">Nothing read yet</div>
+                  <p class="gpx-empty-desc">Scan the page text or capture the screen above. Then summarize it, analyze it or ask a question here.</p>
+                </div>
+                <div class="gpa-row gpx-context" id="gpa-status-row" style="display:none;">
+                  <img id="gpa-thumb" alt="captured screen" />
+                  <span id="gpa-scan-status" class="gpa-sub"></span>
+                  <button id="gpa-clear-context" class="gpa-btn gpx-btn-ghost" title="Clear captured page text and screenshot">Clear</button>
+                </div>
+                <div class="gpa-row gpa-actions" id="gpa-scan-actions" style="display:none;">
+                  <button class="gpa-btn primary" data-action="summarize">Summarize</button>
+                  <button class="gpa-btn primary" data-action="analyze">Analyze</button>
+                  <button class="gpa-btn" data-action="autofill">Auto-Fill Form</button>
+                </div>
+                <div class="gpa-row gpa-actions" id="gpa-scan-more-actions" style="display:none;">
+                  <button id="gpa-tone-btn" class="gpa-btn">Tone &amp; insights</button>
+                  <button id="gpa-explore-btn" class="gpa-btn">Explore further</button>
+                </div>
+                <div class="gpa-row gpx-composer" id="gpa-question-row" style="display:none;">
+                  <input id="gpa-question" class="gpa-input" placeholder="Ask a question about this page…" />
+                  <button id="gpa-question-btn" class="gpa-btn primary">Answer</button>
+                </div>
+              </section>
+              <div id="gpa-scan-output" class="gpa-output"></div>
+              <div id="gpa-tone-output" class="gpa-card gpx-card" style="display:none;">
+                <div class="gpa-card-title">Tone &amp; insight analysis</div>
+                <div id="gpa-tone-gauges"></div>
+                <div id="gpa-tone-summary" class="gpa-sub" style="margin-top:6px;"></div>
+              </div>
+              <div id="gpa-explore-output" class="gpa-card gpx-card" style="display:none;">
+                <div class="gpa-card-title">Explore further</div>
+                <div id="gpa-explore-chips" class="gpa-chip-row"></div>
+              </div>
+              <div class="gpa-row">
+                <button id="gpa-clear-highlights" class="gpa-btn" style="display:none;">Clear page highlights</button>
+              </div>
 
-          <div class="gpa-card">
-            <div class="gpa-card-title">Quick actions</div>
-            <div class="gpa-row">
-              <button id="gpa-copy-text-btn" class="gpa-btn">📋 Copy page text</button>
-              <button id="gpa-copy-url-btn" class="gpa-btn">🔗 Copy page URL</button>
-              <button id="gpa-print-btn" class="gpa-btn">🖨 Print page</button>
+              <section class="gpa-card gpx-card">
+                <div class="gpx-card-head">${GPS_ICONS.bolt}<div class="gpa-card-title">Automate</div></div>
+                <div class="gpx-tool gpx-tool-feature">
+                  <div class="gpx-tool-ic" aria-hidden="true">${GPS_ICONS.quiz}</div>
+                  <div class="gpx-tool-copy"><div class="gpx-tool-name">Quiz solver</div><div class="gpx-tool-desc">Answers every question on this page, including dropdowns and multi-part items, then double-checks each answer.</div></div>
+                  <button id="gpa-quiz-btn" class="gpa-btn quiz-btn">Solve quiz on this page</button>
+                </div>
+                <div class="gpx-tools">
+                  <div class="gpx-tool">
+                    <div class="gpx-tool-ic" aria-hidden="true">${GPS_ICONS.cap}</div>
+                    <div class="gpx-tool-copy"><div class="gpx-tool-name">Tutor</div><div class="gpx-tool-desc">Explains how to get each answer instead of giving it.</div></div>
+                    <button id="gpa-tutor-btn" class="gpa-btn">Tutor mode</button>
+                  </div>
+                  <div class="gpx-tool">
+                    <div class="gpx-tool-ic" aria-hidden="true">${GPS_ICONS.pin}</div>
+                    <div class="gpx-tool-copy"><div class="gpx-tool-name">Auto-explain</div><div class="gpx-tool-desc">Explains the question you are looking at as you scroll.</div></div>
+                    <button id="gpa-autofollow-btn" class="gpa-btn">📍 Auto-explain</button>
+                  </div>
+                  <div class="gpx-tool">
+                    <div class="gpx-tool-ic" aria-hidden="true">${GPS_ICONS.table}</div>
+                    <div class="gpx-tool-copy"><div class="gpx-tool-name">Tables</div><div class="gpx-tool-desc">Pulls tables off the page as clean data.</div></div>
+                    <button id="gpa-tables-btn" class="gpa-btn">Extract tables</button>
+                  </div>
+                  <div class="gpx-tool">
+                    <div class="gpx-tool-ic" aria-hidden="true">${GPS_ICONS.eye}</div>
+                    <div class="gpx-tool-copy"><div class="gpx-tool-name">Watch</div><div class="gpx-tool-desc">Tells you when something on the page changes.</div></div>
+                    <button id="gpa-watch-btn" class="gpa-btn">👀 Watch page</button>
+                  </div>
+                </div>
+                <div class="gpa-row gpx-composer" id="gpa-watch-row" style="display:none;">
+                  <input id="gpa-watch-cond" class="gpa-input" placeholder='Tell me when… (e.g. "price drops below $50")' />
+                  <button id="gpa-watch-start" class="gpa-btn primary">Arm</button>
+                </div>
+                <label class="gpx-field-label" for="gpa-cmd-input">Page command</label>
+                <div class="gpa-row gpx-composer">
+                  <input id="gpa-cmd-input" class="gpa-input" placeholder='Tell the page what to do… ("click the third assignment")' />
+                  <button id="gpa-cmd-btn" class="gpa-btn primary">Do it</button>
+                </div>
+              </section>
             </div>
-            <div id="gpa-quick-action-status" class="gpa-sub"></div>
-          </div>
 
-          <div class="gpa-card">
-            <div class="gpa-card-title">Quick settings</div>
-            <div class="gpa-sub" style="margin-bottom:6px;">Page actions</div>
-            <div class="gpa-row">
-              <button class="gpa-btn autoconfirm-btn">✋ Confirm page clicks: ON</button>
-              <button id="gpa-more-settings-btn" class="gpa-btn">⚙ More settings…</button>
-            </div>
-          </div>
-
-          <div class="gpa-card">
-            <div class="gpa-card-title">Automate</div>
-            <div class="gpa-row">
-              <button id="gpa-quiz-btn" class="gpa-btn quiz-btn">✨ Solve quiz on this page</button>
-            </div>
-            <div class="gpa-row">
-              <button id="gpa-tutor-btn" class="gpa-btn">🎓 Tutor mode</button>
-              <button id="gpa-autofollow-btn" class="gpa-btn">📍 Auto-explain</button>
-              <button id="gpa-tables-btn" class="gpa-btn">📋 Extract tables</button>
-              <button id="gpa-watch-btn" class="gpa-btn">👀 Watch page</button>
-            </div>
-            <div class="gpa-row" id="gpa-watch-row" style="display:none;">
-              <input id="gpa-watch-cond" class="gpa-input" placeholder='Tell me when… (e.g. "price drops below $50")' />
-              <button id="gpa-watch-start" class="gpa-btn primary">Arm</button>
-            </div>
-            <div class="gpa-row">
-              <input id="gpa-cmd-input" class="gpa-input" placeholder='⚡ Tell the page what to do… ("click the third assignment")' />
-              <button id="gpa-cmd-btn" class="gpa-btn primary">Do it</button>
-            </div>
-          </div>
-
-          <div class="gpa-scan-ask-section">
-            <div class="gpa-card-title">Ask about it</div>
-            <div id="gpa-ask-empty-hint" class="gpa-sub">Nothing scanned yet — click Scan page text or Capture screen above (or paste a screenshot anywhere in this panel), then use the tools below to summarize, analyze, or ask anything about it.</div>
-            <div class="gpa-row" id="gpa-status-row" style="display:none;">
-              <img id="gpa-thumb" alt="captured screen" />
-              <span id="gpa-scan-status" class="gpa-sub"></span>
-              <button id="gpa-clear-context" class="gpa-btn" title="Clear captured page text and screenshot">Clear</button>
-            </div>
-            <div class="gpa-row gpa-actions" id="gpa-scan-actions" style="display:none;">
-              <button class="gpa-btn primary" data-action="summarize">Summarize</button>
-              <button class="gpa-btn primary" data-action="analyze">Analyze</button>
-              <button class="gpa-btn" data-action="autofill">Auto-Fill Form</button>
-            </div>
-            <div class="gpa-row gpa-actions" id="gpa-scan-more-actions" style="display:none;">
-              <button id="gpa-tone-btn" class="gpa-btn">🎭 Tone &amp; insights</button>
-              <button id="gpa-explore-btn" class="gpa-btn">🧭 Explore further</button>
-            </div>
-            <div class="gpa-row" id="gpa-question-row" style="display:none;">
-              <input id="gpa-question" class="gpa-input" placeholder="Ask a question about this page…" />
-              <button id="gpa-question-btn" class="gpa-btn primary">Answer</button>
-            </div>
-          </div>
-          <div id="gpa-scan-output" class="gpa-output"></div>
-          <div id="gpa-tone-output" class="gpa-card" style="display:none;">
-            <div class="gpa-card-title">Tone &amp; insight analysis</div>
-            <div id="gpa-tone-gauges"></div>
-            <div id="gpa-tone-summary" class="gpa-sub" style="margin-top:6px;"></div>
-          </div>
-          <div id="gpa-explore-output" class="gpa-card" style="display:none;">
-            <div class="gpa-card-title">Explore further</div>
-            <div id="gpa-explore-chips" class="gpa-chip-row"></div>
-          </div>
-          <div class="gpa-row" style="margin-top:6px;">
-            <button id="gpa-clear-highlights" class="gpa-btn" style="display:none;">✕ Clear page highlights</button>
+            <aside class="gpx-side">
+              <div class="gpa-card gpx-card">
+                <div class="gpx-card-head">${GPS_ICONS.note}<div class="gpa-card-title">Page snapshot</div></div>
+                <div id="gpa-snapshot-stats" class="gpa-snapshot-grid"></div>
+                <div id="gpa-snapshot-meta" class="gpa-sub" style="margin-top:8px;"></div>
+              </div>
+              <div class="gpa-card gpx-card">
+                <div class="gpx-card-head">${GPS_ICONS.copy}<div class="gpa-card-title">Quick actions</div></div>
+                <div class="gpx-stack">
+                  <button id="gpa-copy-text-btn" class="gpa-btn">${gpxLbl('copy', 'Copy page text')}</button>
+                  <button id="gpa-copy-url-btn" class="gpa-btn">${gpxLbl('link', 'Copy page URL')}</button>
+                  <button id="gpa-print-btn" class="gpa-btn">${gpxLbl('print', 'Print page')}</button>
+                </div>
+                <div id="gpa-quick-action-status" class="gpa-sub"></div>
+              </div>
+              <div class="gpa-card gpx-card">
+                <div class="gpx-card-head">${GPS_ICONS.controls}<div class="gpa-card-title">Page actions</div></div>
+                <div class="gpx-stack">
+                  <button class="gpa-btn autoconfirm-btn">✋ Confirm page clicks: ON</button>
+                  <button id="gpa-more-settings-btn" class="gpa-btn">${gpxLbl('settings', 'More settings')}</button>
+                </div>
+              </div>
+            </aside>
           </div>
         </div>
       </div>
 
       <div class="gpa-pane" data-pane="ask">
-  <div class="gpa-row" style="justify-content:space-between; align-items:center;">
-    <span class="gpa-sub" style="flex:1;">Remembers this conversation</span>
-    <button id="gpa-ask-new" class="gpa-btn" title="Start a fresh conversation (clears memory)">🗑 New</button>
-    <button id="gpa-ask-settings-btn" class="gpa-btn" title="Study settings">⚙️</button>
-  </div>
-  <div id="gpa-ask-settings" class="gpa-card" style="display:none; margin-bottom:10px;">
-    <div class="gpa-card-title">Study settings</div>
-    <label class="gpa-sub" for="gpa-ask-subject">Subject</label>
-    <input id="gpa-ask-subject" class="gpa-input" placeholder="e.g. AP Chemistry, Algebra II, US History" autocomplete="off" />
-    <label class="gpa-sub" for="gpa-ask-level" style="display:block; margin-top:8px;">Level / complexity</label>
-    <select id="gpa-ask-level" class="gpa-input">
-      <option value="simple">Explain simply (beginner)</option>
-      <option value="standard" selected>Standard</option>
-      <option value="advanced">Advanced / in-depth</option>
-      <option value="exam">Exam-prep — show the working</option>
-    </select>
-    <label class="gpa-sub" for="gpa-ask-context" style="display:block; margin-top:8px;">Anything else the AI should know</label>
-    <textarea id="gpa-ask-context" class="gpa-sync-box" style="height:52px;" placeholder="e.g. Test on Friday; prefer step-by-step; I already know basic derivatives."></textarea>
-    <label class="gpa-sub" style="display:block; margin-top:8px;">Reasoning effort</label>
-    <div class="gpa-segmented" style="margin-top:4px;">
-      <button class="gpa-btn gpa-reason" data-reason="low">Low</button>
-      <button class="gpa-btn gpa-reason primary" data-reason="medium">Medium</button>
-      <button class="gpa-btn gpa-reason" data-reason="high">High</button>
-    </div>
-    <div id="gpa-reason-note" class="gpa-sub" style="margin-top:4px;"></div>
-    <div class="gpa-row" style="margin-top:8px; margin-bottom:0;">
-      <button id="gpa-ask-settings-save" class="gpa-btn primary" style="flex:1;">Save</button>
-    </div>
-  </div>
-  <div id="gpa-chat" class="gpa-chat"></div>
-  <div id="gpa-ask-images" class="gpa-row" style="flex-wrap:wrap; gap:6px; display:none; margin-bottom:6px;"></div>
-  <div class="gpa-row">
-    <input id="gpa-ask-input" class="gpa-input" placeholder="Ask me anything… (paste an image too)" />
-    <button id="gpa-ask-attach" class="gpa-btn" title="Attach an image">📎</button>
-    <button id="gpa-ask-btn" class="gpa-btn primary">Send</button>
-    <button id="gpa-voice-btn" class="gpa-btn" title="Speak your question">🎙</button>
-  </div>
-  <input id="gpa-ask-file" type="file" accept="image/*" multiple style="display:none;" />
-</div>
+        <div class="gpx-room gpx-room-convo">
+          ${gpxHero({ room: 'ask', title: 'Ask AI', status: 'Ready',
+            desc: 'A conversation that remembers context. Paste or attach images, or speak your question.',
+            meta: '<span class="gpx-chip" id="gpx-ask-base">gpt-4.1-mini</span><span class="gpx-chip gpx-chip-accent" id="gpx-ask-smart">gpt-5 for hard questions</span>',
+            actions: `<button id="gpa-ask-new" class="gpa-btn" title="Start a fresh conversation (clears memory)">${gpxLbl('plus', 'New chat')}</button>
+              <button id="gpa-ask-settings-btn" class="gpa-btn" title="Study settings">${gpxLbl('settings', 'Study settings')}</button>` })}
+          <div id="gpa-ask-settings" class="gpa-card gpx-card" style="display:none;">
+            <div class="gpa-card-title">Study settings</div>
+            <label class="gpa-sub" for="gpa-ask-subject">Subject</label>
+            <input id="gpa-ask-subject" class="gpa-input" placeholder="e.g. AP Chemistry, Algebra II, US History" autocomplete="off" />
+            <label class="gpa-sub" for="gpa-ask-level" style="display:block; margin-top:8px;">Level / complexity</label>
+            <select id="gpa-ask-level" class="gpa-input">
+              <option value="simple">Explain simply (beginner)</option>
+              <option value="standard" selected>Standard</option>
+              <option value="advanced">Advanced / in-depth</option>
+              <option value="exam">Exam-prep — show the working</option>
+            </select>
+            <label class="gpa-sub" for="gpa-ask-context" style="display:block; margin-top:8px;">Anything else the AI should know</label>
+            <textarea id="gpa-ask-context" class="gpa-sync-box" style="height:52px;" placeholder="e.g. Test on Friday; prefer step-by-step; I already know basic derivatives."></textarea>
+            <label class="gpa-sub" style="display:block; margin-top:8px;">Reasoning effort</label>
+            <div class="gpa-segmented" style="margin-top:4px;">
+              <button class="gpa-btn gpa-reason" data-reason="low">Low</button>
+              <button class="gpa-btn gpa-reason primary" data-reason="medium">Medium</button>
+              <button class="gpa-btn gpa-reason" data-reason="high">High</button>
+            </div>
+            <div id="gpa-reason-note" class="gpa-sub" style="margin-top:4px;"></div>
+            <div class="gpa-row" style="margin-top:8px; margin-bottom:0;">
+              <button id="gpa-ask-settings-save" class="gpa-btn primary" style="flex:1;">Save</button>
+            </div>
+          </div>
+          <div class="gpx-convo">
+            <div id="gpa-chat" class="gpa-chat"></div>
+            ${gpxEmpty({ cls: 'gpx-empty-ask', icon: 'chat', title: 'Start a conversation',
+              desc: 'Ask anything. The AI keeps the whole conversation in mind, and tough questions switch to the smart model automatically.',
+              action: `<button class="gpx-suggest" data-prompt="Explain this step by step: ">Explain step by step</button>
+                <button class="gpx-suggest" data-prompt="Quiz me with 5 questions on ">Quiz me on a topic</button>
+                <button class="gpx-suggest" data-prompt="Check my answer and explain any mistakes: ">Check my answer</button>
+                <button class="gpx-suggest" data-prompt="Summarize this in plain language: ">Summarize something</button>` })}
+          </div>
+          <div id="gpa-ask-images" class="gpa-row" style="flex-wrap:wrap; gap:6px; display:none;"></div>
+          <div class="gpa-row gpx-composer gpx-composer-dock">
+            <input id="gpa-ask-input" class="gpa-input" placeholder="Ask me anything… (paste an image too)" aria-label="Message" />
+            <button id="gpa-ask-attach" class="gpa-btn gpx-icon-btn" title="Attach an image" aria-label="Attach an image">${GPS_ICONS.attach}</button>
+            <button id="gpa-voice-btn" class="gpa-btn gpx-icon-btn" title="Speak your question" aria-label="Speak your question">🎙</button>
+            <button id="gpa-ask-btn" class="gpa-btn primary">Send</button>
+          </div>
+          <input id="gpa-ask-file" type="file" accept="image/*" multiple style="display:none;" />
+        </div>
+      </div>
 
       <div class="gpa-pane" data-pane="chat">
-        <div class="gpa-row" style="flex-wrap:wrap;">
-          <select id="gpa-chat-room" class="gpa-input" style="flex:1;"></select>
-          <button id="gpa-chat-join" class="gpa-btn" title="Join a private room with a code">🔑 Join</button>
-        </div>
-        <div id="gpa-chat-note" class="gpa-sub" style="margin:4px 0;"></div>
-        <div id="gpa-chat-log" class="gpa-chat-log"></div>
-        <div class="gpa-row" style="margin-top:6px;">
-          <input id="gpa-chat-input" class="gpa-input" placeholder="Message…" maxlength="500" autocomplete="off" />
-          <button id="gpa-chat-send" class="gpa-btn primary">Send</button>
+        <div class="gpx-room gpx-room-convo">
+          ${gpxHero({ room: 'chat', title: 'Chat', status: 'Connecting',
+            desc: 'Talk with everyone using this console, or join a private room with a code.',
+            actions: `<select id="gpa-chat-room" class="gpa-input" aria-label="Chat room"></select>
+              <button id="gpa-chat-join" class="gpa-btn" title="Join a private room with a code">${gpxLbl('key', 'Join room')}</button>` })}
+          <div id="gpa-chat-note" class="gpa-sub gpx-note"></div>
+          <div id="gpa-chat-log" class="gpa-chat-log"></div>
+          ${gpxEmpty({ cls: 'gpx-empty-chat', icon: 'users', title: 'No messages to show',
+            desc: 'Messages in this room appear here as soon as the console reaches the chat server. Pick another room or join a private one with a code.' })}
+          <div class="gpa-row gpx-composer gpx-composer-dock">
+            <input id="gpa-chat-input" class="gpa-input" placeholder="Message…" maxlength="500" autocomplete="off" aria-label="Chat message" />
+            <button id="gpa-chat-send" class="gpa-btn primary">Send</button>
+          </div>
         </div>
       </div>
 
       <div class="gpa-pane" data-pane="music">
-        <div class="gpa-row">
-          <input id="gpa-music-query" class="gpa-input" placeholder="Type a song name or description…" />
-          <button id="gpa-music-search" class="gpa-btn primary">Play</button>
-        </div>
-        <div id="gpa-music-status" class="gpa-sub" style="margin-bottom:6px;"></div>
-        <div id="gpa-music-wrap" class="gpa-sc-wrap"></div>
-
-        <div class="gpa-sub" style="margin:12px 0 6px;">Or paste a SoundCloud link directly:</div>
-        <div class="gpa-row">
-          <input id="gpa-sc-url" class="gpa-input" placeholder="soundcloud.com/…" />
-          <button id="gpa-sc-load" class="gpa-btn">Load</button>
-        </div>
-        <div id="gpa-sc-wrap" class="gpa-sc-wrap"></div>
-
-        <div class="gpa-sub" style="margin:14px 0 6px;">📁 Music library — files you add are saved on this device and play with no internet</div>
-        <div class="gpa-row" style="flex-wrap:wrap;">
-          <button id="gpa-local-add-btn" class="gpa-btn">Add audio files</button>
-          <button id="gpa-local-clear-btn" class="gpa-btn">🗑 Clear saved</button>
-          <input type="file" id="gpa-local-file-input" accept="audio/*" multiple style="display:none" />
-        </div>
-        <div id="gpa-local-status" class="gpa-sub" style="margin:6px 0 0;"></div>
-        <div id="gpa-local-playlist" class="gpa-local-playlist"></div>
-        <div id="gpa-local-player" class="gpa-local-player" style="display:none;">
-          <div id="gpa-local-nowplaying" class="gpa-sub"></div>
-          <div class="gpa-row">
-            <input type="range" id="gpa-local-seek" class="gpa-range" min="0" max="100" value="0" />
+        <div class="gpx-room">
+          ${gpxHero({ room: 'music', title: 'Music', status: 'Nothing playing',
+            desc: 'Search YouTube, play a SoundCloud link, or keep an offline library on this device. Playback keeps going while you use other tabs.',
+            meta: '<span class="gpx-now" id="gpx-music-now"></span>' })}
+          <div class="gps-seg gpx-seg" role="group" aria-label="Music source">
+            <button class="gps-seg-btn gpx-src" data-src="search">${gpxLbl('search', 'Search')}</button>
+            <button class="gps-seg-btn gpx-src" data-src="soundcloud">${gpxLbl('link', 'SoundCloud')}</button>
+            <button class="gps-seg-btn gpx-src" data-src="library">${gpxLbl('music', 'Library')}</button>
           </div>
-          <div class="gpa-row" style="justify-content:space-between;">
-            <span id="gpa-local-time" class="gpa-sub">0:00 / 0:00</span>
-          </div>
-          <div class="gpa-row" style="justify-content:center; gap:10px;">
-            <button id="gpa-local-prev" class="gpa-btn">⏮</button>
-            <button id="gpa-local-playpause" class="gpa-btn primary">▶</button>
-            <button id="gpa-local-next" class="gpa-btn">⏭</button>
-          </div>
-          <div class="gpa-row">
-            <span class="gpa-sub">🔊</span>
-            <input type="range" id="gpa-local-volume" class="gpa-range" min="0" max="100" value="80" />
-          </div>
+          <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="search">
+            <div class="gpx-card-head">${GPS_ICONS.search}<div class="gpa-card-title">Search and play</div></div>
+            <div class="gpa-row gpx-composer">
+              <input id="gpa-music-query" class="gpa-input" placeholder="Type a song name or description…" />
+              <button id="gpa-music-search" class="gpa-btn primary">Play</button>
+            </div>
+            <div id="gpa-music-status" class="gpa-sub"></div>
+            <div id="gpa-music-wrap" class="gpa-sc-wrap"></div>
+          </section>
+          <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="soundcloud">
+            <div class="gpx-card-head">${GPS_ICONS.link}<div class="gpa-card-title">SoundCloud link</div></div>
+            <div class="gpa-row gpx-composer">
+              <input id="gpa-sc-url" class="gpa-input" placeholder="soundcloud.com/…" />
+              <button id="gpa-sc-load" class="gpa-btn primary">Load</button>
+            </div>
+            <div id="gpa-sc-wrap" class="gpa-sc-wrap"></div>
+          </section>
+          <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="library">
+            <div class="gpx-card-head">${GPS_ICONS.music}<div class="gpa-card-title">Library</div>
+              <button id="gpa-local-add-btn" class="gpa-btn">${gpxLbl('plus', 'Add audio files')}</button>
+              <button id="gpa-local-clear-btn" class="gpa-btn gpx-btn-ghost">${gpxLbl('trash', 'Clear saved')}</button>
+              <input type="file" id="gpa-local-file-input" accept="audio/*" multiple style="display:none" />
+            </div>
+            <p class="gpa-sub">Files you add are saved on this device and play without internet.</p>
+            <div id="gpa-local-status" class="gpa-sub"></div>
+            <div id="gpa-local-player" class="gpa-local-player gpx-player" style="display:none;">
+              <div id="gpa-local-nowplaying" class="gpx-player-title"></div>
+              <div class="gpa-row">
+                <input type="range" id="gpa-local-seek" class="gpa-range" min="0" max="100" value="0" aria-label="Seek" />
+              </div>
+              <div class="gpa-row gpx-player-row">
+                <span id="gpa-local-time" class="gpa-sub">0:00 / 0:00</span>
+                <div class="gpx-player-ctrls">
+                  <button id="gpa-local-prev" class="gpa-btn gpx-icon-btn" aria-label="Previous track">⏮</button>
+                  <button id="gpa-local-playpause" class="gpa-btn primary gpx-icon-btn gpx-play" aria-label="Play or pause">▶</button>
+                  <button id="gpa-local-next" class="gpa-btn gpx-icon-btn" aria-label="Next track">⏭</button>
+                </div>
+                <label class="gpx-volume"><span aria-hidden="true">${GPS_ICONS.volume}</span><input type="range" id="gpa-local-volume" class="gpa-range" min="0" max="100" value="80" aria-label="Volume" /></label>
+              </div>
+            </div>
+            <div id="gpa-local-playlist" class="gpa-local-playlist"></div>
+            ${gpxEmpty({ cls: 'gpx-empty-library', icon: 'music', title: 'Your library is empty',
+              desc: 'Add audio files from this device. They are saved here and play offline.',
+              action: '<button class="gpa-btn primary" data-click="#gpa-local-add-btn">Add audio files</button>' })}
+          </section>
         </div>
       </div>
 
       <div class="gpa-pane" data-pane="browser">
-        <div class="gpa-card-title">Scramjet Proxy</div>
-        <div class="gpa-sub" style="margin-bottom:8px;">Browse through a proxy server running on your own device (or another one you point this at below) — nothing here reaches anyone else's connection but whatever this is pointed at. Use the Music tab for actual SoundCloud playback.</div>
-        <div class="gpa-row">
-          <input id="gpa-proxy-url" class="gpa-input" placeholder="Enter a website or URL…" autocomplete="off" />
-          <button id="gpa-proxy-go" class="gpa-btn primary">Go</button>
+        <div class="gpx-room">
+          ${gpxHero({ room: 'browser', title: 'Proxy', status: 'Not connected',
+            desc: 'Browse through a Scramjet proxy server that you run yourself. It defaults to this device’s localhost and never routes anyone else’s traffic.' })}
+          <section class="gpx-browser">
+            <div class="gpx-browser-bar">
+              <div class="gpx-browser-nav">
+                <button id="gpa-proxy-reload" class="gpa-btn gpx-icon-btn" title="Reload" aria-label="Reload">${GPS_ICONS.refresh}</button>
+                <button id="gpa-proxy-home" class="gpa-btn gpx-icon-btn" title="Proxy home" aria-label="Proxy home">${GPS_ICONS.home}</button>
+              </div>
+              <div class="gpx-address">
+                ${GPS_ICONS.globe}
+                <input id="gpa-proxy-url" class="gpa-input" placeholder="Enter a website or URL…" autocomplete="off" aria-label="Address" />
+              </div>
+              <button id="gpa-proxy-go" class="gpa-btn primary">Go</button>
+              <button id="gpa-proxy-popout" class="gpa-btn gpx-icon-btn" title="Open the proxy in a new window" aria-label="Pop out">${GPS_ICONS.external}</button>
+            </div>
+            <div class="gpx-loadbar" aria-hidden="true"></div>
+            <div class="gpx-browser-status"><span class="gpx-dot"></span><span id="gpa-proxy-status" class="gpa-sub">Not connected</span></div>
+            <div id="gpa-proxy-error" class="gpx-inline-error" style="display:none;"></div>
+            <div class="gpx-browser-view">
+              <iframe id="gpa-proxy-frame" class="gpa-iframe" allow="fullscreen; clipboard-read; clipboard-write; autoplay; camera; microphone; geolocation" referrerpolicy="no-referrer"></iframe>
+            </div>
+            <details class="gpx-details">
+              <summary>${gpxLbl('settings', 'Connection settings')}</summary>
+              <label class="gpx-field-label" for="gpa-proxy-server">Proxy server address</label>
+              <input id="gpa-proxy-server" class="gpa-input" placeholder="Proxy server URL (defaults to your own localhost)" autocomplete="off" />
+            </details>
+          </section>
+          <section class="gpa-card gpx-card">
+            <div class="gpx-card-head">${GPS_ICONS.lab}<div class="gpa-card-title">Research mode</div></div>
+            <p class="gpa-sub">The AI reads web sources on a topic and writes you a brief with citations.</p>
+            <div class="gpa-row gpx-composer">
+              <input id="gpa-research-input" class="gpa-input" placeholder="Topic or question to research…" />
+              <button id="gpa-research-btn" class="gpa-btn primary">Research</button>
+            </div>
+            <div id="gpa-research-out" class="gpa-output" style="max-height:260px;"></div>
+          </section>
         </div>
-        <div class="gpa-row" style="margin:8px 0; flex-wrap:wrap; align-items:center; gap:6px;">
-          <button id="gpa-proxy-reload" class="gpa-btn">🔄 Reload</button>
-          <button id="gpa-proxy-home" class="gpa-btn">🏠 Home</button>
-          <button id="gpa-proxy-popout" class="gpa-btn">↗ Pop Out</button>
-          <span id="gpa-proxy-status" class="gpa-sub" style="margin-left:auto;">Not connected</span>
-        </div>
-        <div class="gpa-row" style="margin-bottom:6px;">
-          <input id="gpa-proxy-server" class="gpa-input" placeholder="Proxy server URL (advanced — defaults to your own localhost)" autocomplete="off" style="font-size:11px;" />
-        </div>
-        <div id="gpa-proxy-error" class="gpa-sub" style="display:none; margin-bottom:6px;"></div>
-        <iframe id="gpa-proxy-frame" class="gpa-iframe" allow="fullscreen; clipboard-read; clipboard-write; autoplay; camera; microphone; geolocation" referrerpolicy="no-referrer"></iframe>
-        <div class="gpa-sub" style="margin:12px 0 6px;">🔎 Research mode — AI reads web sources and writes you a brief</div>
-        <div class="gpa-row">
-          <input id="gpa-research-input" class="gpa-input" placeholder="Topic or question to research…" />
-          <button id="gpa-research-btn" class="gpa-btn primary">Research</button>
-        </div>
-        <div id="gpa-research-out" class="gpa-output" style="max-height:200px;"></div>
       </div>
 
       <div class="gpa-pane" data-pane="games">
-        <div class="gpa-row" style="flex-wrap: wrap;">
-          <button class="gpa-btn game-btn primary" data-game="ttt">Tic-Tac-Toe</button>
-          <button class="gpa-btn game-btn" data-game="rps">RPS</button>
-          <button class="gpa-btn game-btn" data-game="memory">Memory</button>
-          <button class="gpa-btn game-btn" data-game="snake">Snake</button>
-          <button class="gpa-btn game-btn" data-game="2048">2048</button>
-          <button class="gpa-btn game-btn" data-game="whack">Whack-a-Mole</button>
-          <button class="gpa-btn game-btn" data-game="guess">Guess Number</button>
-          <button class="gpa-btn game-btn" data-game="hangman">Hangman</button>
-          <button class="gpa-btn game-btn" data-game="wordle">Wordle</button>
-          <button class="gpa-btn game-btn" data-game="connect4">Connect 4</button>
-          <button class="gpa-btn game-btn" data-game="minesweeper">Minesweeper</button>
-          <button class="gpa-btn game-btn" data-game="simon">Simon</button>
-          <button class="gpa-btn game-btn" data-game="breakout">Breakout</button>
-          <button class="gpa-btn game-btn" data-game="flappy">Flappy</button>
-          <button class="gpa-btn game-btn" data-game="scramble">Word Scramble</button>
-          <button class="gpa-btn game-btn" data-game="reaction">Reaction Test</button>
-          <button class="gpa-btn game-btn" data-game="tetris">Tetris</button>
-          <button class="gpa-btn game-btn" data-game="checkers">Checkers</button>
-          <button class="gpa-btn game-btn" data-game="sudoku">Sudoku</button>
-          <button class="gpa-btn game-btn" data-game="pong">Pong</button>
-          <button class="gpa-btn game-btn" data-game="lightsout">Lights Out</button>
-          <button class="gpa-btn game-btn" data-game="fifteen">15-Puzzle</button>
-          <button class="gpa-btn game-btn" data-game="hanoi">Hanoi</button>
-          <button class="gpa-btn game-btn" data-game="mastermind">Mastermind</button>
-          <button class="gpa-btn game-btn" data-game="blackjack">Blackjack</button>
-          <button class="gpa-btn game-btn" data-game="typing">Typing Test</button>
-          <button class="gpa-btn game-btn" data-game="mathsprint">Math Sprint</button>
-          <button class="gpa-btn game-btn" data-game="maze">Maze</button>
-          <button class="gpa-btn game-btn" data-game="invaders">Invaders</button>
-          <button class="gpa-btn game-btn" data-game="platformer">Platformer</button>
-          <button class="gpa-btn game-btn" data-game="crusade">Crusade</button>
-          <button class="gpa-btn game-btn" data-game="racer">Racer</button>
-        </div>
-        <div class="gpa-row" style="margin-top:6px;">
-          <button id="gpa-game-restart" class="gpa-btn">🔄 Restart</button>
-          <button id="gpa-game-pause" class="gpa-btn">⏸ Pause</button>
-          <button id="gpa-game-fullscreen" class="gpa-btn">⛶ Fullscreen</button>
-        </div>
-        <div class="gpa-sub" style="text-align:center; margin-bottom:4px;">Keys — P: pause · R: restart · T: timer</div>
-        <div id="gpa-game-stage" class="gpa-game-stage">
-          <div id="gpa-game-timer" class="gpa-game-timer" style="display:none;">0:00</div>
-          <div id="gpa-game-viewport" class="gpa-game-viewport"><div id="gpa-game-fit" class="gpa-game-fit"></div></div>
-          <div id="gpa-game-pausemenu" class="gpa-pause-menu" style="display:none;">
-            <div class="gpa-pause-card">
-              <div class="gpa-pause-title">⏸ Paused</div>
-              <div id="gpa-pause-stats" class="gpa-pause-stats"></div>
-              <div id="gpa-pause-options" class="gpa-pause-options"></div>
-              <div class="gpa-row" style="justify-content:center; margin-top:10px;">
-                <button id="gpa-pause-resume" class="gpa-btn primary">▶ Resume</button>
-                <button id="gpa-pause-restart" class="gpa-btn">🔄 Restart</button>
+        <div class="gpx-room">
+          ${gpxHero({ room: 'games', title: 'Games', status: 'Pick a game',
+            desc: 'Thirty-two quick games. P pauses, R restarts and T shows a timer.',
+            actions: `<button id="gpa-game-restart" class="gpa-btn">${gpxLbl('refresh', 'Restart')}</button>
+              <button id="gpa-game-pause" class="gpa-btn">⏸ Pause</button>
+              <button id="gpa-game-fullscreen" class="gpa-btn">${gpxLbl('panel', 'Fullscreen')}</button>` })}
+          <details class="gpx-details gpx-library" open>
+            <summary>${gpxLbl('game', 'Game library')}</summary>
+            <div class="gpx-games">
+              <button class="gpa-btn game-btn primary" data-game="ttt"><i>XO</i><span>Tic-Tac-Toe</span></button>
+              <button class="gpa-btn game-btn" data-game="rps"><i>RPS</i><span>RPS</span></button>
+              <button class="gpa-btn game-btn" data-game="memory"><i>Me</i><span>Memory</span></button>
+              <button class="gpa-btn game-btn" data-game="snake"><i>Sn</i><span>Snake</span></button>
+              <button class="gpa-btn game-btn" data-game="2048"><i>2k</i><span>2048</span></button>
+              <button class="gpa-btn game-btn" data-game="whack"><i>Wm</i><span>Whack-a-Mole</span></button>
+              <button class="gpa-btn game-btn" data-game="guess"><i>?</i><span>Guess Number</span></button>
+              <button class="gpa-btn game-btn" data-game="hangman"><i>Hm</i><span>Hangman</span></button>
+              <button class="gpa-btn game-btn" data-game="wordle"><i>Wd</i><span>Wordle</span></button>
+              <button class="gpa-btn game-btn" data-game="connect4"><i>C4</i><span>Connect 4</span></button>
+              <button class="gpa-btn game-btn" data-game="minesweeper"><i>Ms</i><span>Minesweeper</span></button>
+              <button class="gpa-btn game-btn" data-game="simon"><i>Si</i><span>Simon</span></button>
+              <button class="gpa-btn game-btn" data-game="breakout"><i>Bo</i><span>Breakout</span></button>
+              <button class="gpa-btn game-btn" data-game="flappy"><i>Fl</i><span>Flappy</span></button>
+              <button class="gpa-btn game-btn" data-game="scramble"><i>Ws</i><span>Word Scramble</span></button>
+              <button class="gpa-btn game-btn" data-game="reaction"><i>Rt</i><span>Reaction Test</span></button>
+              <button class="gpa-btn game-btn" data-game="tetris"><i>Te</i><span>Tetris</span></button>
+              <button class="gpa-btn game-btn" data-game="checkers"><i>Ck</i><span>Checkers</span></button>
+              <button class="gpa-btn game-btn" data-game="sudoku"><i>Su</i><span>Sudoku</span></button>
+              <button class="gpa-btn game-btn" data-game="pong"><i>Po</i><span>Pong</span></button>
+              <button class="gpa-btn game-btn" data-game="lightsout"><i>Lo</i><span>Lights Out</span></button>
+              <button class="gpa-btn game-btn" data-game="fifteen"><i>15</i><span>15-Puzzle</span></button>
+              <button class="gpa-btn game-btn" data-game="hanoi"><i>Ha</i><span>Hanoi</span></button>
+              <button class="gpa-btn game-btn" data-game="mastermind"><i>Mm</i><span>Mastermind</span></button>
+              <button class="gpa-btn game-btn" data-game="blackjack"><i>21</i><span>Blackjack</span></button>
+              <button class="gpa-btn game-btn" data-game="typing"><i>Ty</i><span>Typing Test</span></button>
+              <button class="gpa-btn game-btn" data-game="mathsprint"><i>+−</i><span>Math Sprint</span></button>
+              <button class="gpa-btn game-btn" data-game="maze"><i>Mz</i><span>Maze</span></button>
+              <button class="gpa-btn game-btn" data-game="invaders"><i>In</i><span>Invaders</span></button>
+              <button class="gpa-btn game-btn" data-game="platformer"><i>Pl</i><span>Platformer</span></button>
+              <button class="gpa-btn game-btn" data-game="crusade"><i>Cr</i><span>Crusade</span></button>
+              <button class="gpa-btn game-btn" data-game="racer"><i>Ra</i><span>Racer</span></button>
+            </div>
+          </details>
+          <div id="gpa-game-stage" class="gpa-game-stage">
+            <div id="gpa-game-timer" class="gpa-game-timer" style="display:none;">0:00</div>
+            <div id="gpa-game-viewport" class="gpa-game-viewport"><div id="gpa-game-fit" class="gpa-game-fit"></div></div>
+            <div id="gpa-game-pausemenu" class="gpa-pause-menu" style="display:none;">
+              <div class="gpa-pause-card">
+                <div class="gpa-pause-title">⏸ Paused</div>
+                <div id="gpa-pause-stats" class="gpa-pause-stats"></div>
+                <div id="gpa-pause-options" class="gpa-pause-options"></div>
+                <div class="gpa-row" style="justify-content:center; margin-top:10px;">
+                  <button id="gpa-pause-resume" class="gpa-btn primary">▶ Resume</button>
+                  <button id="gpa-pause-restart" class="gpa-btn">🔄 Restart</button>
+                </div>
+                <div class="gpa-sub" style="text-align:center; margin-top:8px;">P resume · R restart · T timer</div>
               </div>
-              <div class="gpa-sub" style="text-align:center; margin-top:8px;">P resume · R restart · T timer</div>
             </div>
           </div>
         </div>
       </div>
 
       <div class="gpa-pane" data-pane="saved">
-        <div class="gpa-row" style="justify-content:space-between;">
-          <button id="gpa-saved-view-cal" class="gpa-btn saved-view-btn primary">📅 Calendar</button>
-          <button id="gpa-saved-view-folders" class="gpa-btn saved-view-btn">🗂 Folders</button>
-          <button id="gpa-saved-new-folder" class="gpa-btn" style="display:none;">＋ New folder</button>
-        </div>
-        <div class="gpa-row" id="gpa-saved-cal-head" style="justify-content:space-between;">
-          <button id="gpa-cal-prev" class="gpa-btn" title="Previous month">‹</button>
-          <span id="gpa-cal-title" class="gpa-cal-title"></span>
-          <button id="gpa-cal-next" class="gpa-btn" title="Next month">›</button>
-        </div>
-        <div id="gpa-cal-grid" class="gpa-cal"></div>
-        <div id="gpa-folder-tree" class="gpa-folder-tree" style="display:none;"></div>
-        <div id="gpa-saved-day-label" class="gpa-sub" style="margin:8px 0 4px;"></div>
-        <div id="gpa-saved-list" class="gpa-chat" style="max-height:260px;"></div>
-        <div class="gpa-sub" style="margin:12px 0 6px;">📝 Scratchpad — autosaved to your profile</div>
-        <textarea id="gpa-scratch" class="gpa-sync-box" style="height:90px;" placeholder="Jot anything… it saves as you type."></textarea>
-        <div class="gpa-row" style="margin-top:6px;">
-          <button id="gpa-scratch-tidy" class="gpa-btn">✨ Tidy notes with AI</button>
-        </div>
-        <div class="gpa-sub" style="margin:12px 0 6px;">🍅 Pomodoro — 25 min focus / 5 min break</div>
-        <div class="gpa-row" style="justify-content:center;">
-          <span id="gpa-pomo-time" class="gpa-pomo-time">25:00</span>
-        </div>
-        <div class="gpa-row" style="justify-content:center;">
-          <button id="gpa-pomo-start" class="gpa-btn primary">▶ Start</button>
-          <button id="gpa-pomo-reset" class="gpa-btn">Reset</button>
-          <span id="gpa-pomo-count" class="gpa-sub"></span>
+        <div class="gpx-room">
+          ${gpxHero({ room: 'saved', title: 'Saved', status: 'Library',
+            desc: 'Insights you saved, by date or by folder. Switch any of them on as context and the AI builds on it.',
+            actions: `<div class="gps-seg gpx-seg-inline" role="group" aria-label="Saved view">
+                <button id="gpa-saved-view-cal" class="gps-seg-btn saved-view-btn primary">${gpxLbl('calendar', 'Calendar')}</button>
+                <button id="gpa-saved-view-folders" class="gps-seg-btn saved-view-btn">${gpxLbl('folder', 'Folders')}</button>
+              </div>
+              <button id="gpa-saved-new-folder" class="gpa-btn" style="display:none;">${gpxLbl('plus', 'New folder')}</button>` })}
+          <div class="gpx-split">
+            <div class="gpx-main">
+              <section class="gpa-card gpx-card">
+                <div class="gpa-row gpx-cal-head" id="gpa-saved-cal-head">
+                  <button id="gpa-cal-prev" class="gpa-btn gpx-icon-btn" title="Previous month" aria-label="Previous month">‹</button>
+                  <span id="gpa-cal-title" class="gpa-cal-title"></span>
+                  <button id="gpa-cal-next" class="gpa-btn gpx-icon-btn" title="Next month" aria-label="Next month">›</button>
+                </div>
+                <div id="gpa-cal-grid" class="gpa-cal"></div>
+                <div id="gpa-folder-tree" class="gpa-folder-tree" style="display:none;"></div>
+              </section>
+              <div id="gpa-saved-day-label" class="gpx-section-label"></div>
+              <div id="gpa-saved-list" class="gpa-chat gpx-saved-list"></div>
+            </div>
+            <aside class="gpx-side">
+              <section class="gpa-card gpx-card">
+                <div class="gpx-card-head">${GPS_ICONS.pen}<div class="gpa-card-title">Scratchpad</div><span class="gpx-chip">Autosaved</span></div>
+                <textarea id="gpa-scratch" class="gpa-sync-box" style="height:120px;" placeholder="Jot anything… it saves as you type." aria-label="Scratchpad"></textarea>
+                <button id="gpa-scratch-tidy" class="gpa-btn">✨ Tidy notes with AI</button>
+              </section>
+              <section class="gpa-card gpx-card gpx-pomo">
+                <div class="gpx-card-head">${GPS_ICONS.timer}<div class="gpa-card-title">Focus timer</div><span class="gpx-chip">25 / 5 min</span></div>
+                <div class="gpx-pomo-face"><span id="gpa-pomo-time" class="gpa-pomo-time">25:00</span></div>
+                <div class="gpa-row gpx-pomo-row">
+                  <button id="gpa-pomo-start" class="gpa-btn primary">▶ Start</button>
+                  <button id="gpa-pomo-reset" class="gpa-btn">Reset</button>
+                  <span id="gpa-pomo-count" class="gpa-sub"></span>
+                </div>
+              </section>
+            </aside>
+          </div>
         </div>
       </div>
 
       <div class="gpa-pane" data-pane="study">
-        <div class="gpa-row">
-          <button id="gpa-fc-gen" class="gpa-btn primary">✨ Make flashcards from this page</button>
+        <div class="gpx-room">
+          ${gpxHero({ room: 'study', title: 'Study', status: 'No deck yet',
+            desc: 'Turn the page you are on into flashcards, then practice. Cards you know three times retire until you reset.',
+            meta: '<span class="gpx-chip" id="gpx-study-cards">0 cards</span><span class="gpx-chip gpx-chip-accent" id="gpx-study-mastered">0 mastered</span>',
+            actions: `<button id="gpa-fc-gen" class="gpa-btn primary">${gpxLbl('cards', 'Make flashcards from this page')}</button>` })}
+          <div id="gpa-fc-status" class="gpa-sub gpx-note"></div>
+          <div id="gpa-fc-study" class="gpx-study"></div>
         </div>
-        <div id="gpa-fc-status" class="gpa-sub" style="margin-bottom:6px;">Open a page with material on it, then generate a deck. Cards you "knew" three times are retired until you reset.</div>
-        <div id="gpa-fc-study"></div>
       </div>
 
       <div class="gpa-pane" data-pane="notes">
-        <div class="gpa-row">
-          <textarea id="gpa-notes-input" class="gpa-sync-box" style="height:100px;" placeholder="Paste a passage here — article, chapter, story, lecture… Then press Enter (Shift+Enter makes a new line)."></textarea>
+        <div class="gpx-room">
+          ${gpxHero({ room: 'notes', title: 'Notes', status: 'Waiting for a passage',
+            desc: 'Paste a passage. The AI reads it, researches it across the web and writes organized notes, then answers follow-up questions about it.' })}
+          <section class="gpa-card gpx-card gpx-editor">
+            <label class="gpx-field-label" for="gpa-notes-input">Passage</label>
+            <textarea id="gpa-notes-input" class="gpa-sync-box" style="height:120px;" placeholder="Paste a passage here — article, chapter, story, lecture… Then press Enter (Shift+Enter makes a new line)."></textarea>
+            <div class="gpa-row">
+              <button id="gpa-notes-go" class="gpa-btn primary">${gpxLbl('note', 'Read, research &amp; make notes')}</button>
+              <button id="gpa-notes-new" class="gpa-btn" style="display:none;">${gpxLbl('trash', 'Clear &amp; start new')}</button>
+            </div>
+            <div id="gpa-notes-status" class="gpa-sub">Notes appear below. Everything stays in this conversation so follow-ups have full context.</div>
+          </section>
+          <div id="gpa-notes-out" class="gpa-output"></div>
+          <section class="gpa-card gpx-card">
+            <div class="gpx-card-head">${GPS_ICONS.chat}<div class="gpa-card-title">Ask about this passage</div></div>
+            <p class="gpa-sub">It remembers the text, the notes and the research.</p>
+            <div class="gpa-row gpx-composer" id="gpa-notes-q-row" style="display:none;">
+              <input id="gpa-notes-q" class="gpa-input" placeholder="Ask anything about the passage…" />
+              <button id="gpa-notes-q-btn" class="gpa-btn primary">Ask</button>
+            </div>
+            <div id="gpa-notes-chat" class="gpa-chat"></div>
+          </section>
         </div>
-        <div class="gpa-row">
-          <button id="gpa-notes-go" class="gpa-btn primary">📝 Read, research &amp; make notes</button>
-          <button id="gpa-notes-new" class="gpa-btn" style="display:none;">🗑 Clear &amp; start new</button>
-        </div>
-        <div id="gpa-notes-status" class="gpa-sub" style="margin-bottom:6px;">The AI reads the passage, researches it across the web, and writes organized notes — then remembers it all so you can ask follow-ups below.</div>
-        <div id="gpa-notes-out" class="gpa-output"></div>
-        <div class="gpa-sub" style="margin:10px 0 4px;">💬 Ask about this passage — it remembers the text, the notes and the research</div>
-        <div class="gpa-row" id="gpa-notes-q-row" style="display:none;">
-          <input id="gpa-notes-q" class="gpa-input" placeholder="Ask anything about the passage…" />
-          <button id="gpa-notes-q-btn" class="gpa-btn primary">Ask</button>
-        </div>
-        <div id="gpa-notes-chat" class="gpa-chat"></div>
       </div>
 
       <div class="gpa-pane" data-pane="humanize">
-        <div class="gpa-row">
-          <textarea id="gpa-hum-input" class="gpa-sync-box" style="height:140px;" placeholder="Paste any text here — an essay, an email, a paragraph you wrote — from anywhere, not just this page. Get back a version that reads more naturally."></textarea>
+        <div class="gpx-room">
+          ${gpxHero({ room: 'humanize', title: 'Humanize', status: 'Ready',
+            desc: 'Rewrites stiff or robotic phrasing so it reads the way a person writes. Meaning, facts and length stay the same.' })}
+          <section class="gpa-card gpx-card gpx-editor">
+            <label class="gpx-field-label" for="gpa-hum-input">Your text</label>
+            <textarea id="gpa-hum-input" class="gpa-sync-box" style="height:150px;" placeholder="Paste any text here — an essay, an email, a paragraph you wrote — from anywhere, not just this page."></textarea>
+            <div class="gpa-row">
+              <button id="gpa-hum-go" class="gpa-btn primary">${gpxLbl('wand', 'Humanize')}</button>
+              <button id="gpa-hum-retry" class="gpa-btn" style="display:none;">🔄 Try again</button>
+            </div>
+            <div id="gpa-hum-status" class="gpa-sub"></div>
+          </section>
+          <div id="gpa-hum-out" class="gpa-output"></div>
         </div>
-        <div class="gpa-row">
-          <button id="gpa-hum-go" class="gpa-btn primary">✎ Humanize</button>
-          <button id="gpa-hum-retry" class="gpa-btn" style="display:none;">🔄 Try again</button>
-        </div>
-        <div id="gpa-hum-status" class="gpa-sub" style="margin-bottom:6px;">Rewrites stiff or robotic phrasing so it reads the way a person would actually write it — meaning, facts, and length stay the same.</div>
-        <div id="gpa-hum-out" class="gpa-output"></div>
       </div>
 
       <div class="gpa-pane" data-pane="grammar">
-        <div class="gpa-row">
-          <textarea id="gpa-gram-input" class="gpa-sync-box" style="height:140px;" placeholder="Paste any text here to check for grammar, spelling, and punctuation errors — from anywhere, not just this page."></textarea>
+        <div class="gpx-room">
+          ${gpxHero({ room: 'grammar', title: 'Grammar', status: 'Ready',
+            desc: 'Fixes real grammar, spelling and punctuation errors only. Style and word choice stay yours, and each fix is explained.' })}
+          <section class="gpa-card gpx-card gpx-editor">
+            <label class="gpx-field-label" for="gpa-gram-input">Your text</label>
+            <textarea id="gpa-gram-input" class="gpa-sync-box" style="height:150px;" placeholder="Paste any text here to check for grammar, spelling, and punctuation errors — from anywhere, not just this page."></textarea>
+            <div class="gpa-row">
+              <button id="gpa-gram-go" class="gpa-btn primary">${gpxLbl('spell', 'Check grammar')}</button>
+            </div>
+            <div id="gpa-gram-status" class="gpa-sub"></div>
+          </section>
+          <div id="gpa-gram-out" class="gpa-output"></div>
         </div>
-        <div class="gpa-row">
-          <button id="gpa-gram-go" class="gpa-btn primary">✓ Check grammar</button>
-        </div>
-        <div id="gpa-gram-status" class="gpa-sub" style="margin-bottom:6px;">Fixes actual errors only — style, tone, and word choice are left alone. Each fix is explained so you can learn from it.</div>
-        <div id="gpa-gram-out" class="gpa-output"></div>
       </div>
 
       <div id="gpa-save-modal" class="gpa-modal" style="display:none;">
@@ -3642,7 +4417,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         background: var(--gpa-field); border: 1px solid var(--gpa-border); border-radius: calc(6px * var(--gpa-rs));
         color: var(--gpa-text); font-size: 12px; padding: 6px 8px; font-family: inherit; width: 100%;
       }
-    ` + GPS_CSS;
+    ` + GPS_CSS + GPX_CSS;
   applyTheme(theme, { instant: true });
 
   // ---- Drag logic -----------------------------------------------------
@@ -5363,7 +6138,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // caller's own system text LAST — the JSON-only rules several callers rely
     // on have to be the final word, or the model narrates instead of obeying.
     const sys = adminSysPrefix() + buildContextMemory() + (systemText || '');
-    return callOpenAI(userText, sys, imageDataUrls, hard);
+    // Report the real start/finish of this request to the pane's hero.
+    const room = typeof gpxAiStart === 'function' ? gpxAiStart(hard) : null;
+    try {
+      const out = await callOpenAI(userText, sys, imageDataUrls, hard);
+      if (typeof gpxAiEnd === 'function') gpxAiEnd(room, true);
+      return out;
+    } catch (e) {
+      if (typeof gpxAiEnd === 'function') gpxAiEnd(room, false, e);
+      throw e;
+    }
   }
 
   // Real second-pass check for quiz/answer-grid results: sends the draft
@@ -5421,8 +6205,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // console so the real cause is never hidden behind it — with anything that
     // looks like a credential masked, since upstream errors echo the key that
     // failed and consoles get screenshotted and pasted into chats.
-    console.error('[Agent Console] raw error from', label, ':', redactSecrets((err && err.message) || err));
-    el.innerHTML = `<div class="gpa-error"><span class="gpa-error-icon">⚠</span><span>${explainError(err, label)}</span></div>`;
+    const raw = redactSecrets(String((err && err.message) || err));
+    console.error('[Agent Console] raw error from', label, ':', raw);
+    el.innerHTML = `<div class="gpa-error" role="alert"><span class="gpa-error-icon">${GPS_ICONS.warn}</span>`
+      + `<div class="gpa-error-body"><div class="gpa-error-title">That didn't go through</div>`
+      + `<div>${escapeHtml(explainError(err, label))}</div>`
+      + `<details class="gpa-error-details"><summary>Technical details</summary><code>${escapeHtml(raw.slice(0, 500))}</code></details>`
+      + `</div></div>`;
   }
 
   function currentProviderLabel() {
@@ -6290,7 +7079,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function renderInsightCards(listEl, items) {
     listEl.innerHTML = '';
     if (!items.length) {
-      listEl.innerHTML = '<div class="gpa-sub">Nothing here yet.</div>';
+      listEl.innerHTML = gpxEmpty({ icon: 'book', title: 'Nothing saved here',
+        desc: 'Press Save Insight under any AI answer to keep it. Saved insights appear here by date and in folders.' });
       return;
     }
     items.slice().sort((a, b) => b.ts - a.ts).forEach((it) => {
@@ -7693,7 +8483,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // browser — the destination site loaded inside it is a separate,
     // cross-origin document this iframe can't inspect, so "Connected" means
     // "the proxy responded," not "the destination site is healthy."
-    setProxyStatus('Connected');
+    // Cross-origin, so this can't tell a real page from the browser's own
+    // error page — say only what is known.
+    setProxyStatus('Loaded');
   });
   proxyFrame.addEventListener('error', () => {
     setProxyStatus('Load failed', true);
@@ -7875,6 +8667,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     pendingImages = [];
     renderImageStrip();
     const thinking = addMsg('ai', 'Thinking…');
+    thinking.innerHTML = '<span class="gpx-typing-dots" role="status" aria-label="Thinking"><i></i><i></i><i></i></span>';
     const s = askSettings();
 
     const steer = [];
@@ -8665,7 +9458,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const cards = JSON.parse(localStorage.getItem(FC_KEY) || '[]');
     fcStudy.innerHTML = '';
     if (!cards.length) {
-      fcStudy.innerHTML = '<div class="gpa-sub">No deck yet. Find a page with material on it, then press "Make flashcards".</div>';
+      fcStudy.innerHTML = gpxEmpty({ icon: 'cards', title: 'No deck yet',
+        desc: 'Open a page with material you want to learn, then press Make flashcards above. The AI writes the cards; you practice until each one retires.' });
       return;
     }
     const mastered = cards.filter((c) => c.box >= 3).length;
@@ -9018,6 +9812,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     notesMsg('user', q);
     qInput.value = '';
     const aiMsg = notesMsg('ai', 'Thinking…');
+    if (aiMsg) aiMsg.innerHTML = '<span class="gpx-typing-dots" role="status" aria-label="Thinking"><i></i><i></i><i></i></span>';
     const history = (notesState.chat || []).slice(-8)
       .map((m) => `${m.role === 'user' ? 'USER' : 'ASSISTANT'}: ${m.text}`)
       .join('\n');
@@ -15475,6 +16270,303 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     refreshAll();
     const saved = safeGet(SECTION_KEY);
     showSection(SECTIONS.includes(saved) ? saved : 'overview');
+  })();
+
+
+  // ---- Rooms (behavior) -----------------------------------------------------
+  // Feeds each pane's hero with real state. Nothing here invents activity:
+  //   * AI work     — callAI() reports start/finish (gpxAiStart / gpxAiEnd),
+  //                   credited to the pane that was open when it started.
+  //   * Page Insights — whether page text or a screenshot is loaded.
+  //   * Chat        — whether the last poll reached the worker, message count.
+  //   * Music       — the local <audio> element's play/pause/progress; embeds
+  //                   (YouTube, SoundCloud) only report that a player loaded.
+  //   * Proxy       — the frame's own connecting / connected / failed status.
+  //   * Games, Saved, Study, Notes, Humanize, Grammar — their own DOM/storage.
+  // Observers are registered in gpaCleanups so a reload leaves none behind.
+  (function roomsModule() {
+    const heroes = {};
+    panel.querySelectorAll('.gpx-hero[data-room]').forEach((h) => { heroes[h.dataset.room] = h; });
+    const q = (sel) => panel.querySelector(sel);
+    const observe = (el, opts, fn) => {
+      if (!el) return;
+      const mo = new MutationObserver(fn);
+      mo.observe(el, opts);
+      gpaCleanups.push(() => mo.disconnect());
+    };
+    function setStatus(room, text) {
+      const h = heroes[room];
+      const t = h && h.querySelector('.gpx-status-t');
+      if (t && t.textContent !== text) t.textContent = text;
+    }
+    function setData(room, key, val) {
+      const h = heroes[room];
+      if (h && h.dataset[key] !== String(val)) h.dataset[key] = String(val);
+    }
+
+    // ---- Idle status per room, derived from that room's real state ----
+    const idle = {
+      scan() {
+        const words = pageText ? pageText.trim().split(/\s+/).length : 0;
+        if (words && screenshotDataUrl) return `${words.toLocaleString()} words + screenshot ready`;
+        if (words) return `${words.toLocaleString()} words ready`;
+        if (screenshotDataUrl) return 'Screenshot ready';
+        return 'Nothing read yet';
+      },
+      ask() { return 'Ready'; },
+      chat() {
+        const note = (q('#gpa-chat-note') || {}).textContent || '';
+        const sel = q('#gpa-chat-room');
+        const roomName = sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : '';
+        if (note && /unavailable|could not|needs the worker|offline/i.test(note)) return 'Offline';
+        return roomName ? 'Connected · ' + roomName : 'Connecting';
+      },
+      music() {
+        if (!localAudio.paused && localAudio.src) return 'Playing';
+        if (localAudio.src && localAudio.ended) return 'Finished';
+        if (localAudio.src) return 'Paused';
+        if (q('#gpa-music-wrap iframe, #gpa-sc-wrap iframe')) return 'Embedded player loaded';
+        return 'Nothing playing';
+      },
+      browser() { return (q('#gpa-proxy-status') || {}).textContent || 'Not connected'; },
+      games() {
+        const name = (typeof GAME_LABELS !== 'undefined' && GAME_LABELS[currentGameId]) || 'a game';
+        return isGamePaused ? 'Paused · ' + name : 'Playing · ' + name;
+      },
+      saved() {
+        let n = 0;
+        try { n = savedAll().length; } catch (e) { n = 0; }
+        return n ? `${n} saved insight${n === 1 ? '' : 's'}` : 'Nothing saved yet';
+      },
+      study() {
+        const d = deckStats();
+        if (!d.cards) return 'No deck yet';
+        const left = d.cards - d.mastered;
+        return left ? `${left} card${left === 1 ? '' : 's'} left to master` : 'Deck mastered';
+      },
+      notes() { return (q('#gpa-notes-out') || {}).textContent ? 'Notes ready · ask follow-ups below' : 'Waiting for a passage'; },
+      humanize() { return (q('#gpa-hum-out') || {}).textContent ? 'Rewrite ready' : 'Ready'; },
+      grammar() { return (q('#gpa-gram-out') || {}).textContent ? 'Check complete' : 'Ready'; }
+    };
+    const busy = {};
+    function refreshIdle(room) {
+      if (busy[room] > 0) return;
+      const h = heroes[room];
+      if (!h || h.dataset.state === 'done' || h.dataset.state === 'error') return;
+      if (idle[room]) setStatus(room, idle[room]());
+    }
+
+    // ---- AI activity from callAI ----
+    const VERB = {
+      ask: 'Generating', scan: 'Analyzing', notes: 'Reading and writing notes', study: 'Building flashcards',
+      humanize: 'Rewriting', grammar: 'Checking', browser: 'Researching', saved: 'Tidying notes',
+      welcome: 'Summarizing news', chat: 'Thinking', music: 'Thinking', games: 'Thinking'
+    };
+    const timers = {};
+    function activeRoom() {
+      const p = panel.querySelector('.gpa-pane.active');
+      return p ? p.dataset.pane : '';
+    }
+    gpxAiStart = function (hard) {
+      const room = activeRoom();
+      if (!heroes[room]) return room;
+      busy[room] = (busy[room] || 0) + 1;
+      clearTimeout(timers[room]);
+      let model = '';
+      try { model = effectiveModel(OPENAI_MODEL, hard); } catch (e) { /* not ready */ }
+      setData(room, 'state', 'working');
+      setStatus(room, (VERB[room] || 'Working') + (model ? ' · ' + model : ''));
+      return room;
+    };
+    gpxAiEnd = function (room, ok, err) {
+      if (!heroes[room]) return;
+      busy[room] = Math.max(0, (busy[room] || 1) - 1);
+      if (busy[room] > 0) return;
+      if (ok) {
+        setData(room, 'state', 'done');
+        setStatus(room, 'Done');
+      } else {
+        setData(room, 'state', 'error');
+        const msg = (err && err.message) || '';
+        setStatus(room, /blocked/i.test(msg) ? 'Blocked by the owner' : /\((\d{3})\)/.test(msg) ? 'Request failed (' + msg.match(/\((\d{3})\)/)[1] + ')' : /fetch|network/i.test(msg) ? 'Connection failed' : 'Request failed');
+      }
+      clearTimeout(timers[room]);
+      timers[room] = setTimeout(() => {
+        if (busy[room] > 0) return;
+        setData(room, 'state', 'idle');
+        refreshIdle(room);
+      }, ok ? 4000 : 9000);
+    };
+
+    // ---- Page Insights: loaded context ----
+    function syncScan() {
+      setData('scan', 'context', pageText || screenshotDataUrl ? 1 : 0);
+      refreshIdle('scan');
+    }
+    observe(q('#gpa-status-row'), { attributes: true, attributeFilter: ['style'] }, syncScan);
+    observe(q('#gpa-scan-status'), { childList: true, characterData: true, subtree: true }, syncScan);
+
+    // ---- Ask: the model chips always show the models actually configured ----
+    function syncAskModels() {
+      try {
+        const base = (admGet(ADMIN_KEYS.MODEL) || '').trim() || OPENAI_MODEL;
+        const smart = smartModel();
+        const b = q('#gpx-ask-base'), s = q('#gpx-ask-smart');
+        if (b) b.textContent = base;
+        if (s) {
+          s.textContent = autoUpgradeOn() ? smart + ' for hard questions' : 'Auto-upgrade off';
+          s.classList.toggle('gpx-chip-accent', autoUpgradeOn());
+        }
+      } catch (e) { /* admin helpers not ready */ }
+    }
+    // Suggestions fill the composer (never auto-send) so the user finishes it.
+    panel.querySelectorAll('.gpx-suggest[data-prompt]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const input = q('#gpa-ask-input');
+        input.value = b.dataset.prompt;
+        input.focus();
+        try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) { /* ignore */ }
+      });
+    });
+
+    // ---- Chat: reachability and new-message pulse ----
+    let lastChatCount = 0;
+    function syncChat() {
+      const note = (q('#gpa-chat-note') || {}).textContent || '';
+      const offline = /unavailable|could not|needs the worker|offline/i.test(note);
+      setData('chat', 'live', offline ? 0 : 1);
+      const n = panel.querySelectorAll('#gpa-chat-log .gpa-chat-msg').length;
+      if (n > lastChatCount && lastChatCount) {
+        setData('chat', 'pulse', 1);
+        setTimeout(() => setData('chat', 'pulse', 0), 700);
+      }
+      lastChatCount = n;
+      refreshIdle('chat');
+    }
+    observe(q('#gpa-chat-note'), { childList: true, characterData: true, subtree: true }, syncChat);
+    observe(q('#gpa-chat-log'), { childList: true }, syncChat);
+    const roomSel = q('#gpa-chat-room');
+    if (roomSel) roomSel.addEventListener('change', syncChat);
+
+    // ---- Music: real playback state from the local player ----
+    let musicRaf = 0;
+    function syncMusic() {
+      musicRaf = 0;
+      const playing = !localAudio.paused && !!localAudio.src;
+      setData('music', 'playing', playing ? 1 : 0);
+      const h = heroes.music;
+      const pct = localAudio.duration ? (localAudio.currentTime / localAudio.duration) * 100 : 0;
+      if (h) h.style.setProperty('--p', pct.toFixed(1));
+      const now = q('#gpx-music-now');
+      const title = (q('#gpa-local-nowplaying') || {}).textContent || '';
+      if (now) now.textContent = localAudio.src && title ? title : '';
+      refreshIdle('music');
+    }
+    const queueMusic = () => { if (!musicRaf) musicRaf = requestAnimationFrame(syncMusic); };
+    ['play', 'pause', 'ended', 'emptied', 'loadedmetadata'].forEach((ev) => localAudio.addEventListener(ev, queueMusic));
+    // timeupdate fires ~4x/s; the ring only needs that cadence while visible.
+    localAudio.addEventListener('timeupdate', () => { if (heroes.music && heroes.music.offsetParent) queueMusic(); });
+    observe(q('#gpa-music-wrap'), { childList: true }, queueMusic);
+    observe(q('#gpa-sc-wrap'), { childList: true }, queueMusic);
+    // Source switcher (progressive disclosure; embeds keep playing when hidden).
+    const SRC_KEY = 'gpa_music_source';
+    function showSource(src) {
+      panel.querySelectorAll('.gpx-src').forEach((b) => {
+        const on = b.dataset.src === src;
+        b.classList.toggle('primary', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      panel.querySelectorAll('.gpx-src-panel').forEach((p) => p.classList.toggle('is-active', p.dataset.srcPanel === src));
+      try { localStorage.setItem(SRC_KEY, src); } catch (e) { /* storage blocked */ }
+    }
+    panel.querySelectorAll('.gpx-src').forEach((b) => b.addEventListener('click', () => showSource(b.dataset.src)));
+    let savedSrc = null;
+    try { savedSrc = localStorage.getItem(SRC_KEY); } catch (e) { savedSrc = null; }
+    showSource(['search', 'soundcloud', 'library'].includes(savedSrc) ? savedSrc : 'search');
+
+    // ---- Proxy: mirror the frame's own status ----
+    const proxyRoom = q('.gpa-pane[data-pane="browser"] .gpx-room');
+    function syncProxy() {
+      const txt = ((q('#gpa-proxy-status') || {}).textContent || '').toLowerCase();
+      const st = /fail|error|unable/.test(txt) ? 'error' : /connecting/.test(txt) ? 'connecting' : /loaded|connected/.test(txt) ? 'connected' : 'idle';
+      setData('browser', 'proxy', st);
+      if (proxyRoom) proxyRoom.dataset.proxy = st;
+      if (busy.browser > 0) return;
+      const h = heroes.browser;
+      if (h && h.dataset.state !== 'done' && h.dataset.state !== 'error') {
+        setStatus('browser', st === 'connected' ? 'Frame loaded' : ((q('#gpa-proxy-status') || {}).textContent || 'Not connected'));
+      }
+    }
+    observe(q('#gpa-proxy-status'), { childList: true, characterData: true, subtree: true }, syncProxy);
+
+    // ---- Games: current game and pause state ----
+    function syncGames() {
+      setData('games', 'paused', isGamePaused ? 1 : 0);
+      setData('games', 'playing', isGamePaused ? 0 : 1);
+      refreshIdle('games');
+    }
+    observe(q('#gpa-game-pausemenu'), { attributes: true, attributeFilter: ['style'] }, syncGames);
+    observe(q('.gpx-games'), { attributes: true, subtree: true, attributeFilter: ['class'] }, syncGames);
+
+    // ---- Saved: real count ----
+    function syncSaved() {
+      let n = 0;
+      try { n = savedAll().length; } catch (e) { n = 0; }
+      setData('saved', 'empty', n ? 0 : 1);
+      const c = heroes.saved && heroes.saved.querySelector('[data-bind="count"]');
+      if (c) c.textContent = String(n);
+      refreshIdle('saved');
+    }
+    observe(q('#gpa-saved-list'), { childList: true }, syncSaved);
+
+    // ---- Study: deck progress from storage ----
+    function deckStats() {
+      let cards = [];
+      try { cards = JSON.parse(localStorage.getItem(FC_KEY) || '[]') || []; } catch (e) { cards = []; }
+      return { cards: cards.length, mastered: cards.filter((c) => c.box >= 3).length };
+    }
+    function syncStudy() {
+      const d = deckStats();
+      setData('study', 'empty', d.cards ? 0 : 1);
+      if (heroes.study) heroes.study.style.setProperty('--p', d.cards ? ((d.mastered / d.cards) * 100).toFixed(1) : '0');
+      const c = q('#gpx-study-cards'), m = q('#gpx-study-mastered');
+      if (c) c.textContent = `${d.cards} card${d.cards === 1 ? '' : 's'}`;
+      if (m) m.textContent = `${d.mastered} mastered`;
+      refreshIdle('study');
+    }
+    observe(q('#gpa-fc-study'), { childList: true, subtree: true }, syncStudy);
+
+    // ---- Notes / Humanize / Grammar: output present or not ----
+    const outSync = (room, sel) => () => {
+      setData(room, 'has', (q(sel) || {}).textContent ? 1 : 0);
+      refreshIdle(room);
+    };
+    observe(q('#gpa-notes-out'), { childList: true, characterData: true, subtree: true }, outSync('notes', '#gpa-notes-out'));
+    observe(q('#gpa-hum-out'), { childList: true, characterData: true, subtree: true }, outSync('humanize', '#gpa-hum-out'));
+    observe(q('#gpa-gram-out'), { childList: true, characterData: true, subtree: true }, outSync('grammar', '#gpa-gram-out'));
+
+    // Empty-state buttons forward to the real control.
+    panel.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-click]');
+      if (b) { const t = q(b.dataset.click); if (t) t.click(); }
+    });
+
+    // Refresh a room's status whenever it's opened.
+    const paneObserver = new MutationObserver(() => {
+      const room = activeRoom();
+      if (room === 'ask') syncAskModels();
+      if (room === 'study') syncStudy();
+      if (room === 'saved') syncSaved();
+      if (room === 'scan') syncScan();
+      if (room === 'music') syncMusic();
+      if (room === 'games') syncGames();
+      if (room === 'chat') syncChat();
+    });
+    panel.querySelectorAll('.gpa-pane').forEach((p) => paneObserver.observe(p, { attributes: true, attributeFilter: ['class'] }));
+    gpaCleanups.push(() => paneObserver.disconnect());
+
+    syncScan(); syncAskModels(); syncChat(); syncMusic(); syncProxy(); syncGames(); syncSaved(); syncStudy();
+    ['notes', 'humanize', 'grammar'].forEach(refreshIdle);
   })();
 
   // ---- Session restore on load ----
