@@ -223,12 +223,29 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return id;
   };
   const clearInterval = function (id) { gpaIntervals.delete(id); return window.clearInterval(id); };
+  // Anything else an instance starts (observers, animation loops, media-query
+  // listeners) registers its undo here; teardownInstance() runs them all.
+  const gpaCleanups = [];
+  let gpsRefreshAll = null; // set by the settings module; used after a profile restore
 
   // Holds the mounted Welcome-pane 3D scene (declared early since applyTheme,
   // called during initial setup, reads it via updateWelcome3dColor()).
   let gpaWelcome3d = null; // { renderer, scene, camera, mesh, raf } once mounted
 
-  // ---- Themes ---------------------------------------------------------
+  // ---- Theme engine ---------------------------------------------------
+  // A theme is a palette of design tokens. The eight core keys (bg, panel,
+  // field, text, sub, accent, accentFg, border) are read directly all over
+  // this file (canvases, inline styles, games), so they stay plain #rrggbb.
+  // The extended keys are optional and derived by resolveTheme() when a theme
+  // leaves them out:
+  //   bg2      secondary background (sidebar wells, preview floors)
+  //   accent2  secondary accent (gradients, 3D highlights)
+  //   glow     halo color around the panel and focused surfaces
+  //   particle ambient particle color
+  //   atmos    CSS background-image layered over the panel background
+  // Nothing in the stylesheet reads a theme directly any more: applyTheme()
+  // turns the resolved tokens into CSS custom properties on :host, so a theme
+  // change is one small style write instead of rebuilding ~1,100 lines of CSS.
   const THEMES = {
     dark:      { bg: '#0b0b0f', panel: '#16161c', field: '#1e1e26', text: '#eaeaf0', sub: '#9a9aa8', accent: '#5b8cff', accentFg: '#ffffff', border: '#26262f' },
     matte:     { bg: '#131313', panel: '#1a1a1a', field: '#222222', text: '#e6e6e6', sub: '#9c9c9c', accent: '#b0b0b0', accentFg: '#171717', border: '#2b2b2b' },
@@ -237,13 +254,835 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     purple:    { bg: '#120c1e', panel: '#1c1430', field: '#251c3d', text: '#efe9fb', sub: '#b6a8d1', accent: '#8b5cf6', accentFg: '#ffffff', border: '#2f2350' },
     pink:      { bg: '#1e0c16', panel: '#301425', field: '#3d1b30', text: '#fbe9f2', sub: '#d1a8bf', accent: '#ec4899', accentFg: '#ffffff', border: '#4a2038' },
     lightblue: { bg: '#eaf6ff', panel: '#f5fbff', field: '#ffffff', text: '#0f2740', sub: '#5b7c93', accent: '#0ea5e9', accentFg: '#ffffff', border: '#cfe8f7' },
-    white:  { bg: '#ffffff', panel: '#f5f5f7', field: '#ffffff', text: '#17171a', sub: '#6b6b70', accent: '#2563eb', accentFg: '#ffffff', border: '#e1e1e6' }
+    white:     { bg: '#ffffff', panel: '#f5f5f7', field: '#ffffff', text: '#17171a', sub: '#6b6b70', accent: '#2563eb', accentFg: '#ffffff', border: '#e1e1e6' },
+    // Signature themes: each has its own atmosphere, not just a new accent.
+    aurora: {
+      bg: '#061318', panel: '#0a1b21', field: '#10252c', text: '#e3f6f4', sub: '#8fb5b3', accent: '#2dd4bf', accentFg: '#04201c', border: '#173238',
+      bg2: '#08171c', accent2: '#a78bfa', glow: '#2dd4bf', particle: '#5eead4',
+      atmos: 'radial-gradient(120% 70% at 0% 0%, rgba(45,212,191,0.16), transparent 58%), radial-gradient(90% 60% at 100% 0%, rgba(167,139,250,0.14), transparent 60%), radial-gradient(80% 50% at 60% 110%, rgba(56,189,248,0.08), transparent 70%)'
+    },
+    obsidian: {
+      bg: '#09090b', panel: '#101012', field: '#17171a', text: '#ececee', sub: '#94949c', accent: '#e4e4e7', accentFg: '#0b0b0d', border: '#232327',
+      bg2: '#0c0c0e', accent2: '#8b8b94', glow: '#ffffff', particle: '#a1a1aa',
+      atmos: 'linear-gradient(180deg, rgba(255,255,255,0.045), transparent 22%), radial-gradient(70% 40% at 50% 0%, rgba(255,255,255,0.05), transparent 70%)'
+    },
+    arctic: {
+      bg: '#edf3f8', panel: '#f6f9fc', field: '#ffffff', text: '#0e1a28', sub: '#46596e', accent: '#2563eb', accentFg: '#ffffff', border: '#d3dee9',
+      bg2: '#e4edf5', accent2: '#0891b2', glow: '#60a5fa', particle: '#38bdf8',
+      atmos: 'radial-gradient(100% 70% at 100% 0%, rgba(56,189,248,0.16), transparent 60%), linear-gradient(180deg, rgba(255,255,255,0.8), rgba(255,255,255,0) 40%)'
+    },
+    solar: {
+      bg: '#140c05', panel: '#1c1209', field: '#27190c', text: '#f7ecdd', sub: '#c9ab86', accent: '#f59e0b', accentFg: '#1c1003', border: '#3a2711',
+      bg2: '#180f07', accent2: '#f43f5e', glow: '#f59e0b', particle: '#fbbf24',
+      atmos: 'radial-gradient(120% 70% at 50% -12%, rgba(245,158,11,0.2), transparent 58%), radial-gradient(70% 50% at 100% 100%, rgba(244,63,94,0.1), transparent 70%)'
+    },
+    midnight: {
+      bg: '#050914', panel: '#0a1122', field: '#101a31', text: '#e5ebff', sub: '#94a1c4', accent: '#7c93ff', accentFg: '#060b1c', border: '#1a2542',
+      bg2: '#070d1b', accent2: '#38bdf8', glow: '#7c93ff', particle: '#c7d2fe',
+      atmos: 'radial-gradient(140% 80% at 50% 120%, rgba(124,147,255,0.16), transparent 60%), linear-gradient(180deg, rgba(20,33,74,0.55), transparent 45%)'
+    },
+    nebula: {
+      bg: '#0c0615', panel: '#140b21', field: '#1d112f', text: '#f4eaff', sub: '#b8a4d6', accent: '#c084fc', accentFg: '#1a0b2b', border: '#2e1b47',
+      bg2: '#10081b', accent2: '#f472b6', glow: '#c084fc', particle: '#e9d5ff',
+      atmos: 'radial-gradient(80% 60% at 12% 18%, rgba(192,132,252,0.2), transparent 62%), radial-gradient(70% 55% at 88% 82%, rgba(244,114,182,0.14), transparent 66%), radial-gradient(40% 30% at 70% 20%, rgba(129,140,248,0.1), transparent 70%)'
+    }
+  };
+  // Display names and gallery grouping. Order here is gallery order.
+  const THEME_META = {
+    aurora: { name: 'Aurora', group: 'signature', blurb: 'Teal and violet light over deep water' },
+    obsidian: { name: 'Obsidian', group: 'signature', blurb: 'Near-black, restrained highlights' },
+    arctic: { name: 'Arctic', group: 'signature', blurb: 'Cool, clean and bright' },
+    solar: { name: 'Solar', group: 'signature', blurb: 'Warm amber on dark bronze' },
+    midnight: { name: 'Midnight', group: 'signature', blurb: 'Deep navy, cinematic blue' },
+    nebula: { name: 'Nebula', group: 'signature', blurb: 'Violet and rose haze' },
+    matte: { name: 'Matte Black', group: 'classic' },
+    dark: { name: 'Dark', group: 'classic' },
+    red: { name: 'Red', group: 'classic' },
+    blue: { name: 'Blue', group: 'classic' },
+    purple: { name: 'Purple', group: 'classic' },
+    pink: { name: 'Pink', group: 'classic' },
+    lightblue: { name: 'Light Blue', group: 'classic' },
+    white: { name: 'White', group: 'classic' },
+    custom: { name: 'Custom', group: 'custom', blurb: 'Your own palette' }
   };
 
+  // ---- Color math (hex in, hex out) ----
+  function normHex(h) {
+    if (typeof h !== 'string') return null;
+    let s = h.trim().replace(/^#/, '');
+    if (/^[0-9a-f]{3}$/i.test(s)) s = s.split('').map((c) => c + c).join('');
+    return /^[0-9a-f]{6}$/i.test(s) ? '#' + s.toLowerCase() : null;
+  }
+  function hexRgb(h) {
+    const n = parseInt((normHex(h) || '#000000').slice(1), 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+  function rgbHex(c) {
+    const f = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    return '#' + f(c.r) + f(c.g) + f(c.b);
+  }
+  // t = 0 gives a, t = 1 gives b; values past 1 extrapolate (clamped).
+  function mixHex(a, b, t) {
+    const x = hexRgb(a), y = hexRgb(b);
+    return rgbHex({ r: x.r + (y.r - x.r) * t, g: x.g + (y.g - x.g) * t, b: x.b + (y.b - x.b) * t });
+  }
+  function rgbaHex(h, a) { const c = hexRgb(h); return `rgba(${c.r},${c.g},${c.b},${a})`; }
+  function hexLum(h) {
+    const c = hexRgb(h);
+    const ch = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b);
+  }
+  function contrastRatio(a, b) {
+    const x = hexLum(a), y = hexLum(b);
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  }
+  function readableOn(h) { return contrastRatio(h, '#ffffff') >= contrastRatio(h, '#0b0b0f') ? '#ffffff' : '#0b0b0f'; }
+  function rotateHue(h, deg) {
+    const { r, g, b } = hexRgb(h);
+    const R = r / 255, G = g / 255, B = b / 255;
+    const max = Math.max(R, G, B), min = Math.min(R, G, B), l = (max + min) / 2;
+    let hh = 0, s = 0;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      hh = max === R ? (G - B) / d + (G < B ? 6 : 0) : max === G ? (B - R) / d + 2 : (R - G) / d + 4;
+      hh /= 6;
+    }
+    hh = ((hh * 360 + deg) % 360 + 360) % 360 / 360;
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    const conv = (t) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1 / 6) return p + (q - p) * 6 * t; if (t < 1 / 2) return q; if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6; return p; };
+    return s === 0 ? rgbHex({ r: l * 255, g: l * 255, b: l * 255 }) : rgbHex({ r: conv(hh + 1 / 3) * 255, g: conv(hh) * 255, b: conv(hh - 1 / 3) * 255 });
+  }
+
+  // ---- Custom theme (the builder in Settings → Colors) ----
+  // Stored as JSON. Older builds only stored one accent (gpa_custom_accent);
+  // that is migrated into a full custom theme on first load.
+  const CUSTOM_THEME_KEY = 'gpa_custom_theme';
+  const CUSTOM_FIELDS = ['bg', 'panel', 'text', 'accent', 'accent2', 'glow', 'border', 'particle'];
+  function customThemeFrom(src) {
+    const base = { ...THEMES.dark };
+    const c = {};
+    CUSTOM_FIELDS.forEach((k) => { const v = normHex(src && src[k]); if (v) c[k] = v; });
+    const bg = c.bg || base.bg, panel = c.panel || base.panel, text = c.text || base.text, accent = c.accent || base.accent;
+    return {
+      bg, panel, text, accent,
+      field: mixHex(panel, text, 0.06),
+      sub: mixHex(text, bg, 0.38),
+      border: c.border || mixHex(panel, text, 0.12),
+      accentFg: readableOn(accent),
+      accent2: c.accent2 || rotateHue(accent, 40),
+      glow: c.glow || accent,
+      particle: c.particle || accent
+    };
+  }
+  function loadCustomTheme() {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(CUSTOM_THEME_KEY) || 'null'); } catch (e) { raw = null; }
+    if (!raw || typeof raw !== 'object') {
+      // Migration from the single-accent custom color.
+      raw = { accent: normHex(localStorage.getItem(CUSTOM_COLOR_KEY)) || '#8b5cf6' };
+    }
+    return customThemeFrom(raw);
+  }
+  function customThemeSource() {
+    try { const raw = JSON.parse(localStorage.getItem(CUSTOM_THEME_KEY) || 'null'); if (raw && typeof raw === 'object') return raw; } catch (e) { /* fall through */ }
+    return { accent: normHex(localStorage.getItem(CUSTOM_COLOR_KEY)) || '#8b5cf6' };
+  }
+  THEMES.custom = loadCustomTheme();
+
+  // Fills in every extended token a theme didn't specify.
+  function resolveTheme(name) {
+    const t = THEMES[name] || THEMES.matte;
+    return {
+      ...t,
+      bg2: t.bg2 || mixHex(t.bg, t.panel, 0.5),
+      accent2: t.accent2 || rotateHue(t.accent, 40),
+      glow: t.glow || t.accent,
+      particle: t.particle || t.accent,
+      atmos: t.atmos || 'none'
+    };
+  }
+
+  // ---- Panel appearance (Settings → Panel) ----
+  // Independent of the theme, so it survives theme switches. Every value is
+  // clamped to a range that keeps the UI legible and clickable.
+  const APPEARANCE_KEY = 'gpa_appearance';
+  const APPEARANCE_DEFAULTS = { radius: 100, opacity: 100, blur: 0, border: 100, shadow: 60, glow: 15, density: 'comfortable' };
+  const APPEARANCE_LIMITS = { radius: [30, 170], opacity: [70, 100], blur: [0, 24], border: [0, 160], shadow: [0, 100], glow: [0, 100] };
+  const DENSITY_SCALE = { compact: 0.8, comfortable: 1, spacious: 1.2 };
+  function loadAppearance() {
+    let raw = {};
+    try { raw = JSON.parse(localStorage.getItem(APPEARANCE_KEY) || '{}') || {}; } catch (e) { raw = {}; }
+    const out = { ...APPEARANCE_DEFAULTS };
+    Object.keys(APPEARANCE_LIMITS).forEach((k) => {
+      const v = Number(raw[k]);
+      if (Number.isFinite(v)) out[k] = Math.max(APPEARANCE_LIMITS[k][0], Math.min(APPEARANCE_LIMITS[k][1], v));
+    });
+    if (DENSITY_SCALE[raw.density]) out.density = raw.density;
+    return out;
+  }
+  let appearance = loadAppearance();
+
+  // Turns resolved tokens + appearance into the CSS custom properties the
+  // stylesheet uses. Colors that need alpha variants are written with
+  // color-mix() in the stylesheet itself, so only base values live here.
+  function tokenCss(tk, ap) {
+    const op = ap.opacity / 100;
+    const s = ap.shadow / 100, g = ap.glow / 100;
+    const border = ap.border === 100 ? tk.border : mixHex(tk.panel, tk.border, ap.border / 100);
+    const shadow = [
+      `0 ${Math.round(28 * s)}px ${Math.round(70 * s)}px rgba(0,0,0,${(0.5 * s).toFixed(3)})`,
+      `0 ${Math.round(2 + 4 * s)}px ${Math.round(10 + 10 * s)}px rgba(0,0,0,${(0.18 * s).toFixed(3)})`,
+      g > 0 ? `0 0 ${Math.round(60 * g)}px ${rgbaHex(tk.glow, (0.4 * g).toFixed(3))}` : '0 0 0 transparent'
+    ].join(', ');
+    const vars = {
+      '--gpa-bg': tk.bg, '--gpa-bg2': tk.bg2, '--gpa-panel': tk.panel, '--gpa-field': tk.field,
+      '--gpa-text': tk.text, '--gpa-sub': tk.sub, '--gpa-accent': tk.accent, '--gpa-accent2': tk.accent2,
+      '--gpa-accent-fg': tk.accentFg, '--gpa-border': border, '--gpa-glow': tk.glow, '--gpa-particle': tk.particle,
+      '--gpa-atmos': tk.atmos,
+      '--gpa-bg-t': op < 1 ? rgbaHex(tk.bg, op) : tk.bg,
+      '--gpa-panel-t': op < 1 ? rgbaHex(tk.panel, op) : tk.panel,
+      '--gpa-card-bg': op < 1 ? rgbaHex(tk.panel, Math.min(1, op + 0.12)) : tk.panel,
+      '--gpa-panel-shadow': shadow,
+      '--gpa-mini-shadow': `0 ${Math.round(14 * s)}px ${Math.round(30 * s)}px rgba(0,0,0,${(0.55 * s).toFixed(3)})` + (g > 0 ? `, 0 0 ${Math.round(28 * g)}px ${rgbaHex(tk.glow, (0.45 * g).toFixed(3))}` : ''),
+      '--gpa-panel-blur': ap.blur > 0 && op < 1 ? `blur(${ap.blur}px) saturate(1.35)` : 'none',
+      '--gpa-rs': (ap.radius / 100).toFixed(2),
+      '--gpa-dz': String(DENSITY_SCALE[ap.density] || 1),
+      '--gpa-scheme': hexLum(tk.bg) > 0.5 ? 'light' : 'dark'
+    };
+    return ':host{' + Object.keys(vars).map((k) => `${k}:${vars[k]};`).join('') + 'color-scheme:' + vars['--gpa-scheme'] + ';}';
+  }
+
   let theme = localStorage.getItem(THEME_KEY) || 'matte';
-  const savedCustomAccent = localStorage.getItem(CUSTOM_COLOR_KEY) || '#8b5cf6';
-  THEMES.custom = { ...THEMES.dark, accent: savedCustomAccent, accentFg: '#ffffff' };
+  const savedCustomAccent = THEMES.custom.accent;
   if (!THEMES[theme]) theme = 'matte';
+
+
+  // ---- Settings control center: static building blocks --------------------
+  // Declared before panel.innerHTML because the Settings markup interpolates
+  // them. Everything visual here reads the theme's CSS custom properties, so
+  // previews re-color themselves with zero JS when a theme changes.
+  let onThemeApplied = null; // set by the settings module once it exists
+  const gpsSvg = (body, extra) => `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"${extra || ''}>${body}</svg>`;
+  const GPS_ICONS = {
+    search: gpsSvg('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>'),
+    overview: gpsSvg('<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>'),
+    theme: gpsSvg('<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17M12 3.5a8.5 8.5 0 0 1 0 17" fill="currentColor" stroke="none"/>'),
+    colors: gpsSvg('<path d="M12 3.2c3.2 3.8 5.8 7 5.8 10.2a5.8 5.8 0 0 1-11.6 0C6.2 10.2 8.8 7 12 3.2z"/><path d="M9.2 14.2a2.8 2.8 0 0 0 2.8 2.8"/>'),
+    panel: gpsSvg('<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M3 9h18M8.5 9v10.5"/>'),
+    effects: gpsSvg('<path d="M12 3.5l1.6 5 5 1.6-5 1.6-1.6 5-1.6-5-5-1.6 5-1.6z"/><path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>'),
+    type: gpsSvg('<path d="M4 18L9 5.5h.2L14 18M5.8 13.5h6.6"/><path d="M16.5 10.5a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6zM19.3 10.5V18"/>'),
+    icon: gpsSvg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none"/>'),
+    ai: gpsSvg('<rect x="6" y="6" width="12" height="12" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/>'),
+    controls: gpsSvg('<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2.2"/><circle cx="8" cy="17" r="2.2"/>'),
+    account: gpsSvg('<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.6 4.1-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/>'),
+    advanced: gpsSvg('<path d="M12 3.5l7 3v5.2c0 4.3-2.9 7.6-7 8.8-4.1-1.2-7-4.5-7-8.8V6.5z"/><path d="M9.2 12.2l2 2 3.8-4"/>'),
+    arrow: gpsSvg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+    reset: gpsSvg('<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4v4.5H9"/>'),
+    play: gpsSvg('<path d="M8 5.5v13l10.5-6.5z"/>'),
+    off: gpsSvg('<circle cx="12" cy="12" r="8"/><path d="M6.5 17.5l11-11"/>'),
+    snow: gpsSvg('<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/><path d="M9.5 4.5L12 7l2.5-2.5M9.5 19.5L12 17l2.5 2.5"/>'),
+    bubbles: gpsSvg('<circle cx="9" cy="14" r="5"/><circle cx="17" cy="7.5" r="3"/><circle cx="18" cy="16.5" r="1.8"/>'),
+    star: gpsSvg('<path d="M12 3.8l2.5 5.2 5.6.7-4.1 3.9 1 5.6L12 16.5l-5 2.7 1-5.6-4.1-3.9 5.6-.7z"/>'),
+    network: gpsSvg('<circle cx="5.5" cy="7" r="1.8"/><circle cx="18.5" cy="6" r="1.8"/><circle cx="12" cy="13" r="1.8"/><circle cx="6.5" cy="18.5" r="1.8"/><circle cx="18" cy="17.5" r="1.8"/><path d="M7.2 7.8l3.4 3.8M16.9 7.2l-3.6 4.4M10.7 14.4l-3 2.8M13.7 13.9l2.8 2.6"/>'),
+    firefly: gpsSvg('<circle cx="12" cy="12" r="2.4" fill="currentColor"/><circle cx="12" cy="12" r="6" opacity="0.45"/><circle cx="12" cy="12" r="9" opacity="0.2"/>'),
+    confetti: gpsSvg('<rect x="4" y="5" width="4" height="2.6" rx="0.6" transform="rotate(-20 6 6.3)"/><rect x="15" y="4" width="4" height="2.6" rx="0.6" transform="rotate(25 17 5.3)"/><rect x="10" y="11" width="4" height="2.6" rx="0.6" transform="rotate(10 12 12.3)"/><rect x="4.5" y="16" width="4" height="2.6" rx="0.6" transform="rotate(35 6.5 17.3)"/><rect x="15.5" y="16.5" width="4" height="2.6" rx="0.6" transform="rotate(-30 17.5 17.8)"/>'),
+    sparkleFill: gpsSvg('<path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z" fill="currentColor" stroke="none"/>'),
+    boltFill: gpsSvg('<path d="M13 2L4 14h6l-1 8 9-12h-6z" fill="currentColor" stroke="none"/>'),
+    orbit: gpsSvg('<circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><ellipse cx="12" cy="12" rx="9" ry="4"/>'),
+    chatFill: gpsSvg('<path d="M4 4h16v11H8l-4 4z" fill="currentColor" stroke="none"/>'),
+    check: gpsSvg('<path d="M5 12.5l4.2 4.2L19 7"/>'),
+    warn: gpsSvg('<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2v.3"/>')
+  };
+  // A miniature Agent Console built from plain divs. Sized in em, so one
+  // font-size (--mc) scales the whole thing; colored entirely by the theme
+  // variables, so a scoped override of those variables re-themes just it.
+  function gpsMiniConsole() {
+    return '<div class="gps-mc" aria-hidden="true">'
+      + '<div class="gps-mc-head"><i></i><i></i><i></i><span></span></div>'
+      + '<div class="gps-mc-body"><div class="gps-mc-side"><b class="on"></b><b></b><b></b><b></b><b></b></div>'
+      + '<div class="gps-mc-main"><div class="gps-mc-line w55 strong"></div><div class="gps-mc-line w35"></div>'
+      + '<div class="gps-mc-card"><div class="gps-mc-line w80"></div><div class="gps-mc-line w65"></div><div class="gps-mc-line w40"></div></div>'
+      + '<div class="gps-mc-row"><div class="gps-mc-btn"></div><div class="gps-mc-chip"></div><div class="gps-mc-chip"></div></div>'
+      + '<div class="gps-mc-bubble"></div></div></div></div>';
+  }
+  // A small CSS-3D cube tinted with the accent pair.
+  function gpsCube() {
+    return '<div class="gps-cube" aria-hidden="true"><i class="f1"></i><i class="f2"></i><i class="f3"></i><i class="f4"></i><i class="f5"></i><i class="f6"></i></div>';
+  }
+  const GPS_CSS = `
+      /* ===== Settings control center ======================================
+         Design system (all values below derive from these):
+           type      11 eyebrow · 12 hint · 13 body/label · 15 section · 22 hero
+           space     4 · 8 · 12 · 16 · 20 · 24 (4px rhythm)
+           radius    8 · 12 · 16, multiplied by the user's --gpa-rs
+           elevation e1 hairline · e2 lifted card · e3 3D stage
+           motion    140ms feedback · 240ms state · 420ms scene; out-expo easing
+         Colors come only from the theme tokens (--gpa-*). */
+      .gps {
+        --gps-r1: calc(8px * var(--gpa-rs)); --gps-r2: calc(12px * var(--gpa-rs)); --gps-r3: calc(16px * var(--gpa-rs));
+        --gps-ease: cubic-bezier(0.16, 1, 0.3, 1); --gps-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+        --gps-t1: 140ms; --gps-t2: 240ms; --gps-t3: 420ms;
+        --gps-line: color-mix(in srgb, var(--gpa-border) 100%, transparent);
+        --gps-soft: color-mix(in srgb, var(--gpa-text) 6%, transparent);
+        --gps-e1: 0 1px 0 color-mix(in srgb, var(--gpa-text) 5%, transparent) inset;
+        --gps-e2: 0 1px 0 color-mix(in srgb, var(--gpa-text) 6%, transparent) inset, 0 10px 28px -12px rgba(0,0,0,0.45);
+        container: gps / inline-size;
+        display: flex; flex-direction: column; gap: 16px;
+        color: var(--gpa-text); font-size: 13px; line-height: 1.45;
+        padding-bottom: 24px;
+      }
+      .gps svg { width: 18px; height: 18px; flex-shrink: 0; }
+      .gps button { font-family: inherit; }
+      .gps :focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 2px; }
+      .gps-eyebrow {
+        font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gpa-sub);
+      }
+      .gps-h { margin: 2px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.15; }
+
+      /* Top bar + search */
+      .gps-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+      .gps-search {
+        display: flex; align-items: center; gap: 8px; flex: 0 1 300px; min-width: 200px; height: 40px; padding: 0 12px;
+        border-radius: var(--gps-r2); background: var(--gpa-field); border: 1px solid var(--gpa-border); color: var(--gpa-sub);
+        transition: border-color var(--gps-t1) ease, box-shadow var(--gps-t1) ease;
+      }
+      .gps-search:focus-within { border-color: var(--gpa-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 22%, transparent); }
+      .gps-search input {
+        flex: 1; min-width: 0; height: 100%; background: none; border: none; outline: none;
+        color: var(--gpa-text); font-size: 13px; font-family: inherit;
+      }
+      .gps-search input::placeholder { color: var(--gpa-sub); }
+      .gps-search input::-webkit-search-cancel-button { filter: grayscale(1); }
+      .gps-search kbd {
+        font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; line-height: 1; padding: 3px 6px;
+        border-radius: 5px; border: 1px solid var(--gpa-border); color: var(--gpa-sub);
+      }
+
+      /* Layout: vertical rail on wide panels, chip grid on narrow ones */
+      .gps-layout { display: grid; grid-template-columns: 188px minmax(0, 1fr); gap: 20px; align-items: start; }
+      .gps-nav {
+        position: sticky; top: 0; z-index: 2; display: flex; flex-direction: column; gap: 2px; padding: 6px;
+        border-radius: var(--gps-r3); border: 1px solid var(--gpa-border);
+        background: color-mix(in srgb, var(--gpa-panel) 88%, transparent); box-shadow: var(--gps-e1);
+      }
+      .gps-tab {
+        position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 10px;
+        border: none; border-radius: var(--gps-r1); background: transparent; color: var(--gpa-sub);
+        font-size: 13px; font-weight: 500; text-align: left; cursor: pointer;
+        transition: background var(--gps-t1) ease, color var(--gps-t1) ease;
+      }
+      .gps-tab:hover { background: var(--gps-soft); color: var(--gpa-text); }
+      .gps-tab[aria-selected="true"] { color: var(--gpa-text); background: color-mix(in srgb, var(--gpa-accent) 14%, transparent); }
+      .gps-tab[aria-selected="true"]::before {
+        content: ''; position: absolute; left: -6px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0;
+        background: var(--gpa-accent); box-shadow: 0 0 10px var(--gpa-accent);
+      }
+      .gps-tab[aria-selected="true"] svg { color: var(--gpa-accent); }
+      .gps-content { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+      /* Sections */
+      .gps-sec { display: none; flex-direction: column; gap: 12px; }
+      .gps-sec.active { display: flex; animation: gps-in var(--gps-t2) var(--gps-ease) both; }
+      @keyframes gps-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      .gps-sec-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 2px 2px 4px; }
+      .gps-sec-title { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
+      .gps-sec-desc { margin: 2px 0 0; color: var(--gpa-sub); font-size: 12px; }
+      .gps-item {
+        display: flex; flex-direction: column; gap: 10px; padding: calc(14px * var(--gpa-dz)) 16px;
+        border-radius: var(--gps-r3); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); box-shadow: var(--gps-e1);
+      }
+      .gps-item-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; }
+      .gps-item-flush { padding: 0; border: none; background: none; box-shadow: none; }
+      .gps-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; color: var(--gpa-text); }
+      .gps-label output { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; font-weight: 500; color: var(--gpa-sub); font-variant-numeric: tabular-nums; }
+      .gps-hint { margin: 2px 0 0; font-size: 12px; line-height: 1.45; color: var(--gpa-sub); }
+      .gps-note { padding: 0 4px; }
+      .gps-tag { font-size: 11px; font-weight: 500; color: var(--gpa-sub); }
+      .gps-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .gps-row > .gpa-input { min-width: 140px; }
+
+      /* Buttons */
+      .gps-btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 0 14px;
+        border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-field); color: var(--gpa-text);
+        font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+        transition: border-color var(--gps-t1) ease, background var(--gps-t1) ease, transform var(--gps-t1) ease, box-shadow var(--gps-t1) ease;
+      }
+      .gps-btn:hover { border-color: color-mix(in srgb, var(--gpa-accent) 55%, var(--gpa-border)); }
+      .gps-btn:active { transform: scale(0.97); }
+      .gps-btn svg { width: 16px; height: 16px; }
+      .gps-btn-primary { background: var(--gpa-accent); border-color: var(--gpa-accent); color: var(--gpa-accent-fg); }
+      .gps-btn-primary:hover { box-shadow: 0 6px 20px -6px var(--gpa-accent); border-color: var(--gpa-accent); }
+      .gps-btn-danger { color: #f87171; border-color: color-mix(in srgb, #ef4444 45%, var(--gpa-border)); background: color-mix(in srgb, #ef4444 8%, var(--gpa-field)); }
+      .gps-btn-danger:hover { border-color: #ef4444; background: color-mix(in srgb, #ef4444 16%, var(--gpa-field)); }
+      .gps-reset {
+        display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; flex-shrink: 0;
+        border-radius: var(--gps-r1); border: 1px solid transparent; background: transparent; color: var(--gpa-sub);
+        font-size: 12px; font-weight: 500; cursor: pointer; transition: color var(--gps-t1) ease, background var(--gps-t1) ease;
+      }
+      .gps-reset:hover { color: var(--gpa-text); background: var(--gps-soft); }
+      .gps-reset svg { width: 15px; height: 15px; }
+
+      /* Sliders: filled track driven by --p (set from JS) */
+      .gps-range {
+        -webkit-appearance: none; appearance: none; width: 100%; height: 28px; margin: 0; background: transparent; cursor: pointer;
+        --p: 50%;
+      }
+      .gps-range::-webkit-slider-runnable-track {
+        height: 6px; border-radius: 999px;
+        background: linear-gradient(to right, var(--gpa-accent) var(--p), color-mix(in srgb, var(--gpa-text) 14%, transparent) var(--p));
+      }
+      .gps-range::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin-top: -6px; border-radius: 50%;
+        background: #ffffff; border: 3px solid var(--gpa-accent);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35); transition: transform var(--gps-t1) var(--gps-spring);
+      }
+      .gps-range:active::-webkit-slider-thumb { transform: scale(1.15); }
+      .gps-range::-moz-range-track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--gpa-text) 14%, transparent); }
+      .gps-range::-moz-range-progress { height: 6px; border-radius: 999px; background: var(--gpa-accent); }
+      .gps-range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #ffffff; border: 3px solid var(--gpa-accent); }
+      .gps-range:focus-visible { outline: none; }
+      .gps-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--gpa-accent) 35%, transparent); }
+
+      /* Segmented control (also hosts the legacy speed/look/color/lang buttons) */
+      .gps-seg {
+        display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; padding: 4px;
+        border-radius: var(--gps-r2); background: var(--gpa-field); border: 1px solid var(--gpa-border);
+      }
+      .gps .gps-seg-btn {
+        min-height: 34px; padding: 0 8px; border: none; border-radius: var(--gps-r1); background: transparent; color: var(--gpa-sub);
+        font-size: 13px; font-weight: 500; cursor: pointer; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        transition: background var(--gps-t2) var(--gps-ease), color var(--gps-t1) ease, box-shadow var(--gps-t2) ease;
+      }
+      .gps .gps-seg-btn:hover { color: var(--gpa-text); background: var(--gps-soft); }
+      .gps .gps-seg-btn.primary {
+        color: var(--gpa-text); background: var(--gpa-card-bg); border-color: transparent;
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--gpa-accent) 55%, transparent), 0 4px 12px -6px rgba(0,0,0,0.5);
+      }
+
+      /* Choice tiles (particles, fonts, glyphs) */
+      .gps-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+      .gps-choices-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .gps-choices-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+      .gps .gps-choices > button {
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 72px; padding: 10px 6px;
+        border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-field); color: var(--gpa-sub);
+        font-size: 12px; font-weight: 500; cursor: pointer; flex: none;
+        transition: border-color var(--gps-t1) ease, background var(--gps-t2) ease, color var(--gps-t1) ease, transform var(--gps-t2) var(--gps-spring);
+      }
+      .gps .gps-choices > button:hover { color: var(--gpa-text); border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); transform: translateY(-1px); }
+      .gps .gps-choices > button.primary {
+        color: var(--gpa-text); border-color: var(--gpa-accent);
+        background: linear-gradient(160deg, color-mix(in srgb, var(--gpa-accent) 16%, var(--gpa-field)), var(--gpa-field));
+        box-shadow: 0 8px 22px -12px var(--gpa-accent);
+      }
+      .gps-glyph { display: grid; place-items: center; width: 28px; height: 28px; color: var(--gpa-sub); transition: color var(--gps-t1) ease; }
+      .gps-glyph svg { width: 22px; height: 22px; }
+      .gps-glyph-txt { font-size: 18px; font-weight: 700; font-family: 'Geist Mono', ui-monospace, monospace; }
+      .gps .gps-choices > button.primary .gps-glyph { color: var(--gpa-accent); }
+      .gps-aa { font-size: 22px; font-weight: 600; line-height: 28px; color: var(--gpa-text); }
+      .gps-aa-mono { font-family: 'Geist Mono', ui-monospace, monospace; }
+
+      /* Switch (voice, auto-run). The button's own text stays for screen readers. */
+      .gps-switch {
+        position: relative; flex-shrink: 0; width: 46px; height: 28px; padding: 0; border-radius: 999px;
+        border: 1px solid var(--gpa-border); background: var(--gpa-field); color: transparent; font-size: 0; cursor: pointer;
+        transition: background var(--gps-t2) ease, border-color var(--gps-t2) ease;
+      }
+      .gps-switch::after {
+        content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+        background: var(--gpa-sub); box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+        transition: transform var(--gps-t2) var(--gps-spring), background var(--gps-t2) ease;
+      }
+      .gps-switch.primary { background: var(--gpa-accent); border-color: var(--gpa-accent); }
+      .gps-switch.primary::after { transform: translateX(18px); background: var(--gpa-accent-fg); }
+
+      .gps-badge {
+        display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 26px; padding: 0 10px; border-radius: 999px;
+        font-size: 12px; font-weight: 600; font-family: 'Geist Mono', ui-monospace, monospace;
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); color: var(--gpa-text);
+      }
+      .gps-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--gpa-sub); }
+      .gps-badge.ok::before { background: #34d399; box-shadow: 0 0 8px #34d399; }
+      .gps-badge.warn::before { background: #fbbf24; }
+      .gps-badge.off::before { background: var(--gpa-sub); }
+
+      /* ---- 3D: miniature console ---- */
+      .gps-mc {
+        --mc: 10px; font-size: var(--mc); position: relative; width: 100%; aspect-ratio: 16 / 10.5;
+        display: flex; flex-direction: column; overflow: hidden;
+        border-radius: calc(1.1em * var(--gpa-rs)); border: 1px solid var(--gpa-border);
+        background: var(--gpa-atmos), var(--gpa-bg);
+        box-shadow: 0 2.4em 4.8em -1.6em rgba(0,0,0,0.65), 0 0 3.2em -1em var(--gpa-glow), inset 0 1px 0 color-mix(in srgb, var(--gpa-text) 8%, transparent);
+      }
+      .gps-mc-head { display: flex; align-items: center; gap: 0.35em; height: 1.9em; padding: 0 0.8em; flex-shrink: 0; background: var(--gpa-panel); border-bottom: 1px solid var(--gpa-border); }
+      .gps-mc-head i { width: 0.5em; height: 0.5em; border-radius: 50%; background: color-mix(in srgb, var(--gpa-sub) 70%, transparent); }
+      .gps-mc-head span { margin-left: 0.6em; width: 28%; height: 0.45em; border-radius: 1em; background: color-mix(in srgb, var(--gpa-text) 30%, transparent); }
+      .gps-mc-body { flex: 1; display: flex; min-height: 0; }
+      .gps-mc-side { width: 22%; padding: 0.7em 0.55em; display: flex; flex-direction: column; gap: 0.4em; background: var(--gpa-panel); border-right: 1px solid var(--gpa-border); }
+      .gps-mc-side b { height: 0.75em; border-radius: calc(0.3em * var(--gpa-rs)); background: color-mix(in srgb, var(--gpa-text) 10%, transparent); }
+      .gps-mc-side b.on { background: var(--gpa-accent); box-shadow: 0 0 0.8em -0.1em var(--gpa-accent); }
+      .gps-mc-main { flex: 1; min-width: 0; padding: 0.8em; display: flex; flex-direction: column; gap: 0.5em; }
+      .gps-mc-line { height: 0.45em; border-radius: 1em; background: color-mix(in srgb, var(--gpa-text) 20%, transparent); }
+      .gps-mc-line.strong { height: 0.65em; background: color-mix(in srgb, var(--gpa-text) 55%, transparent); }
+      .gps-mc-line.w80 { width: 80%; } .gps-mc-line.w65 { width: 65%; } .gps-mc-line.w55 { width: 55%; } .gps-mc-line.w40 { width: 40%; } .gps-mc-line.w35 { width: 35%; }
+      .gps-mc-card { display: flex; flex-direction: column; gap: 0.4em; padding: 0.65em; border-radius: calc(0.6em * var(--gpa-rs)); background: var(--gpa-field); border: 1px solid var(--gpa-border); }
+      .gps-mc-row { display: flex; gap: 0.4em; }
+      .gps-mc-btn { width: 30%; height: 1.2em; border-radius: calc(0.4em * var(--gpa-rs)); background: linear-gradient(135deg, var(--gpa-accent), color-mix(in srgb, var(--gpa-accent) 70%, var(--gpa-accent2))); }
+      .gps-mc-chip { width: 16%; height: 1.2em; border-radius: 1em; border: 1px solid color-mix(in srgb, var(--gpa-accent) 50%, transparent); }
+      .gps-mc-bubble { margin-top: auto; align-self: flex-end; width: 42%; height: 1.3em; border-radius: 0.8em 0.8em 0.2em 0.8em; background: color-mix(in srgb, var(--gpa-accent) 85%, transparent); }
+
+      /* ---- 3D: stage (perspective scene with floor grid, tilt, parallax layers) ---- */
+      .gps-stage {
+        position: relative; height: 240px; display: grid; place-items: center; overflow: hidden; isolation: isolate;
+        perspective: 900px; perspective-origin: 50% 35%;
+        border-radius: var(--gps-r3); border: 1px solid var(--gpa-border);
+        background: radial-gradient(90% 70% at 50% 0%, color-mix(in srgb, var(--gpa-glow) 16%, transparent), transparent 70%), var(--gpa-bg2);
+        --rx: 0deg; --ry: 0deg;
+      }
+      .gps-stage-wide { height: 300px; }
+      .gps-stage-compact { height: 210px; }
+      .gps-floor {
+        position: absolute; left: -30%; right: -30%; bottom: -55%; height: 110%; z-index: -1; pointer-events: none;
+        transform: rotateX(78deg); transform-origin: 50% 0%;
+        background:
+          repeating-linear-gradient(90deg, color-mix(in srgb, var(--gpa-text) 9%, transparent) 0 1px, transparent 1px 38px),
+          repeating-linear-gradient(0deg, color-mix(in srgb, var(--gpa-text) 9%, transparent) 0 1px, transparent 1px 38px);
+        -webkit-mask-image: radial-gradient(60% 55% at 50% 0%, #000, transparent 75%); mask-image: radial-gradient(60% 55% at 50% 0%, #000, transparent 75%);
+      }
+      .gps-rig {
+        position: relative; width: min(320px, 68%); transform-style: preserve-3d;
+        transform: rotateX(calc(16deg + var(--ry))) rotateY(calc(-20deg + var(--rx)));
+        transition: transform 700ms var(--gps-ease);
+        animation: gps-bob 7s ease-in-out infinite;
+      }
+      .gps-stage-wide .gps-rig { width: min(360px, 56%); }
+      @keyframes gps-bob { 0%, 100% { translate: 0 0; } 50% { translate: 0 -6px; } }
+      .gps-rig .gps-mc { transform: translateZ(0); }
+      .gps-float { position: absolute; transform-style: preserve-3d; pointer-events: none; }
+      .gps-float-toast {
+        left: -9%; top: 18%; display: flex; align-items: center; gap: 6px; padding: 7px 10px; font-size: 10px;
+        transform: translateZ(56px); border-radius: calc(10px * var(--gpa-rs));
+        background: color-mix(in srgb, var(--gpa-panel) 92%, transparent); border: 1px solid var(--gpa-border);
+        box-shadow: 0 14px 30px -10px rgba(0,0,0,0.6);
+      }
+      .gps-float-toast i { width: 8px; height: 8px; border-radius: 50%; background: var(--gpa-accent); box-shadow: 0 0 10px var(--gpa-accent); }
+      .gps-float-toast span { width: 58px; height: 5px; border-radius: 4px; background: color-mix(in srgb, var(--gpa-text) 35%, transparent); }
+      .gps-float-core { right: 6%; top: 14%; transform: translateZ(64px); }
+      .gps-stage-cap {
+        position: absolute; left: 12px; bottom: 12px; z-index: 1; display: flex; align-items: center; gap: 8px;
+        padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+        background: color-mix(in srgb, var(--gpa-panel) 85%, transparent); border: 1px solid var(--gpa-border); color: var(--gpa-text);
+      }
+      .gps-stage-cap:empty { display: none; }
+
+      /* ---- 3D: accent cube ---- */
+      .gps-cube { --c: 40px; position: relative; width: var(--c); height: var(--c); transform-style: preserve-3d; animation: gps-cube 18s linear infinite; }
+      .gps-cube i {
+        position: absolute; inset: 0; border-radius: 6px;
+        border: 1px solid color-mix(in srgb, var(--gpa-accent) 80%, #ffffff 20%);
+        background: linear-gradient(135deg, color-mix(in srgb, var(--gpa-accent) 58%, transparent), color-mix(in srgb, var(--gpa-accent2) 30%, transparent));
+        box-shadow: inset 0 0 14px color-mix(in srgb, var(--gpa-accent) 55%, transparent);
+      }
+      .gps-cube .f1 { transform: translateZ(calc(var(--c) / 2)); }
+      .gps-cube .f2 { transform: rotateY(180deg) translateZ(calc(var(--c) / 2)); }
+      .gps-cube .f3 { transform: rotateY(90deg) translateZ(calc(var(--c) / 2)); }
+      .gps-cube .f4 { transform: rotateY(-90deg) translateZ(calc(var(--c) / 2)); }
+      .gps-cube .f5 { transform: rotateX(90deg) translateZ(calc(var(--c) / 2)); }
+      .gps-cube .f6 { transform: rotateX(-90deg) translateZ(calc(var(--c) / 2)); }
+      @keyframes gps-cube { from { transform: rotateX(-22deg) rotateY(0deg); } to { transform: rotateX(-22deg) rotateY(360deg); } }
+
+      /* ---- Overview ---- */
+      .gps-hero {
+        display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: center; padding: 12px;
+        border-radius: calc(20px * var(--gpa-rs)); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); box-shadow: var(--gps-e2);
+      }
+      .gps-hero-copy { display: flex; flex-direction: column; gap: 6px; padding: 8px 8px 8px 0; min-width: 0; }
+      .gps-hero-title { font-size: 22px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.15; }
+      .gps-hero-sub { color: var(--gpa-sub); font-size: 12px; }
+      .gps-hero-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+      .gps-palette { display: flex; margin-top: 8px; }
+      .gps-palette i {
+        width: 26px; height: 26px; border-radius: calc(8px * var(--gpa-rs)); border: 2px solid var(--gpa-card-bg); margin-left: -6px;
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--gpa-text) 22%, transparent), 0 4px 10px -4px rgba(0,0,0,0.5);
+      }
+      .gps-palette i:first-child { margin-left: 0; }
+      .gps-ov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+      .gps-ov {
+        display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "k go" "v go" "m m"; gap: 4px 8px; align-items: center;
+        min-height: 76px; padding: 14px; text-align: left; cursor: pointer; color: var(--gpa-text);
+        border-radius: var(--gps-r3); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); box-shadow: var(--gps-e1);
+        transition: border-color var(--gps-t1) ease, transform var(--gps-t2) var(--gps-spring), box-shadow var(--gps-t2) ease;
+      }
+      .gps-ov:hover { border-color: color-mix(in srgb, var(--gpa-accent) 50%, var(--gpa-border)); transform: translateY(-2px); box-shadow: var(--gps-e2); }
+      .gps-ov-k { grid-area: k; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gpa-sub); }
+      .gps-ov-v { grid-area: v; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
+      .gps-ov-go { grid-area: go; color: var(--gpa-sub); transition: color var(--gps-t1) ease, transform var(--gps-t2) var(--gps-spring); }
+      .gps-ov:hover .gps-ov-go { color: var(--gpa-accent); transform: translateX(2px); }
+      .gps-ov-wide { grid-column: span 2; }
+      .gps-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 2px var(--gpa-card-bg), 0 0 0 3px var(--gpa-border); }
+      .gps-meter { grid-area: m; height: 5px; margin-top: 6px; border-radius: 999px; background: color-mix(in srgb, var(--gpa-text) 10%, transparent); overflow: hidden; }
+      .gps-meter i { display: block; height: 100%; width: 0%; border-radius: inherit; background: linear-gradient(90deg, var(--gpa-accent), var(--gpa-accent2)); transition: width var(--gps-t3) var(--gps-ease); }
+
+      /* ---- Theme gallery ---- */
+      .gps-label + .gps-gallery { margin-top: 2px; }
+      .gps-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .gps-gallery-sm { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+      .gps .gps-tile {
+        width: auto; height: auto; display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden; text-align: left;
+        border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-panel); color: var(--gpa-text);
+        font-size: 12px; font-weight: 500; cursor: pointer;
+        transition: transform var(--gps-t2) var(--gps-spring), box-shadow var(--gps-t2) ease, border-color var(--gps-t1) ease;
+      }
+      .gps .gps-tile:hover { transform: translateY(-3px); box-shadow: 0 16px 30px -16px var(--gpa-glow), 0 12px 24px -14px rgba(0,0,0,0.6); }
+      .gps .gps-tile[aria-pressed="true"] { border-color: var(--gpa-accent); box-shadow: 0 0 0 1px var(--gpa-accent), 0 14px 28px -14px var(--gpa-accent); }
+      .gps-tile-scene {
+        position: relative; display: grid; place-items: center; height: 96px; overflow: hidden; perspective: 500px;
+        background: radial-gradient(80% 90% at 50% 0%, color-mix(in srgb, var(--gpa-glow) 22%, transparent), transparent 70%), var(--gpa-bg2);
+      }
+      .gps-gallery-sm .gps-tile-scene { height: 70px; }
+      .gps-tile-scene .gps-mc {
+        --mc: 5px; width: 74%; transform: rotateX(18deg) rotateY(-18deg) translateY(6%);
+        transition: transform var(--gps-t3) var(--gps-ease);
+      }
+      .gps-gallery-sm .gps-tile-scene .gps-mc { --mc: 3.6px; }
+      .gps .gps-tile:hover .gps-tile-scene .gps-mc { transform: rotateX(8deg) rotateY(-6deg) translateY(2%) scale(1.04); }
+      .gps-tile-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--gpa-border); }
+      .gps-tile-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gps-tile-dots { display: flex; gap: 3px; flex-shrink: 0; }
+      .gps-tile-dots i { width: 8px; height: 8px; border-radius: 50%; }
+      .gps-tile-check { color: var(--gpa-accent); display: none; }
+      .gps-tile[aria-pressed="true"] .gps-tile-check { display: inline-flex; }
+      .gps-tile-check svg { width: 14px; height: 14px; }
+
+      /* ---- Colors / builder ---- */
+      .gps-builder { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 12px; align-items: start; }
+      .gps-builder-preview { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 0; }
+      .gps-colors { display: flex; flex-direction: column; gap: 8px; }
+      .gps-color {
+        display: grid; grid-template-columns: 40px minmax(0, 1fr) 96px 32px; align-items: center; gap: 10px; padding: 8px 10px 8px 8px;
+        border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg);
+      }
+      .gps-swatch {
+        position: relative; width: 40px; height: 40px; border-radius: calc(10px * var(--gpa-rs)); overflow: hidden; cursor: pointer;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gpa-text) 18%, transparent), 0 6px 14px -8px rgba(0,0,0,0.6);
+      }
+      .gps-swatch input { position: absolute; inset: -8px; width: calc(100% + 16px); height: calc(100% + 16px); opacity: 0; cursor: pointer; }
+      .gps-swatch:focus-within { outline: 2px solid var(--gpa-accent); outline-offset: 2px; }
+      .gps-color-name { font-size: 13px; font-weight: 600; }
+      .gps-color-desc { font-size: 12px; color: var(--gpa-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gps-hex {
+        width: 100%; height: 32px; padding: 0 8px; border-radius: var(--gps-r1); border: 1px solid var(--gpa-border);
+        background: var(--gpa-field); color: var(--gpa-text); font: 500 12px 'Geist Mono', ui-monospace, monospace; text-transform: lowercase;
+      }
+      .gps-hex:focus { outline: none; border-color: var(--gpa-accent); }
+      .gps-hex[aria-invalid="true"] { border-color: #ef4444; }
+      .gps-icon-btn {
+        display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--gps-r1); border: 1px solid transparent;
+        background: transparent; color: var(--gpa-sub); cursor: pointer;
+      }
+      .gps-icon-btn:hover { color: var(--gpa-text); background: var(--gps-soft); }
+      .gps-icon-btn svg { width: 15px; height: 15px; }
+      .gps-contrast { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); font-size: 12px; color: var(--gpa-sub); }
+      .gps-contrast b { color: var(--gpa-text); font-family: 'Geist Mono', ui-monospace, monospace; }
+      .gps-contrast.warn { border-color: color-mix(in srgb, #f59e0b 60%, var(--gpa-border)); }
+      .gps-contrast svg { width: 16px; height: 16px; }
+      .gps-contrast.warn svg { color: #f59e0b; }
+      .gps-contrast.ok svg { color: #34d399; }
+
+      /* ---- Panel sizes ---- */
+      .gps-sizes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+      .gps .gps-sizes > button {
+        display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; min-height: 104px; padding: 10px 4px;
+        border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-field); color: var(--gpa-sub);
+        font-size: 12px; font-weight: 500; cursor: pointer; flex: none; perspective: 240px;
+        transition: border-color var(--gps-t1) ease, color var(--gps-t1) ease, background var(--gps-t2) ease;
+      }
+      .gps .gps-sizes > button:hover { color: var(--gpa-text); border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); }
+      .gps .gps-sizes > button.primary { color: var(--gpa-text); border-color: var(--gpa-accent); background: color-mix(in srgb, var(--gpa-accent) 10%, var(--gpa-field)); }
+      .gps-sil {
+        width: var(--w); height: var(--h); max-width: 100%; border-radius: calc(4px * var(--gpa-rs));
+        border: 1.5px solid color-mix(in srgb, var(--gpa-text) 35%, transparent);
+        background: linear-gradient(180deg, color-mix(in srgb, var(--gpa-text) 16%, transparent) 0 14%, transparent 14%), var(--gpa-bg);
+        transform: rotateX(16deg); transform-origin: 50% 100%; box-shadow: 0 8px 12px -8px rgba(0,0,0,0.7);
+        transition: transform var(--gps-t2) var(--gps-spring), border-color var(--gps-t1) ease, box-shadow var(--gps-t2) ease;
+      }
+      .gps .gps-sizes > button:hover .gps-sil { transform: rotateX(4deg) translateY(-2px); }
+      .gps .gps-sizes > button.primary .gps-sil {
+        border-color: var(--gpa-accent);
+        background: linear-gradient(180deg, var(--gpa-accent) 0 14%, transparent 14%), color-mix(in srgb, var(--gpa-accent) 12%, var(--gpa-bg));
+        box-shadow: 0 10px 18px -8px var(--gpa-accent);
+      }
+
+      /* ---- Effects ---- */
+      .gps-fxstage {
+        position: relative; height: 220px; overflow: hidden; display: grid; place-items: center; perspective: 800px;
+        border-radius: var(--gps-r3); border: 1px solid var(--gpa-border);
+        background: radial-gradient(70% 60% at 50% 40%, color-mix(in srgb, var(--gpa-glow) 10%, transparent), transparent 75%), var(--gpa-bg2);
+      }
+      .gps-fxstage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+      .gps-fx-ghost { position: relative; width: min(220px, 48%); transform: rotateX(12deg); }
+      .gps-fx-ghost .gps-mc { --mc: 6px; }
+
+      /* ---- Typography ---- */
+      .gps-typeprev { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: var(--gps-r3); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); }
+      .gps-typeprev-k { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gpa-sub); }
+      .gps .gps-type-sample { flex: none; margin: 0; min-height: 110px; max-height: 220px; user-select: text; }
+      .gps-typeprev .gps-btn { align-self: flex-start; }
+
+      /* ---- Icon studio ---- */
+      .gps-iconstage {
+        position: relative; height: 170px; overflow: hidden; border-radius: var(--gps-r3); border: 1px solid var(--gpa-border);
+        background: var(--gps-page-bg, #f3f4f6);
+      }
+      .gps-page { position: absolute; inset: 18px 30% 18px 18px; display: flex; flex-direction: column; gap: 9px; }
+      .gps-page i { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--gps-page-fg, #111827) 14%, transparent); }
+      .gps-page i:nth-child(1) { width: 60%; height: 12px; background: color-mix(in srgb, var(--gps-page-fg, #111827) 26%, transparent); }
+      .gps-page i:nth-child(2) { width: 92%; } .gps-page i:nth-child(3) { width: 84%; } .gps-page i:nth-child(4) { width: 70%; }
+      .gps-page b { width: 42%; height: 48px; margin-top: 4px; border-radius: 8px; background: color-mix(in srgb, var(--gps-page-fg, #111827) 8%, transparent); }
+      .gps-iconstage .gps-mini { position: absolute; right: 42px; bottom: 40px; scale: 1.35; cursor: default; }
+
+      /* ---- AI ---- */
+      .gps-ai {
+        display: flex; align-items: center; gap: 18px; padding: 16px; border-radius: var(--gps-r3); border: 1px solid var(--gpa-border);
+        background: radial-gradient(60% 120% at 0% 50%, color-mix(in srgb, var(--gpa-glow) 14%, transparent), transparent 70%), var(--gpa-card-bg);
+      }
+      .gps-ai-core { width: 84px; height: 84px; flex-shrink: 0; }
+      .gps-ai-core svg { width: 100%; height: 100%; overflow: visible; }
+      .gps-ai-core circle { fill: none; stroke: var(--gpa-accent); }
+      .gps-ai-core .r1 { stroke-opacity: 0.55; stroke-width: 1.2; }
+      .gps-ai-core .r2 { stroke-opacity: 0.35; stroke-width: 1; stroke-dasharray: 3 5; }
+      .gps-ai-core .r3 { stroke-opacity: 0.15; stroke-width: 1; }
+      .gps-ai-core .nucleus { fill: var(--gpa-accent); stroke: none; filter: drop-shadow(0 0 8px var(--gpa-accent)); }
+      .gps-ai-core .orb circle, .gps-ai-core .orb2 circle { fill: var(--gpa-accent2); stroke: none; }
+      .gps-ai-core .orb { transform-origin: 60px 60px; animation: gps-orbit 9s linear infinite; }
+      .gps-ai-core .orb2 { transform-origin: 60px 60px; animation: gps-orbit 14s linear infinite reverse; }
+      @keyframes gps-orbit { to { transform: rotate(360deg); } }
+      .gps-ai-copy { min-width: 0; }
+      .gps-models { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+      .gps-model {
+        display: flex; flex-direction: column; gap: 4px; padding: 14px; border-radius: var(--gps-r3); border: 1px solid var(--gpa-border);
+        background: var(--gpa-card-bg); box-shadow: var(--gps-e1);
+      }
+      .gps-model-smart {
+        border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border));
+        background: linear-gradient(150deg, color-mix(in srgb, var(--gpa-accent) 12%, transparent), transparent 60%), var(--gpa-card-bg);
+      }
+      .gps-model-k { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gpa-sub); }
+      .gps-model-v { font-family: 'Geist Mono', ui-monospace, monospace; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+      .gps-model-d { font-size: 12px; color: var(--gpa-sub); }
+
+      /* ---- Account ---- */
+      .gps-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .gps-who svg { color: var(--gpa-accent); }
+      .gps-textarea { width: 100%; min-height: 64px; }
+      .gps #gpa-admin { margin-top: 4px !important; padding: 16px !important; border-radius: var(--gps-r3); border: 1px dashed var(--gpa-accent) !important; background: var(--gpa-card-bg); }
+      .gps-danger-zone { border-color: color-mix(in srgb, #ef4444 35%, var(--gpa-border)); }
+
+      /* Grouped rows: one card, hairline dividers */
+      .gps-list { display: flex; flex-direction: column; border-radius: var(--gps-r3); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); box-shadow: var(--gps-e1); }
+      .gps-list > .gps-item { border: none; border-radius: 0; background: none; box-shadow: none; }
+      .gps-list > .gps-item + .gps-item { border-top: 1px solid var(--gpa-border); }
+      .gps.is-searching .gps-list:not(:has(> .gps-item:not(.no-match))) { display: none; }
+      .gps.is-searching .gps-list > .gps-item:not(.no-match) ~ .gps-item:not(.no-match) { border-top: 1px solid var(--gpa-border); }
+      .gps-split { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); gap: 12px; align-items: start; }
+      .gps-split-preview { position: sticky; top: 0; }
+      .gps-choices-8 { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+      .gps-glyph-sans { font-family: 'Geist', -apple-system, 'Segoe UI', sans-serif; }
+      /* Live panel preview: the real surface tokens (opacity, blur, shadow) */
+      .gps-blobs { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+      .gps-blobs i { position: absolute; border-radius: 50%; filter: blur(2px); }
+      .gps-blobs i:nth-child(1) { width: 120px; height: 120px; left: 18%; top: 22%; background: radial-gradient(circle, color-mix(in srgb, var(--gpa-accent) 75%, transparent), transparent 70%); }
+      .gps-blobs i:nth-child(2) { width: 90px; height: 90px; right: 20%; top: 12%; background: radial-gradient(circle, color-mix(in srgb, var(--gpa-accent2) 70%, transparent), transparent 70%); }
+      .gps-blobs i:nth-child(3) { width: 140px; height: 38px; left: 34%; bottom: 20%; border-radius: 8px; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--gpa-text) 40%, transparent) 0 10px, transparent 10px 18px); filter: none; }
+      .gps-rig-live .gps-mc {
+        background: var(--gpa-atmos), var(--gpa-bg-t);
+        backdrop-filter: var(--gpa-panel-blur); -webkit-backdrop-filter: var(--gpa-panel-blur);
+        box-shadow: var(--gpa-mini-shadow);
+      }
+      .gps-rig-live .gps-mc-head, .gps-rig-live .gps-mc-side { background: var(--gpa-panel-t); }
+      .gps-rig-live .gps-mc-card { padding: calc(0.65em * var(--gpa-dz)); }
+      .gps-rig-live .gps-mc-main { padding: calc(0.8em * var(--gpa-dz)); gap: calc(0.5em * var(--gpa-dz)); }
+
+      /* ---- Search results / empty ---- */
+      .gps-results-head { display: none; font-size: 12px; color: var(--gpa-sub); padding: 0 2px; }
+      .gps.is-searching .gps-results-head { display: block; }
+      .gps.is-searching .gps-sec { display: flex; animation: none; }
+      .gps.is-searching .gps-sec.no-match, .gps.is-searching .gps-item.no-match,
+      .gps.is-searching .gps-hero, .gps.is-searching .gps-ov.no-match, .gps.is-searching .gps-reset { display: none; }
+      .gps.is-searching .gps-tab { opacity: 0.45; }
+      .gps.is-searching .gps-tab.has-match { opacity: 1; }
+      .gps-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 40px 16px; text-align: center; color: var(--gpa-sub); }
+      .gps-empty svg { width: 28px; height: 28px; }
+      .gps-empty[hidden] { display: none; }
+
+      /* ---- Confirm dialog (mounted directly on the panel) ---- */
+      .gps-dialog-scrim {
+        position: absolute; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px;
+        background: rgba(0,0,0,0.5); backdrop-filter: blur(3px); animation: gps-fade var(--gps-t2, 240ms) ease both;
+      }
+      .gps-dialog-scrim[hidden] { display: none; }
+      .gps-dialog {
+        width: min(360px, 100%); display: flex; flex-direction: column; gap: 8px; padding: 20px;
+        border-radius: calc(16px * var(--gpa-rs)); border: 1px solid var(--gpa-border); background: var(--gpa-panel); color: var(--gpa-text);
+        box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7); animation: gps-pop 280ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+      }
+      .gps-dialog-title { font-size: 15px; font-weight: 600; }
+      .gps-dialog-body { margin: 0; font-size: 13px; color: var(--gpa-sub); line-height: 1.5; }
+      .gps-dialog-actions { justify-content: flex-end; margin-top: 8px; }
+      @keyframes gps-fade { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes gps-pop { from { opacity: 0; transform: scale(0.96) translateY(6px); } to { opacity: 1; transform: none; } }
+
+      /* Previews only animate while Settings is on screen (see .is-live). */
+      .gps:not(.is-live) .gps-rig, .gps:not(.is-live) .gps-cube, .gps:not(.is-live) .gps-ai-core g { animation-play-state: paused; }
+
+      /* Theme crossfade: on only for ~0.5s after a theme change. */
+      .gpa-panel.gpa-theming, .gpa-panel.gpa-theming * {
+        transition: background-color 0.45s ease, border-color 0.45s ease, color 0.45s ease, fill 0.45s ease, stroke 0.45s ease, box-shadow 0.45s ease !important;
+      }
+
+      /* ---- Responsive (container queries on the settings root) ---- */
+      @container gps (max-width: 720px) {
+        .gps-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+        .gps-nav { position: static; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 4px; }
+        .gps-tab[aria-selected="true"]::before { left: 8px; right: 8px; top: auto; bottom: 2px; width: auto; height: 2px; border-radius: 2px; }
+        .gps-hero { grid-template-columns: minmax(0, 1fr); }
+        .gps-hero-copy { padding: 4px 8px 8px; }
+        .gps-builder { grid-template-columns: minmax(0, 1fr); }
+        .gps-builder-preview { position: static; }
+        .gps-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .gps-split { grid-template-columns: minmax(0, 1fr); }
+        .gps-split-preview { position: static; }
+        .gps-choices-8 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .gps-gallery-sm { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      }
+      @container gps (max-width: 460px) {
+        .gps-top { align-items: stretch; }
+        .gps-search { flex: 1 1 100%; }
+        .gps-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .gps-nav { padding: 4px; gap: 2px; }
+        .gps-tab { flex-direction: column; justify-content: center; gap: 4px; min-height: 52px; padding: 6px 1px; font-size: 10.5px; letter-spacing: -0.01em; text-align: center; }
+        .gps-tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gps-stage { height: 200px; } .gps-stage-wide { height: 220px; }
+        .gps-float-toast { display: none; }
+        .gps-ov-grid { grid-template-columns: minmax(0, 1fr); }
+        .gps-ov-wide { grid-column: auto; }
+        .gps-models { grid-template-columns: minmax(0, 1fr); }
+        .gps-sizes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .gps .gps-sizes > button[data-size="full"] { grid-column: span 2; }
+        .gps-gallery-sm { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .gps-choices-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .gps-color { grid-template-columns: 40px minmax(0, 1fr) 84px 32px; gap: 8px; }
+        .gps-item-row { flex-wrap: wrap; }
+        .gps-ai { flex-direction: column; align-items: flex-start; }
+      }
+      @media (pointer: coarse) {
+        .gps-btn, .gps .gps-seg-btn, .gps-tab { min-height: 44px; }
+        .gps-reset, .gps-icon-btn { min-height: 40px; min-width: 40px; }
+      }
+    `;
 
   // ---- Host + Shadow DOM (isolates styles from the host page) -------
   const host = document.createElement('div');
@@ -288,6 +1127,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   const style = document.createElement('style');
   root.appendChild(style);
+  // Theme tokens live in their own tiny stylesheet (see applyTheme).
+  const tokenStyle = document.createElement('style');
+  root.appendChild(tokenStyle);
 
   // Wrapper lets an ambient particle canvas float around the panel's edges
   // without sitting on top of (or blocking clicks on) any actual content.
@@ -839,119 +1681,454 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       </div>
 
       <div class="gpa-pane" data-pane="theme">
-        <div class="gpa-sub" style="margin-bottom:8px;">Choose a color theme</div>
-        <div class="gpa-swatches">
-          <button class="gpa-swatch" data-theme="dark" style="background:#0b0b0f;border-color:#5b8cff;">Dark</button>
-          <button class="gpa-swatch" data-theme="matte" style="background:#1a1a1a;border-color:#b0b0b0;">Matte Black</button>
-          <button class="gpa-swatch" data-theme="red" style="background:#241010;border-color:#e5453a;">Red</button>
-          <button class="gpa-swatch" data-theme="blue" style="background:#0f1e2e;border-color:#4da3ff;">Blue</button>
-          <button class="gpa-swatch" data-theme="white" style="background:#f5f5f7;border-color:#2563eb;color:#111;">White</button>
-          <button class="gpa-swatch" data-theme="purple" style="background:#1c1430;border-color:#8b5cf6;">Purple</button>
-          <button class="gpa-swatch" data-theme="pink" style="background:#301425;border-color:#ec4899;">Pink</button>
-          <button class="gpa-swatch" data-theme="lightblue" style="background:#eaf6ff;border-color:#0ea5e9;color:#111;">Light Blue</button>
-        </div>
-        <div class="gpa-row" style="margin-top:12px;">
-          <label for="gpa-custom-color" class="gpa-sub" style="flex:1;">Custom color (pick any shade)</label>
-          <input type="color" id="gpa-custom-color" class="gpa-color-input" value="#8b5cf6" />
-        </div>
-        <div id="gpa-account-heading" class="gpa-sub" style="margin:14px 0 6px; cursor:default; user-select:none;">Account &amp; sync</div>
-        <div class="gpa-row">
-          <span id="gpa-account-who" class="gpa-sub">Not signed in</span>
-          <button id="gpa-logout-btn" class="gpa-btn">Sign out</button>
-        </div>
-        <div class="gpa-row" style="margin-top:6px;">
-          <button id="gpa-sync-export" class="gpa-btn" style="flex:1;">Copy sync code</button>
-          <button id="gpa-sync-import" class="gpa-btn" style="flex:1;">Load sync code</button>
-        </div>
-        <textarea id="gpa-sync-box" class="gpa-sync-box" placeholder="Your sync code appears here. Paste one from another device and press Load sync code."></textarea>
-        <div class="gpa-sub" style="margin-top:6px;">Optional cloud auto-sync (JSONBin)</div>
-        <div class="gpa-row">
-          <input id="gpa-cloud-bin" class="gpa-input" placeholder="Bin ID" autocomplete="off" />
-        </div>
-        <div class="gpa-row">
-          <input id="gpa-cloud-key" class="gpa-input" type="password" placeholder="X-Master-Key" autocomplete="off" />
-        </div>
-        <div class="gpa-row">
-          <button id="gpa-cloud-push" class="gpa-btn" style="flex:1;">Upload</button>
-          <button id="gpa-cloud-pull" class="gpa-btn" style="flex:1;">Download</button>
-        </div>
-        <div id="gpa-cloud-msg" class="gpa-sub" style="margin-top:4px;"></div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Language</div>
-        <div class="gpa-row">
-          <button class="gpa-btn lang-btn primary" data-lang="en">English</button>
-          <button class="gpa-btn lang-btn" data-lang="es">Español</button>
-        </div>
-        <div class="gpa-admin-note" style="margin-top:4px;">Translates the navigation, header, and sign-in screen so far — most AI-generated answers and deeper settings screens are still English-only.</div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Voice</div>
-        <div class="gpa-row">
-          <button id="gpa-tts-toggle" class="gpa-btn">🔇 Read answers aloud: OFF</button>
-        </div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Page actions</div>
-        <div class="gpa-row">
-          <button id="gpa-autoconfirm-toggle" class="gpa-btn autoconfirm-btn">✋ Confirm page clicks: ON</button>
-        </div>
-        <div class="gpa-sub">When auto-confirm is ON, "Do it" clicks happen without asking — but anything risky (submit, send, delete, pay…) always still asks first.</div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Typing animation speed</div>
-        <div class="gpa-row">
-          <button class="gpa-btn speed-btn" data-speed="slow">Slow</button>
-          <button class="gpa-btn speed-btn primary" data-speed="normal">Normal</button>
-          <button class="gpa-btn speed-btn" data-speed="fast">Fast</button>
-          <button class="gpa-btn speed-btn" data-speed="instant">Instant</button>
-        </div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Response font</div>
-        <div class="gpa-row">
-          <button class="gpa-btn font-btn primary" data-font="mono">Typewriter</button>
-          <button class="gpa-btn font-btn" data-font="system">Standard</button>
-        </div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Minimized button icon</div>
-        <div class="gpa-row" style="flex-wrap: wrap;">
-          <button class="gpa-btn icon-btn primary" data-icon="dot">Dot</button>
-          <button class="gpa-btn icon-btn" data-icon="sparkle">Sparkle</button>
-          <button class="gpa-btn icon-btn" data-icon="bolt">Bolt</button>
-          <button class="gpa-btn icon-btn" data-icon="orbit">Orbit</button>
-          <button class="gpa-btn icon-btn" data-icon="chat">Chat</button>
-          <button class="gpa-btn icon-btn" data-icon="letter">Letter (O)</button>
-        </div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Minimized button look</div>
-        <div class="gpa-row">
-          <button class="gpa-btn look-btn" data-look="futuristic">Futuristic</button>
-          <button class="gpa-btn look-btn primary" data-look="minimal">Minimal</button>
-        </div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Minimized button color</div>
-        <div class="gpa-row">
-          <button class="gpa-btn colormode-btn" data-colormode="theme">Theme accent</button>
-          <button class="gpa-btn colormode-btn primary" data-colormode="page">Match this page</button>
-        </div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Interface size</div>
-        <div class="gpa-row">
-          <button class="gpa-btn size-btn primary" data-size="full">Full page</button>
-          <button class="gpa-btn size-btn" data-size="compact">Compact</button>
-          <button class="gpa-btn size-btn" data-size="normal">Normal</button>
-          <button class="gpa-btn size-btn" data-size="large">Large</button>
-          <button class="gpa-btn size-btn" data-size="xl">XL</button>
-        </div>
-        <div class="gpa-sub" style="margin:14px 0 6px;">Background particles</div>
-        <div class="gpa-row" style="flex-wrap: wrap;">
-          <button class="gpa-btn particle-btn primary" data-particle="off">Off</button>
-          <button class="gpa-btn particle-btn" data-particle="sparkles">Sparkles</button>
-          <button class="gpa-btn particle-btn" data-particle="snow">Snow</button>
-          <button class="gpa-btn particle-btn" data-particle="bubbles">Bubbles</button>
-          <button class="gpa-btn particle-btn" data-particle="stars">Stars</button>
-          <button class="gpa-btn particle-btn" data-particle="network">Network</button>
-          <button class="gpa-btn particle-btn" data-particle="fireflies">Fireflies</button>
-          <button class="gpa-btn particle-btn" data-particle="confetti">Confetti</button>
-        </div>
-        <div class="gpa-row" style="margin-top:8px;">
-          <label for="gpa-particle-size" class="gpa-sub" style="flex:1;">Particle play area size</label>
-        </div>
-        <div class="gpa-row">
-          <input type="range" id="gpa-particle-size" class="gpa-range" min="0" max="260" step="10" />
-        </div>
-        <div class="gpa-row" style="margin-top:8px; flex-wrap: wrap;">
-          <button id="gpa-clear-openai-key" class="gpa-btn">Clear saved OpenAI key</button>
-          <button id="gpa-clear-yt-key" class="gpa-btn">Clear saved YouTube key</button>
-        </div>
+        <div class="gps" id="gps">
+          <header class="gps-top">
+            <div class="gps-titleblock">
+              <div class="gps-eyebrow">Control center</div>
+              <h2 class="gps-h">Settings</h2>
+            </div>
+            <div class="gps-search">
+              ${GPS_ICONS.search}
+              <input id="gps-search" type="search" placeholder="Search settings" aria-label="Search settings" autocomplete="off" spellcheck="false" />
+              <kbd aria-hidden="true">/</kbd>
+            </div>
+          </header>
+          <div class="gps-layout">
+            <nav class="gps-nav" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+              <button class="gps-tab" role="tab" data-sec="overview" aria-selected="true">${GPS_ICONS.overview}<span>Overview</span></button>
+              <button class="gps-tab" role="tab" data-sec="theme" aria-selected="false" tabindex="-1">${GPS_ICONS.theme}<span>Theme</span></button>
+              <button class="gps-tab" role="tab" data-sec="colors" aria-selected="false" tabindex="-1">${GPS_ICONS.colors}<span>Colors</span></button>
+              <button class="gps-tab" role="tab" data-sec="panel" aria-selected="false" tabindex="-1">${GPS_ICONS.panel}<span>Panel</span></button>
+              <button class="gps-tab" role="tab" data-sec="effects" aria-selected="false" tabindex="-1">${GPS_ICONS.effects}<span>Effects</span></button>
+              <button class="gps-tab" role="tab" data-sec="type" aria-selected="false" tabindex="-1">${GPS_ICONS.type}<span>Typography</span></button>
+              <button class="gps-tab" role="tab" data-sec="icon" aria-selected="false" tabindex="-1">${GPS_ICONS.icon}<span>Icon</span></button>
+              <button class="gps-tab" role="tab" data-sec="ai" aria-selected="false" tabindex="-1">${GPS_ICONS.ai}<span>AI</span></button>
+              <button class="gps-tab" role="tab" data-sec="controls" aria-selected="false" tabindex="-1">${GPS_ICONS.controls}<span>Controls</span></button>
+              <button class="gps-tab" role="tab" data-sec="account" aria-selected="false" tabindex="-1">${GPS_ICONS.account}<span>Account</span></button>
+              <button class="gps-tab" role="tab" data-sec="advanced" aria-selected="false" tabindex="-1">${GPS_ICONS.advanced}<span>Advanced</span></button>
+            </nav>
+            <div class="gps-content" id="gps-content">
+              <div class="gps-results-head" id="gps-results-head" aria-live="polite"></div>
 
+              <!-- OVERVIEW -->
+              <section class="gps-sec active" data-sec="overview" role="tabpanel" aria-label="Overview">
+                <div class="gps-hero">
+                  <div class="gps-stage" data-tilt>
+                    <div class="gps-floor"></div>
+                    <div class="gps-rig">
+                      ${gpsMiniConsole()}
+                      <div class="gps-float gps-float-toast"><i></i><span></span></div>
+                      <div class="gps-float gps-float-core">${gpsCube()}</div>
+                    </div>
+                  </div>
+                  <div class="gps-hero-copy">
+                    <div class="gps-eyebrow" id="gps-ov-eyebrow">Current theme</div>
+                    <div class="gps-hero-title" id="gps-ov-theme">Matte Black</div>
+                    <div class="gps-hero-sub" id="gps-ov-blurb"></div>
+                    <div class="gps-palette" id="gps-ov-palette" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+                    <div class="gps-hero-actions">
+                      <button class="gps-btn gps-btn-primary" data-jump="theme">Change theme ${GPS_ICONS.arrow}</button>
+                      <button class="gps-btn" data-jump="colors">Build your own</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="gps-ov-grid">
+                  <button class="gps-ov" data-jump="colors" data-k="accent color overview">
+                    <span class="gps-ov-k">Accent</span>
+                    <span class="gps-ov-v"><i class="gps-dot" id="gps-ov-accent-dot"></i><span id="gps-ov-accent">#b0b0b0</span></span>
+                    <span class="gps-ov-go">${GPS_ICONS.arrow}</span>
+                  </button>
+                  <button class="gps-ov" data-jump="panel" data-k="panel size overview">
+                    <span class="gps-ov-k">Panel</span>
+                    <span class="gps-ov-v" id="gps-ov-panel">Full page</span>
+                    <span class="gps-ov-go">${GPS_ICONS.arrow}</span>
+                  </button>
+                  <button class="gps-ov" data-jump="effects" data-k="effects particles overview">
+                    <span class="gps-ov-k">Effects</span>
+                    <span class="gps-ov-v" id="gps-ov-fx">Off</span>
+                    <span class="gps-ov-go">${GPS_ICONS.arrow}</span>
+                  </button>
+                  <button class="gps-ov" data-jump="type" data-k="typography font overview">
+                    <span class="gps-ov-k">Typography</span>
+                    <span class="gps-ov-v" id="gps-ov-type">Typewriter</span>
+                    <span class="gps-ov-go">${GPS_ICONS.arrow}</span>
+                  </button>
+                  <button class="gps-ov" data-jump="ai" data-k="ai model openai overview">
+                    <span class="gps-ov-k">AI</span>
+                    <span class="gps-ov-v" id="gps-ov-ai">OpenAI</span>
+                    <span class="gps-ov-go">${GPS_ICONS.arrow}</span>
+                  </button>
+                  <button class="gps-ov" data-jump="icon" data-k="icon minimized overview">
+                    <span class="gps-ov-k">Icon</span>
+                    <span class="gps-ov-v" id="gps-ov-icon">Dot</span>
+                    <span class="gps-ov-go">${GPS_ICONS.arrow}</span>
+                  </button>
+                  <button class="gps-ov gps-ov-wide" data-jump="advanced" data-k="personalization reset overview">
+                    <span class="gps-ov-k">Personalization</span>
+                    <span class="gps-ov-v" id="gps-ov-custom">Default setup</span>
+                    <span class="gps-meter" aria-hidden="true"><i id="gps-ov-meter"></i></span>
+                    <span class="gps-ov-go">${GPS_ICONS.arrow}</span>
+                  </button>
+                </div>
+              </section>
+
+              <!-- THEME -->
+              <section class="gps-sec" data-sec="theme" role="tabpanel" aria-label="Theme">
+                <div class="gps-sec-head">
+                  <div><h3 class="gps-sec-title">Theme</h3><p class="gps-sec-desc">Hover or focus a theme to preview it. Click to apply.</p></div>
+                  <button class="gps-reset" data-reset="theme">${GPS_ICONS.reset}<span>Reset</span></button>
+                </div>
+                <div class="gps-item gps-item-flush" data-k="theme preview 3d">
+                  <div class="gps-stage gps-stage-wide" data-tilt id="gps-theme-stage">
+                    <div class="gps-floor"></div>
+                    <div class="gps-rig">
+                      ${gpsMiniConsole()}
+                      <div class="gps-float gps-float-toast"><i></i><span></span></div>
+                      <div class="gps-float gps-float-core">${gpsCube()}</div>
+                    </div>
+                    <div class="gps-stage-cap" id="gps-theme-cap" aria-live="polite"></div>
+                  </div>
+                </div>
+                <div class="gps-item" data-k="theme signature aurora obsidian arctic solar midnight nebula">
+                  <div class="gps-label">Signature</div>
+                  <div class="gps-gallery" id="gps-gallery-signature"></div>
+                </div>
+                <div class="gps-item" data-k="theme classic dark matte red blue purple pink light white">
+                  <div class="gps-label">Classic</div>
+                  <div class="gps-gallery gps-gallery-sm" id="gps-gallery-classic"></div>
+                </div>
+                <div class="gps-item" data-k="theme custom your own">
+                  <div class="gps-label">Yours</div>
+                  <div class="gps-gallery gps-gallery-sm" id="gps-gallery-custom"></div>
+                </div>
+              </section>
+
+              <!-- COLORS (custom theme builder) -->
+              <section class="gps-sec" data-sec="colors" role="tabpanel" aria-label="Colors">
+                <div class="gps-sec-head">
+                  <div><h3 class="gps-sec-title">Colors</h3><p class="gps-sec-desc">Build a custom theme. Every change applies live.</p></div>
+                  <button class="gps-reset" data-reset="colors">${GPS_ICONS.reset}<span>Reset</span></button>
+                </div>
+                <div class="gps-item gps-item-flush" data-k="colors custom theme builder background surface text accent secondary glow border particle color picker hex contrast">
+                <div class="gps-builder">
+                  <div class="gps-builder-preview">
+                    <div class="gps-stage gps-stage-compact" data-tilt id="gps-builder-stage">
+                      <div class="gps-floor"></div>
+                      <div class="gps-rig">${gpsMiniConsole()}<div class="gps-float gps-float-core">${gpsCube()}</div></div>
+                      <div class="gps-stage-cap">Custom theme</div>
+                    </div>
+                    <div class="gps-contrast" id="gps-contrast" aria-live="polite"></div>
+                    <p class="gps-hint" id="gps-builder-status"></p>
+                    <div class="gps-row">
+                      <button class="gps-btn gps-btn-primary" id="gps-use-custom">Use custom theme</button>
+                      <button class="gps-btn" id="gps-seed">Start from current theme</button>
+                    </div>
+                  </div>
+                  <div class="gps-colors" id="gps-colors">
+                    <!-- rows rendered by the settings module; accent keeps the legacy id -->
+                  </div>
+                </div>
+                </div>
+              </section>
+
+              <!-- PANEL -->
+              <section class="gps-sec" data-sec="panel" role="tabpanel" aria-label="Panel">
+                <div class="gps-sec-head">
+                  <div><h3 class="gps-sec-title">Panel</h3><p class="gps-sec-desc">Size, surface and depth of the console window.</p></div>
+                  <button class="gps-reset" data-reset="panel">${GPS_ICONS.reset}<span>Reset</span></button>
+                </div>
+                <div class="gps-item" data-k="panel interface size compact normal large xl full page window">
+                  <div class="gps-label">Size</div>
+                  <div class="gps-sizes" role="group" aria-label="Interface size">
+                    <button class="size-btn" data-size="compact"><span class="gps-sil" style="--w:30px;--h:40px"></span><span>Compact</span></button>
+                    <button class="size-btn" data-size="normal"><span class="gps-sil" style="--w:36px;--h:48px"></span><span>Normal</span></button>
+                    <button class="size-btn" data-size="large"><span class="gps-sil" style="--w:42px;--h:56px"></span><span>Large</span></button>
+                    <button class="size-btn" data-size="xl"><span class="gps-sil" style="--w:48px;--h:64px"></span><span>XL</span></button>
+                    <button class="size-btn" data-size="full"><span class="gps-sil gps-sil-full" style="--w:88px;--h:56px"></span><span>Full page</span></button>
+                  </div>
+                </div>
+                <div class="gps-split">
+                <div class="gps-item gps-item-flush gps-split-preview" data-k="panel preview live miniature">
+                  <div class="gps-stage gps-stage-compact" data-tilt id="gps-panel-stage">
+                    <div class="gps-floor"></div><div class="gps-blobs" aria-hidden="true"><i></i><i></i><i></i></div>
+                    <div class="gps-rig gps-rig-live">${gpsMiniConsole()}</div>
+                    <div class="gps-stage-cap" id="gps-panel-cap"></div>
+                  </div>
+                </div>
+                <div class="gps-list">
+                <div class="gps-item" data-k="panel corner radius round sharp">
+                  <label class="gps-label" for="gps-ap-radius">Corner radius <output id="gps-ap-radius-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-ap-radius" data-ap="radius" min="30" max="170" step="5" />
+                </div>
+                <div class="gps-item" data-k="panel transparency opacity glass see through">
+                  <label class="gps-label" for="gps-ap-opacity">Opacity <output id="gps-ap-opacity-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-ap-opacity" data-ap="opacity" min="70" max="100" step="1" />
+                </div>
+                <div class="gps-item" data-k="panel blur glass frosted backdrop">
+                  <label class="gps-label" for="gps-ap-blur">Background blur <output id="gps-ap-blur-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-ap-blur" data-ap="blur" min="0" max="24" step="1" />
+                  <p class="gps-hint">Blur shows through when opacity is below 100%.</p>
+                </div>
+                <div class="gps-item" data-k="panel border outline strength">
+                  <label class="gps-label" for="gps-ap-border">Border strength <output id="gps-ap-border-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-ap-border" data-ap="border" min="0" max="160" step="5" />
+                </div>
+                <div class="gps-item" data-k="panel shadow depth elevation">
+                  <label class="gps-label" for="gps-ap-shadow">Shadow depth <output id="gps-ap-shadow-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-ap-shadow" data-ap="shadow" min="0" max="100" step="5" />
+                </div>
+                <div class="gps-item" data-k="panel glow halo">
+                  <label class="gps-label" for="gps-ap-glow">Glow <output id="gps-ap-glow-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-ap-glow" data-ap="glow" min="0" max="100" step="5" />
+                </div>
+                <div class="gps-item" data-k="panel density spacing compact comfortable spacious padding">
+                  <div class="gps-label">Density</div>
+                  <div class="gps-seg" role="group" aria-label="Density">
+                    <button class="gps-seg-btn" data-density="compact">Compact</button>
+                    <button class="gps-seg-btn" data-density="comfortable">Regular</button>
+                    <button class="gps-seg-btn" data-density="spacious">Spacious</button>
+                  </div>
+                </div>
+                </div>
+                </div>
+              </section>
+
+              <!-- EFFECTS -->
+              <section class="gps-sec" data-sec="effects" role="tabpanel" aria-label="Effects">
+                <div class="gps-sec-head">
+                  <div><h3 class="gps-sec-title">Effects</h3><p class="gps-sec-desc">Ambient particles around the panel edges. They never cover content.</p></div>
+                  <button class="gps-reset" data-reset="effects">${GPS_ICONS.reset}<span>Reset</span></button>
+                </div>
+                <div class="gps-item gps-item-flush" data-k="effects particles preview">
+                  <div class="gps-fxstage" id="gps-fxstage">
+                    <canvas id="gps-fx-canvas" aria-hidden="true"></canvas>
+                    <div class="gps-fx-ghost" aria-hidden="true">${gpsMiniConsole()}</div>
+                    <div class="gps-stage-cap" id="gps-fx-cap"></div>
+                  </div>
+                </div>
+                <div class="gps-item" data-k="effects particle style sparkles snow bubbles stars network fireflies confetti off">
+                  <div class="gps-label">Particle style</div>
+                  <div class="gps-choices gps-choices-8" role="group" aria-label="Particle style">
+                    <button class="particle-btn" data-particle="off"><span class="gps-glyph">${GPS_ICONS.off}</span><span>Off</span></button>
+                    <button class="particle-btn" data-particle="sparkles"><span class="gps-glyph">${GPS_ICONS.effects}</span><span>Sparkles</span></button>
+                    <button class="particle-btn" data-particle="snow"><span class="gps-glyph">${GPS_ICONS.snow}</span><span>Snow</span></button>
+                    <button class="particle-btn" data-particle="bubbles"><span class="gps-glyph">${GPS_ICONS.bubbles}</span><span>Bubbles</span></button>
+                    <button class="particle-btn" data-particle="stars"><span class="gps-glyph">${GPS_ICONS.star}</span><span>Stars</span></button>
+                    <button class="particle-btn" data-particle="network"><span class="gps-glyph">${GPS_ICONS.network}</span><span>Network</span></button>
+                    <button class="particle-btn" data-particle="fireflies"><span class="gps-glyph">${GPS_ICONS.firefly}</span><span>Fireflies</span></button>
+                    <button class="particle-btn" data-particle="confetti"><span class="gps-glyph">${GPS_ICONS.confetti}</span><span>Confetti</span></button>
+                  </div>
+                </div>
+                <div class="gps-list">
+                <div class="gps-item" data-k="effects particle density amount count">
+                  <label class="gps-label" for="gps-fx-density">Density <output id="gps-fx-density-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-fx-density" data-fx="density" min="0.3" max="2" step="0.1" />
+                </div>
+                <div class="gps-item" data-k="effects particle size scale">
+                  <label class="gps-label" for="gps-fx-size">Particle size <output id="gps-fx-size-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-fx-size" data-fx="size" min="0.5" max="2.5" step="0.1" />
+                </div>
+                <div class="gps-item" data-k="effects particle motion speed">
+                  <label class="gps-label" for="gps-fx-speed">Motion <output id="gps-fx-speed-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-fx-speed" data-fx="speed" min="0.2" max="2.5" step="0.1" />
+                </div>
+                <div class="gps-item" data-k="effects particle intensity brightness opacity">
+                  <label class="gps-label" for="gps-fx-intensity">Intensity <output id="gps-fx-intensity-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-fx-intensity" data-fx="intensity" min="0.2" max="1.5" step="0.05" />
+                </div>
+                <div class="gps-item" data-k="effects particle play area size margin">
+                  <label class="gps-label" for="gpa-particle-size">Play area <output id="gps-fx-area-v"></output></label>
+                  <input type="range" id="gpa-particle-size" class="gps-range" min="0" max="260" step="10" />
+                </div>
+                </div>
+              </section>
+
+              <!-- TYPOGRAPHY -->
+              <section class="gps-sec" data-sec="type" role="tabpanel" aria-label="Typography">
+                <div class="gps-sec-head">
+                  <div><h3 class="gps-sec-title">Typography</h3><p class="gps-sec-desc">How AI answers read and appear.</p></div>
+                  <button class="gps-reset" data-reset="type">${GPS_ICONS.reset}<span>Reset</span></button>
+                </div>
+                <div class="gps-item gps-item-flush" data-k="typography preview sample">
+                  <div class="gps-typeprev">
+                    <div class="gps-typeprev-k">AI response</div>
+                    <div class="gpa-output gps-type-sample" id="gps-type-sample"></div>
+                    <button class="gps-btn" id="gps-type-play">${GPS_ICONS.play}<span>Play typing</span></button>
+                  </div>
+                </div>
+                <div class="gps-item" data-k="typography response font typewriter standard mono sans">
+                  <div class="gps-label">Response font</div>
+                  <div class="gps-choices gps-choices-2" role="group" aria-label="Response font">
+                    <button class="font-btn" data-font="mono"><span class="gps-aa gps-aa-mono">Aa</span><span>Typewriter</span></button>
+                    <button class="font-btn" data-font="system"><span class="gps-aa">Aa</span><span>Standard</span></button>
+                  </div>
+                </div>
+                <div class="gps-list">
+                <div class="gps-item" data-k="typography font size text scale">
+                  <label class="gps-label" for="gps-type-size">Text size <output id="gps-type-size-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-type-size" data-ty="size" min="11" max="18" step="0.5" />
+                </div>
+                <div class="gps-item" data-k="typography line height spacing leading">
+                  <label class="gps-label" for="gps-type-lh">Line height <output id="gps-type-lh-v"></output></label>
+                  <input type="range" class="gps-range" id="gps-type-lh" data-ty="lh" min="1.3" max="2" step="0.05" />
+                </div>
+                <div class="gps-item" data-k="typography typing animation speed slow normal fast instant">
+                  <div class="gps-label">Typing speed</div>
+                  <div class="gps-seg" role="group" aria-label="Typing speed">
+                    <button class="speed-btn gps-seg-btn" data-speed="slow">Slow</button>
+                    <button class="speed-btn gps-seg-btn" data-speed="normal">Normal</button>
+                    <button class="speed-btn gps-seg-btn" data-speed="fast">Fast</button>
+                    <button class="speed-btn gps-seg-btn" data-speed="instant">Instant</button>
+                  </div>
+                </div>
+                </div>
+              </section>
+
+              <!-- ICON STUDIO -->
+              <section class="gps-sec" data-sec="icon" role="tabpanel" aria-label="Icon studio">
+                <div class="gps-sec-head">
+                  <div><h3 class="gps-sec-title">Icon studio</h3><p class="gps-sec-desc">The button the console shrinks to when minimized.</p></div>
+                  <button class="gps-reset" data-reset="icon">${GPS_ICONS.reset}<span>Reset</span></button>
+                </div>
+                <div class="gps-item gps-item-flush" data-k="icon minimized button preview">
+                  <div class="gps-iconstage" aria-hidden="true">
+                    <div class="gps-page"><i></i><i></i><i></i><i></i><b></b></div>
+                    <div class="gps-mini" id="gps-mini-prev"></div>
+                  </div>
+                </div>
+                <div class="gps-item" data-k="icon minimized glyph dot sparkle bolt orbit chat letter">
+                  <div class="gps-label">Glyph</div>
+                  <div class="gps-choices gps-choices-6" role="group" aria-label="Minimized button icon">
+                    <button class="icon-btn" data-icon="dot"><span class="gps-glyph gps-glyph-txt">✦</span><span>Dot</span></button>
+                    <button class="icon-btn" data-icon="sparkle"><span class="gps-glyph">${GPS_ICONS.sparkleFill}</span><span>Sparkle</span></button>
+                    <button class="icon-btn" data-icon="bolt"><span class="gps-glyph">${GPS_ICONS.boltFill}</span><span>Bolt</span></button>
+                    <button class="icon-btn" data-icon="orbit"><span class="gps-glyph">${GPS_ICONS.orbit}</span><span>Orbit</span></button>
+                    <button class="icon-btn" data-icon="chat"><span class="gps-glyph">${GPS_ICONS.chatFill}</span><span>Chat</span></button>
+                    <button class="icon-btn" data-icon="letter"><span class="gps-glyph gps-glyph-txt gps-glyph-sans">O</span><span>Letter</span></button>
+                  </div>
+                </div>
+                <div class="gps-list">
+                <div class="gps-item" data-k="icon minimized look style futuristic minimal rings">
+                  <div class="gps-label">Style</div>
+                  <div class="gps-seg" role="group" aria-label="Minimized button look">
+                    <button class="look-btn gps-seg-btn" data-look="futuristic">Futuristic rings</button>
+                    <button class="look-btn gps-seg-btn" data-look="minimal">Minimal</button>
+                  </div>
+                </div>
+                <div class="gps-item" data-k="icon minimized color mode accent match page">
+                  <div class="gps-label">Color</div>
+                  <div class="gps-seg" role="group" aria-label="Minimized button color">
+                    <button class="colormode-btn gps-seg-btn" data-colormode="theme">Theme accent</button>
+                    <button class="colormode-btn gps-seg-btn" data-colormode="page">Match this page</button>
+                  </div>
+                </div>
+                </div>
+              </section>
+
+              <!-- AI -->
+              <section class="gps-sec" data-sec="ai" role="tabpanel" aria-label="AI">
+                <div class="gps-sec-head">
+                  <div><h3 class="gps-sec-title">AI</h3><p class="gps-sec-desc">OpenAI is the only AI provider this console uses.</p></div>
+                </div>
+                <div class="gps-item gps-item-flush" data-k="ai openai provider models base smart gpt">
+                  <div class="gps-ai">
+                    <div class="gps-ai-core" aria-hidden="true">
+                      <svg viewBox="0 0 120 120"><circle class="r1" cx="60" cy="60" r="44"/><circle class="r2" cx="60" cy="60" r="30"/><circle class="r3" cx="60" cy="60" r="54"/><g class="orb"><circle cx="104" cy="60" r="4"/></g><g class="orb2"><circle cx="30" cy="60" r="3"/></g><circle class="nucleus" cx="60" cy="60" r="12"/></svg>
+                    </div>
+                    <div class="gps-ai-copy">
+                      <div class="gps-eyebrow">Provider</div>
+                      <div class="gps-hero-title">OpenAI</div>
+                      <div class="gps-hero-sub" id="gps-ai-route">Requests go through your worker proxy.</div>
+                    </div>
+                  </div>
+                  <div class="gps-models">
+                    <div class="gps-model">
+                      <div class="gps-model-k">Base AI</div>
+                      <div class="gps-model-v" id="gps-ai-base">gpt-4.1-mini</div>
+                      <div class="gps-model-d">Everyday answers, chat and page reading</div>
+                    </div>
+                    <div class="gps-model gps-model-smart">
+                      <div class="gps-model-k">Smart AI</div>
+                      <div class="gps-model-v" id="gps-ai-smart">gpt-5</div>
+                      <div class="gps-model-d">Hard tasks such as quizzes, math and multi-part questions</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="gps-list">
+                <div class="gps-item gps-item-row" data-k="ai auto upgrade hard tasks smart model">
+                  <div><div class="gps-label">Auto-upgrade on hard tasks</div><p class="gps-hint">Owner setting. Hard questions switch to the smart model when on.</p></div>
+                  <span class="gps-badge" id="gps-ai-auto">On</span>
+                </div>
+                <div class="gps-item gps-item-row" data-k="ai reasoning effort">
+                  <div><div class="gps-label">Reasoning effort</div><p class="gps-hint">Used by the smart model. Change it in Ask AI.</p></div>
+                  <span class="gps-badge" id="gps-ai-reason">Medium</span>
+                </div>
+                <div class="gps-item gps-item-row" data-k="ai openai api key connection status">
+                  <div><div class="gps-label">Connection</div><p class="gps-hint" id="gps-ai-keyhint">Keys are never shown here.</p></div>
+                  <span class="gps-badge" id="gps-ai-key">Checking</span>
+                </div>
+                <div class="gps-item gps-item-row" data-k="ai clear saved openai key">
+                  <div><div class="gps-label">Saved OpenAI key</div><p class="gps-hint">Removes the key stored in this browser. An owner-assigned key keeps working.</p></div>
+                  <button id="gpa-clear-openai-key" class="gps-btn">Clear key</button>
+                </div>
+                </div>
+                <p class="gps-hint gps-note">Base and smart models reset to gpt-4.1-mini and gpt-5 on every load and sign-in.</p>
+              </section>
+
+              <!-- CONTROLS -->
+              <section class="gps-sec" data-sec="controls" role="tabpanel" aria-label="Controls">
+                <div class="gps-sec-head">
+                  <div><h3 class="gps-sec-title">Controls</h3><p class="gps-sec-desc">Language, voice and page actions.</p></div>
+                </div>
+                <div class="gps-list">
+                <div class="gps-item" data-k="controls language english spanish espanol idioma">
+                  <div class="gps-label">Language</div>
+                  <div class="gps-seg" role="group" aria-label="Language">
+                    <button class="gpa-btn lang-btn gps-seg-btn" data-lang="en">English</button>
+                    <button class="gpa-btn lang-btn gps-seg-btn" data-lang="es">Español</button>
+                  </div>
+                  <p class="gps-hint">Translates navigation, header and sign-in. Deeper screens are still English.</p>
+                </div>
+                <div class="gps-item gps-item-row" data-k="controls voice read answers aloud speech tts">
+                  <div><div class="gps-label">Read answers aloud</div><p class="gps-hint">Speaks AI answers with your browser's voice.</p></div>
+                  <button id="gpa-tts-toggle" class="gps-switch">Read answers aloud: OFF</button>
+                </div>
+                <div class="gps-item gps-item-row" data-k="controls page actions confirm clicks auto">
+                  <div><div class="gps-label">Auto-run page clicks</div><p class="gps-hint">When on, harmless "Do it" clicks run without asking. Submit, send, delete and pay always ask.</p></div>
+                  <button id="gpa-autoconfirm-toggle" class="gps-switch autoconfirm-btn">Confirm page clicks: ON</button>
+                </div>
+                </div>
+              </section>
+
+              <!-- ACCOUNT -->
+              <section class="gps-sec" data-sec="account" role="tabpanel" aria-label="Account">
+                <div class="gps-sec-head">
+                  <div><h3 id="gpa-account-heading" class="gps-sec-title" style="cursor:default; user-select:none;">Account &amp; sync</h3><p class="gps-sec-desc">Your profile lives in this browser.</p></div>
+                </div>
+                <div class="gps-item gps-item-row" data-k="account sign out logout user">
+                  <div class="gps-who">${GPS_ICONS.account}<span id="gpa-account-who" class="gps-label">Not signed in</span></div>
+                  <button id="gpa-logout-btn" class="gps-btn">Sign out</button>
+                </div>
+                <div class="gps-item" data-k="account sync code copy load transfer device">
+                  <div class="gps-label">Sync code</div>
+                  <div class="gps-row">
+                    <button id="gpa-sync-export" class="gps-btn">Copy sync code</button>
+                    <button id="gpa-sync-import" class="gps-btn">Load sync code</button>
+                  </div>
+                  <textarea id="gpa-sync-box" class="gpa-sync-box gps-textarea" aria-label="Sync code" placeholder="Your sync code appears here. Paste one from another device and press Load sync code."></textarea>
+                </div>
+                <div class="gps-item" data-k="account cloud sync jsonbin upload download">
+                  <div class="gps-label">Cloud auto-sync <span class="gps-tag">JSONBin, optional</span></div>
+                  <div class="gps-row">
+                    <input id="gpa-cloud-bin" class="gpa-input" placeholder="Bin ID" aria-label="JSONBin bin ID" autocomplete="off" />
+                    <input id="gpa-cloud-key" class="gpa-input" type="password" placeholder="X-Master-Key" aria-label="JSONBin master key" autocomplete="off" />
+                  </div>
+                  <div class="gps-row">
+                    <button id="gpa-cloud-push" class="gps-btn">Upload</button>
+                    <button id="gpa-cloud-pull" class="gps-btn">Download</button>
+                  </div>
+                  <div id="gpa-cloud-msg" class="gps-hint"></div>
+                </div>
         <!-- Admin console: hidden until unlocked by the secret gesture on the
              "Account & sync" heading (click it 5x) + PIN. Rendered here but
              display:none, and re-hidden on every load. -->
@@ -1052,6 +2229,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div class="gpa-row">
               <select id="gpa-adm-def-theme" class="gpa-input" style="flex:1;">
                 <option value="">Default theme: leave as-is</option>
+                <option value="aurora">Aurora</option><option value="obsidian">Obsidian</option>
+                <option value="arctic">Arctic</option><option value="solar">Solar</option>
+                <option value="midnight">Midnight</option><option value="nebula">Nebula</option>
                 <option value="dark">Dark</option><option value="matte">Matte Black</option>
                 <option value="red">Red</option><option value="blue">Blue</option>
                 <option value="purple">Purple</option><option value="pink">Pink</option>
@@ -1059,7 +2239,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               </select>
               <input id="gpa-adm-quota" class="gpa-input" type="number" min="0" step="10" placeholder="Daily request cap (0 = unlimited)" style="flex:1;" />
             </div>
-            <div class="gpa-admin-note">Default theme only applies to someone who has never picked a theme themselves — it won't override anyone's own choice. The request cap applies per non-owner user per day, OpenAI only (Gemini calls bypass this worker).</div>
+            <div class="gpa-admin-note">Default theme only applies to someone who has never picked a theme themselves — it won't override anyone's own choice. The request cap applies per non-owner user per day.</div>
             <div class="gpa-row">
               <button id="gpa-adm-brand-save" class="gpa-btn primary" style="flex:1;">Save branding &amp; limits</button>
             </div>
@@ -1189,6 +2369,51 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div id="gpa-adm-data-msg" class="gpa-sub" style="margin-top:4px;"></div>
           </div>
         </div>
+              </section>
+
+              <!-- ADVANCED -->
+              <section class="gps-sec" data-sec="advanced" role="tabpanel" aria-label="Advanced">
+                <div class="gps-sec-head">
+                  <div><h3 class="gps-sec-title">Advanced</h3><p class="gps-sec-desc">Keys and resets. Resets never touch your account, notes or saved work.</p></div>
+                </div>
+                <div class="gps-list">
+                <div class="gps-item gps-item-row" data-k="advanced youtube key clear music">
+                  <div><div class="gps-label">Saved YouTube key</div><p class="gps-hint">Used by Music search.</p></div>
+                  <button id="gpa-clear-yt-key" class="gps-btn">Clear key</button>
+                </div>
+                <div class="gps-item gps-item-row" data-k="advanced reset theme colors">
+                  <div><div class="gps-label">Reset theme</div><p class="gps-hint">Theme choice and custom colors.</p></div>
+                  <button class="gps-btn" data-reset="theme">Reset theme</button>
+                </div>
+                <div class="gps-item gps-item-row" data-k="advanced reset appearance panel effects typography icon">
+                  <div><div class="gps-label">Reset appearance</div><p class="gps-hint">Panel, effects, typography and icon.</p></div>
+                  <button class="gps-btn" data-reset="appearance">Reset appearance</button>
+                </div>
+                <div class="gps-item gps-item-row gps-danger-zone" data-k="advanced reset all settings defaults">
+                  <div><div class="gps-label">Reset all settings</div><p class="gps-hint">Every setting on this page, for this profile. Account, keys, notes and saved items stay.</p></div>
+                  <button class="gps-btn gps-btn-danger" data-reset="all">Reset all</button>
+                </div>
+                </div>
+              </section>
+
+              <div class="gps-empty" id="gps-empty" hidden>
+                ${GPS_ICONS.search}
+                <div class="gps-label">No settings match that search.</div>
+                <p class="gps-hint">Try words like theme, font, particles or panel.</p>
+              </div>
+            </div>
+          </div>
+          <div class="gps-dialog-scrim" id="gps-dialog" hidden>
+            <div class="gps-dialog" role="alertdialog" aria-modal="true" aria-labelledby="gps-dialog-title" aria-describedby="gps-dialog-body">
+              <div class="gps-dialog-title" id="gps-dialog-title"></div>
+              <p class="gps-dialog-body" id="gps-dialog-body"></p>
+              <div class="gps-row gps-dialog-actions">
+                <button class="gps-btn" id="gps-dialog-cancel">Cancel</button>
+                <button class="gps-btn gps-btn-danger" id="gps-dialog-ok">Reset</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       </main>
     </div>
@@ -1281,12 +2506,35 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   applyMiniColorMode();
 
-  function applyTheme(name) {
+  // Applies a theme by writing its tokens as CSS custom properties. The main
+  // stylesheet is built once below and never rewritten, so switching themes
+  // doesn't restart animations or flash. opts.instant skips the crossfade
+  // (used while dragging a color picker); opts.preview leaves storage alone.
+  let themeFadeTimer = null;
+  function applyTheme(name, opts) {
+    opts = opts || {};
     theme = THEMES[name] ? name : 'matte';
-    localStorage.setItem(THEME_KEY, theme);
+    if (!opts.preview) localStorage.setItem(THEME_KEY, theme);
     if (typeof updateWelcome3dColor === 'function') updateWelcome3dColor();
-    const t = THEMES[theme];
-    style.textContent = `
+    const tk = resolveTheme(theme);
+    if (!opts.instant && tokenStyle.textContent) {
+      panel.classList.add('gpa-theming');
+      clearTimeout(themeFadeTimer);
+      themeFadeTimer = setTimeout(() => panel.classList.remove('gpa-theming'), 520);
+    }
+    tokenStyle.textContent = tokenCss(tk, appearance);
+    if (typeof applyMiniColorMode === 'function') applyMiniColorMode();
+    if (typeof onThemeApplied === 'function') onThemeApplied();
+  }
+  // Re-writes the tokens after an appearance (Panel section) change.
+  function applyAppearance(next, opts) {
+    appearance = { ...appearance, ...next };
+    if (!(opts && opts.transient)) {
+      try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance)); } catch (e) { /* storage blocked */ }
+    }
+    tokenStyle.textContent = tokenCss(resolveTheme(theme), appearance);
+  }
+  style.textContent = `
       * { box-sizing: border-box; font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
       /* Scoped to this panel's own shadow root, so it never touches the host
          page: anyone with reduced-motion turned on gets every transition and
@@ -1308,16 +2556,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         height: 480px;
         display: flex;
         flex-direction: column;
-        background: ${t.bg};
-        color: ${t.text};
-        border: 1px solid ${t.border};
-        border-radius: 20px;
-        box-shadow: 0 24px 60px rgba(0,0,0,0.4), 0 2px 10px ${t.accent}1a;
+        background: var(--gpa-atmos), var(--gpa-bg-t);
+        color: var(--gpa-text);
+        border: 1px solid var(--gpa-border);
+        border-radius: calc(20px * var(--gpa-rs));
+        box-shadow: var(--gpa-panel-shadow);
+        backdrop-filter: var(--gpa-panel-blur); -webkit-backdrop-filter: var(--gpa-panel-blur);
         overflow: hidden;
         user-select: none;
         animation: gpa-panel-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
       }
-      .gpa-panel.gpa-fullpage { border-radius: 16px; }
+      .gpa-panel.gpa-fullpage { border-radius: calc(16px * var(--gpa-rs)); }
       @keyframes gpa-panel-in {
         from { opacity: 0; transform: scale(0.97) translateY(6px); }
         to { opacity: 1; transform: scale(1) translateY(0); }
@@ -1325,47 +2574,47 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-header {
         display: flex; align-items: center; gap: 10px;
         padding: 12px 16px;
-        background: ${t.panel};
+        background: var(--gpa-panel-t);
         cursor: grab;
-        border-bottom: 1px solid ${t.border};
+        border-bottom: 1px solid var(--gpa-border);
         flex-shrink: 0;
       }
       .gpa-panel.gpa-fullpage .gpa-header { cursor: default; }
       .gpa-header:active { cursor: grabbing; }
       #gpa-sidebar-toggle, #gpa-min, #gpa-reload, #gpa-console-fullscreen, #gpa-close {
-        width: 26px; height: 26px; border-radius: 8px;
+        width: 26px; height: 26px; border-radius: calc(8px * var(--gpa-rs));
         border: 1px solid transparent;
         background: transparent;
-        color: ${t.sub};
+        color: var(--gpa-sub);
         font-size: 14px; line-height: 1; cursor: pointer;
         display:flex; align-items:center; justify-content:center;
         flex-shrink: 0;
         transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
       }
-      #gpa-sidebar-toggle:hover, #gpa-min:hover, #gpa-reload:hover, #gpa-console-fullscreen:hover { background: ${t.field}; color: ${t.text}; }
-      #gpa-sidebar-toggle.active { background: ${t.accent}; color: ${t.accentFg}; }
+      #gpa-sidebar-toggle:hover, #gpa-min:hover, #gpa-reload:hover, #gpa-console-fullscreen:hover { background: var(--gpa-field); color: var(--gpa-text); }
+      #gpa-sidebar-toggle.active { background: var(--gpa-accent); color: var(--gpa-accent-fg); }
       #gpa-min:active, #gpa-reload:active, #gpa-console-fullscreen:active, #gpa-close:active { transform: scale(0.92); }
       #gpa-reload:disabled { opacity: 0.5; cursor: default; }
       #gpa-reload.spinning { animation: gpa-spin 0.8s linear infinite; }
       @keyframes gpa-spin { to { transform: rotate(360deg); } }
       .gpa-title {
         font-size: 14px; font-weight: 600; flex: 1;
-        color: ${t.text};
+        color: var(--gpa-text);
       }
       .gpa-dot {
-        width: 6px; height: 6px; border-radius: 50%; background: ${t.accent}; flex-shrink:0;
-        box-shadow: 0 0 0 0 ${t.accent}80;
+        width: 6px; height: 6px; border-radius: 50%; background: var(--gpa-accent); flex-shrink:0;
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--gpa-accent) 50%, transparent);
         animation: gpa-dot-pulse 2.4s ease-in-out infinite;
       }
       @keyframes gpa-dot-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 ${t.accent}55; }
-        50% { box-shadow: 0 0 0 4px ${t.accent}00; }
+        0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gpa-accent) 33%, transparent); }
+        50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--gpa-accent) 0%, transparent); }
       }
       #gpa-close:hover { background: #e5453a; color: #fff; }
       .gpa-body { flex: 1; display: flex; flex-direction: row; min-height: 0; }
       .gpa-sidebar {
         flex-shrink: 0; width: 190px; padding: 12px 8px;
-        background: ${t.panel}; border-right: 1px solid ${t.border};
+        background: var(--gpa-panel-t); border-right: 1px solid var(--gpa-border);
         overflow-y: auto; overflow-x: hidden;
         transition: width 0.26s cubic-bezier(0.16, 1, 0.3, 1), padding 0.26s cubic-bezier(0.16, 1, 0.3, 1),
                     opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.26s cubic-bezier(0.16, 1, 0.3, 1),
@@ -1385,17 +2634,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-main {
         flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden;
-        padding: 16px; user-select: text;
+        padding: calc(16px * var(--gpa-dz)); user-select: text;
         display: flex; flex-direction: column;
       }
       .gpa-dropdown { position: relative; }
       .gpa-dropdown-btn {
         width: 100%; display: flex; align-items: center; justify-content: space-between;
         padding: 9px 12px; font-size: 12px; font-weight: 600;
-        cursor: pointer; color: ${t.text};
-        border: 1px solid ${t.border};
-        border-radius: 10px;
-        background: ${t.field};
+        cursor: pointer; color: var(--gpa-text);
+        border: 1px solid var(--gpa-border);
+        border-radius: calc(10px * var(--gpa-rs));
+        background: var(--gpa-field);
         transition: border-color 0.15s ease;
       }
       .gpa-dropdown-btn { display: none; }
@@ -1409,17 +2658,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         position: relative;
         display: flex; align-items: center; gap: 9px;
         text-align: left; padding: 8px 10px;
-        font-size: 12.5px; font-weight: 500; color: ${t.sub}; line-height: 1.3;
-        background: transparent; border: 1px solid transparent; border-radius: 9px;
+        font-size: 12.5px; font-weight: 500; color: var(--gpa-sub); line-height: 1.3;
+        background: transparent; border: 1px solid transparent; border-radius: calc(9px * var(--gpa-rs));
         cursor: pointer;
         transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
       }
       .gpa-nav-ic { flex-shrink: 0; width: 16px; text-align: center; opacity: 0.85; font-size: 13px; }
-      .gpa-dropdown-item:hover { background: ${t.field}; color: ${t.text}; }
+      .gpa-dropdown-item:hover { background: var(--gpa-field); color: var(--gpa-text); }
       .gpa-dropdown-item:active { transform: scale(0.98); }
-      .gpa-dropdown-item:focus-visible { outline: 2px solid ${t.accent}; outline-offset: 1px; }
+      .gpa-dropdown-item:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 1px; }
       .gpa-dropdown-item.active {
-        color: ${t.accentFg}; background: ${t.accent};
+        color: var(--gpa-accent-fg); background: var(--gpa-accent);
       }
       .gpa-dropdown-item.active::before { content: none; }
       .gpa-chat-badge {
@@ -1496,15 +2745,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          and the news-summary paragraph. Kept minimal — everything else
          (cards, stat grid, buttons) reuses Page Insights' existing classes
          as-is, per the plan's "reuse, don't duplicate" rule. */
-      .gpa-welcome-greeting { font-size: 18px; font-weight: 700; color: ${t.text}; text-wrap: balance; line-height: 1.3; }
+      .gpa-welcome-greeting { font-size: 18px; font-weight: 700; color: var(--gpa-text); text-wrap: balance; line-height: 1.3; }
       /* Reuses the existing gpa-blink keyframes (defined above for the AI
          streaming cursor) so both blink at the same rate — this one just
          never gets removed. */
-      .gpa-welcome-cursor { color: ${t.accent}; animation: gpa-blink 0.85s steps(1) infinite; }
+      .gpa-welcome-cursor { color: var(--gpa-accent); animation: gpa-blink 0.85s steps(1) infinite; }
       /* Provider status line: deliberately smaller than both the greeting
          and its date sub-line, but the pulsing dot keeps it noticeable
          without competing for attention. */
-      .gpa-welcome-ai-status { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 5px; font-size: 10.5px; color: ${t.sub}; }
+      .gpa-welcome-ai-status { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 5px; font-size: 10.5px; color: var(--gpa-sub); }
       .gpa-welcome-ai-line { display: inline-flex; align-items: center; gap: 5px; }
       .gpa-status-dot {
         display: inline-block; width: 6px; height: 6px; border-radius: 50%;
@@ -1518,8 +2767,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-status-dot.down { background: #ef4444; animation: gpa-status-pulse 1.4s ease-in-out infinite; }
       .gpa-status-dot.unset { background: #6b7280; }
       @keyframes gpa-status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-      #gpa-welcome-3d { width: 140px; height: 140px; flex-shrink: 0; border-radius: 12px; }
-      .gpa-welcome-news-text { font-size: 13px; line-height: 1.6; color: ${t.text}; white-space: pre-wrap; overflow-wrap: break-word; }
+      #gpa-welcome-3d { width: 140px; height: 140px; flex-shrink: 0; border-radius: calc(12px * var(--gpa-rs)); }
+      .gpa-welcome-news-text { font-size: 13px; line-height: 1.6; color: var(--gpa-text); white-space: pre-wrap; overflow-wrap: break-word; }
       /* A slow-drifting conic-gradient ring behind the greeting card, muted
          enough to read as ambient texture rather than a light show — and
          the existing reduced-motion override (top of this stylesheet)
@@ -1527,7 +2776,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-welcome-hero { position: relative; overflow: hidden; }
       .gpa-welcome-hero::before {
         content: ''; position: absolute; inset: -60%; z-index: 0; opacity: 0.14;
-        background: conic-gradient(from 0deg, ${t.accent}, transparent 30%, transparent 70%, ${t.accent});
+        background: conic-gradient(from 0deg, var(--gpa-accent), transparent 30%, transparent 70%, var(--gpa-accent));
         animation: gpa-hero-spin 14s linear infinite;
       }
       .gpa-welcome-hero > * { position: relative; z-index: 1; }
@@ -1562,11 +2811,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          fit when the container itself is the constraint. */
       .gpa-snapshot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr)); gap: 8px; }
       .gpa-snapshot-stat {
-        background: ${t.field}; border: 1px solid ${t.border}; border-radius: 10px;
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); border-radius: calc(10px * var(--gpa-rs));
         padding: 8px 10px;
       }
-      .gpa-snapshot-num { font-size: 16px; font-weight: 700; color: ${t.accent}; line-height: 1.2; }
-      .gpa-snapshot-label { font-size: 10.5px; color: ${t.sub}; margin-top: 2px; overflow-wrap: anywhere; }
+      .gpa-snapshot-num { font-size: 16px; font-weight: 700; color: var(--gpa-accent); line-height: 1.2; }
+      .gpa-snapshot-label { font-size: 10.5px; color: var(--gpa-sub); margin-top: 2px; overflow-wrap: anywhere; }
       /* Tone & insight gauges: a sequential (single-hue, magnitude) bar for
          formality/complexity, and a diverging (two-hue + neutral midpoint)
          bar for sentiment, since positive/negative is a polarity, not a
@@ -1578,72 +2827,72 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          the same reasoning the reserved status palette uses. */
       .gpa-gauge { margin-bottom: 12px; }
       .gpa-gauge:last-child { margin-bottom: 0; }
-      .gpa-gauge-label { display: flex; justify-content: space-between; font-size: 11.5px; color: ${t.sub}; margin-bottom: 4px; }
-      .gpa-gauge-value { color: ${t.text}; font-weight: 600; }
-      .gpa-gauge-track { position: relative; height: 8px; border-radius: 4px; background: ${t.field}; border: 1px solid ${t.border}; overflow: hidden; }
+      .gpa-gauge-label { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--gpa-sub); margin-bottom: 4px; }
+      .gpa-gauge-value { color: var(--gpa-text); font-weight: 600; }
+      .gpa-gauge-track { position: relative; height: 8px; border-radius: 4px; background: var(--gpa-field); border: 1px solid var(--gpa-border); overflow: hidden; }
       .gpa-gauge-fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), left 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-      .gpa-gauge-mid { position: absolute; top: -2px; bottom: -2px; left: 50%; width: 1px; background: ${t.sub}; opacity: 0.6; }
+      .gpa-gauge-mid { position: absolute; top: -2px; bottom: -2px; left: 50%; width: 1px; background: var(--gpa-sub); opacity: 0.6; }
       /* Explore further: clickable related-topic chips that feed straight
          into the existing question box below, rather than a separate flow. */
       .gpa-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
       .gpa-chip {
-        background: ${t.field}; border: 1px solid ${t.border}; border-radius: 999px;
-        padding: 6px 12px; font-size: 11.5px; color: ${t.text}; cursor: pointer;
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); border-radius: 999px;
+        padding: 6px 12px; font-size: 11.5px; color: var(--gpa-text); cursor: pointer;
         transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
       }
-      .gpa-chip:hover { border-color: ${t.accent}80; background: ${t.panel}; }
+      .gpa-chip:hover { border-color: color-mix(in srgb, var(--gpa-accent) 50%, transparent); background: var(--gpa-panel); }
       .gpa-chip:active { transform: scale(0.97); }
       .gpa-card {
-        background: ${t.panel}; border: 1px solid ${t.border}; border-radius: 14px;
-        padding: 14px; flex-shrink: 0;
+        background: var(--gpa-card-bg); border: 1px solid var(--gpa-border); border-radius: calc(14px * var(--gpa-rs));
+        padding: calc(14px * var(--gpa-dz)); flex-shrink: 0;
       }
       .gpa-card-title {
-        font-size: 12px; font-weight: 600; color: ${t.text}; margin-bottom: 10px;
+        font-size: 12px; font-weight: 600; color: var(--gpa-text); margin-bottom: 10px;
       }
       .gpa-input {
-        flex: 1; padding: 8px 11px; border-radius: 9px;
-        border: 1px solid ${t.border}; background: ${t.field}; color: ${t.text};
+        flex: 1; padding: calc(8px * var(--gpa-dz)) calc(11px * var(--gpa-dz)); border-radius: calc(9px * var(--gpa-rs));
+        border: 1px solid var(--gpa-border); background: var(--gpa-field); color: var(--gpa-text);
         font-size: 13px; outline: none;
         transition: border-color 0.15s ease, box-shadow 0.15s ease;
       }
-      .gpa-input:focus { border-color: ${t.accent}; box-shadow: 0 0 0 3px ${t.accent}2a; }
+      .gpa-input:focus { border-color: var(--gpa-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 16%, transparent); }
       .gpa-btn {
-        padding: 8px 13px; border: 1px solid ${t.border};
-        border-radius: 9px;
-        background: ${t.field}; color: ${t.text}; font-size: 12px; font-weight: 500;
+        padding: calc(8px * var(--gpa-dz)) calc(13px * var(--gpa-dz)); border: 1px solid var(--gpa-border);
+        border-radius: calc(9px * var(--gpa-rs));
+        background: var(--gpa-field); color: var(--gpa-text); font-size: 12px; font-weight: 500;
         cursor: pointer; white-space: nowrap;
         transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
       }
-      .gpa-btn:hover { border-color: ${t.accent}80; background: ${t.panel}; }
+      .gpa-btn:hover { border-color: color-mix(in srgb, var(--gpa-accent) 50%, transparent); background: var(--gpa-panel); }
       .gpa-btn:active { transform: scale(0.97); }
-      .gpa-btn:focus-visible { outline: 2px solid ${t.accent}; outline-offset: 1px; }
-      .gpa-btn.primary { background: ${t.accent}; color: ${t.accentFg}; border-color: ${t.accent}; }
-      .gpa-btn.primary:hover { box-shadow: 0 0 0 3px ${t.accent}33; }
+      .gpa-btn:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 1px; }
+      .gpa-btn.primary { background: var(--gpa-accent); color: var(--gpa-accent-fg); border-color: var(--gpa-accent); }
+      .gpa-btn.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
       .gpa-btn.danger { background: transparent; color: #e5453a; border-color: #e5453a55; }
       .gpa-btn.danger:hover { background: #e5453a1a; border-color: #e5453a; }
       /* A joined 3-way control (e.g. reasoning effort), not 3 loose buttons */
-      .gpa-segmented { display: flex; flex: 1; border: 1px solid ${t.border}; border-radius: 9px; overflow: hidden; }
+      .gpa-segmented { display: flex; flex: 1; border: 1px solid var(--gpa-border); border-radius: calc(9px * var(--gpa-rs)); overflow: hidden; }
       .gpa-segmented .gpa-btn {
         flex: 1; border: none; border-radius: 0; background: transparent;
-        border-right: 1px solid ${t.border};
+        border-right: 1px solid var(--gpa-border);
       }
       .gpa-segmented .gpa-btn:last-child { border-right: none; }
-      .gpa-segmented .gpa-btn:hover { background: ${t.field}; }
-      .gpa-segmented .gpa-btn.primary { background: ${t.accent}; color: ${t.accentFg}; }
-      .gpa-segmented .gpa-btn.primary:hover { background: ${t.accent}; }
+      .gpa-segmented .gpa-btn:hover { background: var(--gpa-field); }
+      .gpa-segmented .gpa-btn.primary { background: var(--gpa-accent); color: var(--gpa-accent-fg); }
+      .gpa-segmented .gpa-btn.primary:hover { background: var(--gpa-accent); }
       .gpa-segmented .gpa-btn:disabled { opacity: 0.4; }
       .quiz-btn {
         width: 100%; padding: 12px; font-size: 13px; font-weight: 600;
-        border: none; border-radius: 12px; cursor: pointer;
-        color: ${t.accentFg}; background: ${t.accent};
-        box-shadow: 0 4px 16px ${t.accent}40;
+        border: none; border-radius: calc(12px * var(--gpa-rs)); cursor: pointer;
+        color: var(--gpa-accent-fg); background: var(--gpa-accent);
+        box-shadow: 0 4px 16px color-mix(in srgb, var(--gpa-accent) 25%, transparent);
         transition: transform 0.1s ease, box-shadow 0.15s ease;
       }
-      .quiz-btn:hover { box-shadow: 0 6px 20px ${t.accent}55; }
+      .quiz-btn:hover { box-shadow: 0 6px 20px color-mix(in srgb, var(--gpa-accent) 33%, transparent); }
       .quiz-btn:active { transform: scale(0.98); }
       .quiz-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
       .gpa-sub {
-        color: ${t.sub}; font-size: 11.5px; flex: 1;
+        color: var(--gpa-sub); font-size: 11.5px; flex: 1;
       }
       .gpa-output {
         /* flex: 1 1 auto with a min-height — grows to fill whatever room the
@@ -1653,42 +2902,42 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
            of buttons above/below it are competing for space in a small
            panel. Content beyond the box's size scrolls inside it. */
         margin-top: 8px; flex: 1 1 auto; min-height: 100px; overflow-y: auto;
-        font-size: 13px; line-height: 1.6; white-space: pre-wrap;
+        font-size: var(--gpa-out-size, 13px); line-height: var(--gpa-out-lh, 1.6); white-space: pre-wrap;
         overflow-wrap: break-word; word-break: break-word;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
-        padding: 12px; background: ${t.field}; border-radius: 12px;
-        border: 1px solid ${t.border};
+        padding: 12px; background: var(--gpa-field); border-radius: calc(12px * var(--gpa-rs));
+        border: 1px solid var(--gpa-border);
       }
       .gpa-output:empty { display: none; }
       .gpa-error {
         display: flex; align-items: flex-start; gap: 8px;
         background: rgba(229, 69, 58, 0.1); border: 1px solid rgba(229, 69, 58, 0.35);
-        border-radius: 10px; padding: 10px 12px; color: ${t.text};
+        border-radius: calc(10px * var(--gpa-rs)); padding: 10px 12px; color: var(--gpa-text);
       }
       .gpa-error-icon { flex-shrink: 0; font-size: 14px; line-height: 1.4; }
       /* Small solid-fill status/count chips — square-ish, not decorative pills */
       .gpa-badge {
         display: inline-flex; align-items: center; justify-content: center;
-        font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px;
+        font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: calc(6px * var(--gpa-rs));
         font-variant-numeric: tabular-nums;
       }
       /* A real switch, replacing buttons whose label text used to flip ON/OFF */
       .gpa-toggle {
         display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
-        font-size: 12px; color: ${t.text}; background: transparent; border: none; padding: 0;
+        font-size: 12px; color: var(--gpa-text); background: transparent; border: none; padding: 0;
       }
       .gpa-toggle-track {
-        width: 34px; height: 20px; border-radius: 999px; background: ${t.field};
-        border: 1px solid ${t.border}; position: relative; flex-shrink: 0;
+        width: 34px; height: 20px; border-radius: 999px; background: var(--gpa-field);
+        border: 1px solid var(--gpa-border); position: relative; flex-shrink: 0;
         transition: background 0.15s ease, border-color 0.15s ease;
       }
       .gpa-toggle-thumb {
         position: absolute; top: 1px; left: 1px; width: 16px; height: 16px;
-        border-radius: 50%; background: ${t.sub};
+        border-radius: 50%; background: var(--gpa-sub);
         transition: transform 0.15s ease, background 0.15s ease;
       }
-      .gpa-toggle.on .gpa-toggle-track { background: ${t.accent}33; border-color: ${t.accent}; }
-      .gpa-toggle.on .gpa-toggle-thumb { transform: translateX(14px); background: ${t.accent}; }
+      .gpa-toggle.on .gpa-toggle-track { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); border-color: var(--gpa-accent); }
+      .gpa-toggle.on .gpa-toggle-thumb { transform: translateX(14px); background: var(--gpa-accent); }
       /* Lightweight non-blocking notifications, replacing window.alert() */
       .gpa-toast-wrap {
         position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
@@ -1697,8 +2946,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-toast {
         pointer-events: auto;
-        background: ${t.panel}; color: ${t.text}; border: 1px solid ${t.border};
-        border-radius: 10px; padding: 9px 14px; font-size: 12px; line-height: 1.4;
+        background: var(--gpa-panel); color: var(--gpa-text); border: 1px solid var(--gpa-border);
+        border-radius: calc(10px * var(--gpa-rs)); padding: 9px 14px; font-size: 12px; line-height: 1.4;
         box-shadow: 0 8px 24px rgba(0,0,0,0.35);
         animation: gpa-toast-in 0.18s ease both;
         max-width: 100%; overflow-wrap: break-word;
@@ -1710,14 +2959,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       /* Simple skeleton blocks, replacing plain "Thinking…"/"Loading…" text */
       .gpa-skeleton { display: flex; flex-direction: column; gap: 7px; padding: 2px 0; }
       .gpa-skeleton-line {
-        height: 11px; border-radius: 6px;
-        background: linear-gradient(90deg, ${t.field} 25%, ${t.border} 50%, ${t.field} 75%);
+        height: 11px; border-radius: calc(6px * var(--gpa-rs));
+        background: linear-gradient(90deg, var(--gpa-field) 25%, var(--gpa-border) 50%, var(--gpa-field) 75%);
         background-size: 200% 100%; animation: gpa-skeleton-sweep 1.3s ease-in-out infinite;
       }
       @keyframes gpa-skeleton-sweep { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
       .gpa-cursor {
         display: inline-block; width: 2px; height: 1em;
-        background: ${t.accent}; margin-left: 1px; vertical-align: text-bottom;
+        background: var(--gpa-accent); margin-left: 1px; vertical-align: text-bottom;
         animation: gpa-blink 0.85s steps(1) infinite;
       }
       @keyframes gpa-blink { 50% { opacity: 0; } }
@@ -1727,13 +2976,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-grid-cell {
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        gap: 3px; padding: 9px 4px; border-radius: 9px;
-        background: ${t.panel}; border: 1px solid ${t.border};
+        gap: 3px; padding: 9px 4px; border-radius: calc(9px * var(--gpa-rs));
+        background: var(--gpa-panel); border: 1px solid var(--gpa-border);
         animation: gpa-cell-in 0.3s ease both;
       }
-      .gpa-grid-q { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; color: ${t.sub}; }
+      .gpa-grid-q { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; color: var(--gpa-sub); }
       .gpa-grid-a {
-        font-size: 16px; font-weight: 800; color: ${t.accent};
+        font-size: 16px; font-weight: 800; color: var(--gpa-accent);
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       @keyframes gpa-cell-in {
@@ -1741,14 +2990,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         to { opacity: 1; transform: scale(1) translateY(0); }
       }
       .gpa-grid-conf {
-        font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 8px; margin-top: 1px;
+        font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: calc(8px * var(--gpa-rs)); margin-top: 1px;
       }
       .gpa-confidence-line { margin-top: 8px; }
       /* ---- Chat ---- */
       .gpa-chat-log {
         flex: 1; min-height: 120px; max-height: 320px; overflow-y: auto;
         display: flex; flex-direction: column; gap: 7px; padding: 12px;
-        background: ${t.panel}; border: 1px solid ${t.border}; border-radius: 14px;
+        background: var(--gpa-panel); border: 1px solid var(--gpa-border); border-radius: calc(14px * var(--gpa-rs));
       }
       .gpa-chat-msg { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; }
       .gpa-chat-msg .avatar {
@@ -1758,12 +3007,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-chat-msg .col { flex: 1; min-width: 0; }
       .gpa-chat-msg .head { display: flex; align-items: baseline; gap: 6px; }
-      .gpa-chat-msg .who { font-weight: 600; color: ${t.text}; }
-      .gpa-chat-msg.mine .who { color: ${t.accent}; }
+      .gpa-chat-msg .who { font-weight: 600; color: var(--gpa-text); }
+      .gpa-chat-msg.mine .who { color: var(--gpa-accent); }
       .gpa-chat-msg.owner .who::after { content: ' 👑'; }
-      .gpa-chat-msg .when { font-size: 10px; color: ${t.sub}; font-variant-numeric: tabular-nums; }
+      .gpa-chat-msg .when { font-size: 10px; color: var(--gpa-sub); font-variant-numeric: tabular-nums; }
       .gpa-chat-msg .body { line-height: 1.5; overflow-wrap: anywhere; }
-      .gpa-chat-empty { color: ${t.sub}; font-size: 12px; text-align: center; padding: 16px 0; }
+      .gpa-chat-empty { color: var(--gpa-sub); font-size: 12px; text-align: center; padding: 16px 0; }
       /* ---- Announcement modal ---- */
       .gpa-ann-backdrop {
         position: absolute; inset: 0; z-index: 2147482000; display: flex;
@@ -1771,16 +3020,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         background: rgba(0,0,0,0.72); backdrop-filter: blur(3px);
       }
       .gpa-ann-card {
-        max-width: 300px; width: 100%; background: ${t.panel};
-        border: 1px solid ${t.accent}; border-radius: 12px; padding: 16px;
+        max-width: 300px; width: 100%; background: var(--gpa-panel);
+        border: 1px solid var(--gpa-accent); border-radius: calc(12px * var(--gpa-rs)); padding: 16px;
         box-shadow: 0 14px 44px rgba(0,0,0,0.6); text-align: center;
       }
-      .gpa-ann-title { font: 700 14px/1.3 ui-monospace, monospace; color: ${t.accent}; margin-bottom: 8px; }
-      .gpa-ann-text { font: 12px/1.55 ui-monospace, monospace; color: ${t.text}; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .gpa-ann-title { font: 700 14px/1.3 ui-monospace, monospace; color: var(--gpa-accent); margin-bottom: 8px; }
+      .gpa-ann-text { font: 12px/1.55 ui-monospace, monospace; color: var(--gpa-text); white-space: pre-wrap; overflow-wrap: anywhere; }
       .gpa-ann-ok { margin-top: 14px; }
       /* "Answered by" attribution under every AI response */
       .gpa-model-badge {
-        margin-top: 6px; font-size: 9.5px; line-height: 1.4; color: ${t.sub};
+        margin-top: 6px; font-size: 9.5px; line-height: 1.4; color: var(--gpa-sub);
         opacity: 0.85; letter-spacing: 0.2px; word-break: break-word;
         font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
       }
@@ -1792,86 +3041,86 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-answer-grid.wide .gpa-grid-cell { align-items: flex-start; text-align: left; padding: 10px 12px; }
       .gpa-answer-grid.wide .gpa-grid-q { font-size: 11px; }
       .gpa-tutor-why, .gpa-tutor-sol, .gpa-tutor-concept, .gpa-tutor-pitfall, .gpa-tutor-cite {
-        font-size: 11px; line-height: 1.55; color: ${t.text}; word-break: break-word;
+        font-size: 11px; line-height: 1.55; color: var(--gpa-text); word-break: break-word;
       }
       .gpa-tutor-why b, .gpa-tutor-sol b, .gpa-tutor-concept b,
-      .gpa-tutor-pitfall b, .gpa-tutor-cite b { color: ${t.accent}; font-weight: 700; }
+      .gpa-tutor-pitfall b, .gpa-tutor-cite b { color: var(--gpa-accent); font-weight: 700; }
       .gpa-tutor-sol { white-space: pre-wrap; }
       .gpa-tutor-concept { margin-bottom: 2px; opacity: 0.95; }
       .gpa-tutor-pitfall { margin-top: 4px; opacity: 0.9; }
       .gpa-tutor-cite { margin-top: 5px; font-size: 10px; opacity: 0.85; }
-      .gpa-tutor-cite a { color: ${t.accent}; text-decoration: underline; text-underline-offset: 2px; }
+      .gpa-tutor-cite a { color: var(--gpa-accent); text-decoration: underline; text-underline-offset: 2px; }
       .gpa-tutor-cite .gpa-cite-plain { opacity: 0.8; }
       .gpa-tutor-pin, .gpa-tutor-card, .gpa-tutor-save { font-size: 10px; padding: 3px 8px; }
       .gpa-chat {
         flex: 1; min-height: 80px; overflow-y: auto; margin-bottom: 8px;
         display: flex; flex-direction: column; gap: 6px;
       }
-      .gpa-msg { padding: 8px 12px; border-radius: 14px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; }
-      .gpa-msg.user { background: ${t.accent}; color: ${t.accentFg}; align-self: flex-end; max-width: 85%; border-bottom-right-radius: 4px; font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-      .gpa-msg.ai { background: ${t.field}; border: 1px solid ${t.border}; align-self: flex-start; max-width: 90%; border-bottom-left-radius: 4px; font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace; }
+      .gpa-msg { padding: 8px 12px; border-radius: calc(14px * var(--gpa-rs)); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; }
+      .gpa-msg.user { background: var(--gpa-accent); color: var(--gpa-accent-fg); align-self: flex-end; max-width: 85%; border-bottom-right-radius: 4px; font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      .gpa-msg.ai { font-size: var(--gpa-out-size, 13px); line-height: var(--gpa-out-lh, 1.5); background: var(--gpa-field); border: 1px solid var(--gpa-border); align-self: flex-start; max-width: 90%; border-bottom-left-radius: 4px; font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace; }
       .gpa-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
       .gpa-swatch {
-        width: 56px; height: 34px; border-radius: 8px; border: 2px solid transparent;
+        width: 56px; height: 34px; border-radius: calc(8px * var(--gpa-rs)); border: 2px solid transparent;
         cursor: pointer; font-size: 9px; color: #fff; font-weight: 700;
       }
       .gpa-color-input {
-        width: 34px; height: 28px; padding: 0; border: 1px solid ${t.border};
-        border-radius: 6px; background: ${t.field}; cursor: pointer;
+        width: 34px; height: 28px; padding: 0; border: 1px solid var(--gpa-border);
+        border-radius: calc(6px * var(--gpa-rs)); background: var(--gpa-field); cursor: pointer;
       }
       .speed-btn, .font-btn, .particle-btn, .icon-btn, .size-btn, .look-btn, .colormode-btn { flex: 1; padding: 6px 4px; font-size: 11px; }
-      .speed-btn.primary, .font-btn.primary, .particle-btn.primary, .icon-btn.primary, .size-btn.primary, .look-btn.primary, .colormode-btn.primary { background: ${t.accent}; color: #fff; border-color: ${t.accent}; }
+      .speed-btn.primary, .font-btn.primary, .particle-btn.primary, .icon-btn.primary, .size-btn.primary, .look-btn.primary, .colormode-btn.primary { background: var(--gpa-accent); color: #fff; border-color: var(--gpa-accent); }
       .gpa-range {
         width: 100%; -webkit-appearance: none; appearance: none;
-        height: 4px; border-radius: 2px; background: ${t.border}; outline: none;
+        height: 4px; border-radius: 2px; background: var(--gpa-border); outline: none;
       }
       .gpa-range::-webkit-slider-thumb {
         -webkit-appearance: none; appearance: none;
         width: 14px; height: 14px; border-radius: 50%;
-        background: ${t.accent}; cursor: pointer; border: 2px solid ${t.panel};
-        box-shadow: 0 0 0 2px ${t.accent}55;
+        background: var(--gpa-accent); cursor: pointer; border: 2px solid var(--gpa-panel);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--gpa-accent) 33%, transparent);
       }
       .gpa-range::-moz-range-thumb {
-        width: 14px; height: 14px; border-radius: 50%; border: 2px solid ${t.panel};
-        background: ${t.accent}; cursor: pointer;
+        width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--gpa-panel);
+        background: var(--gpa-accent); cursor: pointer;
       }
       .gpa-font-system .gpa-output, .gpa-font-system .gpa-msg.ai {
         font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
       }
-      .gpa-mini {
+      :is(.gpa-mini, .gps-mini) {
         position: relative;
         width: 40px; height: 40px; border-radius: 50%;
-        background: radial-gradient(circle at 35% 30%, ${t.accent}, ${t.bg} 78%);
+        background: radial-gradient(circle at 35% 30%, var(--gpa-accent), var(--gpa-bg) 78%);
         color: #fff; display: flex;
         align-items: center; justify-content: center; font-size: 16px;
         font-weight: 800; cursor: grab; overflow: visible;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
-        box-shadow: 0 0 14px 2px ${t.accent}88, 0 8px 20px rgba(0,0,0,0.45);
+        box-shadow: 0 0 14px 2px color-mix(in srgb, var(--gpa-accent) 53%, transparent), 0 8px 20px rgba(0,0,0,0.45);
         animation: gpa-orb-pulse 2.4s ease-in-out infinite;
       }
-      .gpa-mini::before {
+      :is(.gpa-mini, .gps-mini)::before {
         content: ''; position: absolute; inset: -6px; border-radius: 50%;
-        border: 2px solid transparent; border-top-color: ${t.accent}; border-right-color: ${t.accent}66;
+        border: 2px solid transparent; border-top-color: var(--gpa-accent); border-right-color: color-mix(in srgb, var(--gpa-accent) 40%, transparent);
         animation: gpa-orb-spin 3s linear infinite;
       }
-      .gpa-mini::after {
+      :is(.gpa-mini, .gps-mini)::after {
         content: ''; position: absolute; inset: -12px; border-radius: 50%;
-        border: 1px dashed ${t.accent}55;
+        border: 1px dashed color-mix(in srgb, var(--gpa-accent) 33%, transparent);
         animation: gpa-orb-spin-rev 7s linear infinite;
       }
-      .gpa-mini svg { width: 18px; height: 18px; fill: #fff; position: relative; z-index: 1; }
+      :is(.gpa-mini, .gps-mini) svg { width: 18px; height: 18px; fill: #fff; position: relative; z-index: 1; }
       @keyframes gpa-orb-pulse {
-        0%, 100% { box-shadow: 0 0 14px 2px ${t.accent}88, 0 8px 20px rgba(0,0,0,0.45); }
-        50% { box-shadow: 0 0 24px 6px ${t.accent}cc, 0 8px 24px rgba(0,0,0,0.5); }
+        0%, 100% { box-shadow: 0 0 14px 2px color-mix(in srgb, var(--gpa-accent) 53%, transparent), 0 8px 20px rgba(0,0,0,0.45); }
+        50% { box-shadow: 0 0 24px 6px color-mix(in srgb, var(--gpa-accent) 80%, transparent), 0 8px 24px rgba(0,0,0,0.5); }
       }
       @keyframes gpa-orb-spin { to { transform: rotate(360deg); } }
       @keyframes gpa-orb-spin-rev { to { transform: rotate(-360deg); } }
-      .gpa-mini.gpa-mini-minimal {
+      :is(.gpa-mini, .gps-mini).gpa-mini-minimal {
         animation: gpa-mini-soft-pulse 3.6s ease-in-out infinite;
         box-shadow: 0 4px 14px rgba(0,0,0,0.3);
       }
-      .gpa-mini.gpa-mini-minimal::before,
-      .gpa-mini.gpa-mini-minimal::after { display: none; }
+      :is(.gpa-mini, .gps-mini).gpa-mini-minimal::before,
+      :is(.gpa-mini, .gps-mini).gpa-mini-minimal::after { display: none; }
       @keyframes gpa-mini-soft-pulse {
         0%, 100% { opacity: 0.92; }
         50% { opacity: 1; }
@@ -1881,31 +3130,31 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       #gpa-thumb {
         display: none; width: 34px; height: 34px; object-fit: cover;
-        border-radius: 6px; border: 1px solid ${t.border}; flex-shrink: 0;
+        border-radius: calc(6px * var(--gpa-rs)); border: 1px solid var(--gpa-border); flex-shrink: 0;
       }
       #gpa-thumb.show { display: block; }
       .gpa-iframe {
-        flex: 1; width: 100%; min-height: 120px; border-radius: 8px;
-        border: 1px solid ${t.border}; background: #000;
+        flex: 1; width: 100%; min-height: 120px; border-radius: calc(8px * var(--gpa-rs));
+        border: 1px solid var(--gpa-border); background: #000;
       }
       .gpa-sc-wrap { flex: 1; overflow-y: auto; }
-      .gpa-sc-frame { width: 100%; height: 166px; border: 0; border-radius: 8px; }
+      .gpa-sc-frame { width: 100%; height: 166px; border: 0; border-radius: calc(8px * var(--gpa-rs)); }
       .gpa-local-playlist { max-height: 120px; overflow-y: auto; margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
       .gpa-local-track {
         display: flex; align-items: center; gap: 6px; padding: 6px 8px;
-        background: ${t.field}; border: 1px solid ${t.border}; border-radius: 6px;
-        cursor: pointer; font-size: 11px; color: ${t.text};
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); border-radius: calc(6px * var(--gpa-rs));
+        cursor: pointer; font-size: 11px; color: var(--gpa-text);
       }
-      .gpa-local-track:hover { border-color: ${t.accent}; }
-      .gpa-local-track.playing { border-color: ${t.accent}; background: ${t.accent}18; color: ${t.accent}; }
+      .gpa-local-track:hover { border-color: var(--gpa-accent); }
+      .gpa-local-track.playing { border-color: var(--gpa-accent); background: color-mix(in srgb, var(--gpa-accent) 9%, transparent); color: var(--gpa-accent); }
       .gpa-local-track-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .gpa-local-track-badge { flex-shrink: 0; margin-right: 5px; opacity: 0.75; font-size: 10px; }
       .gpa-local-track.gpa-track-unavailable { opacity: 0.45; cursor: not-allowed; }
-      .gpa-local-track.gpa-track-unavailable:hover { border-color: ${t.border}; }
+      .gpa-local-track.gpa-track-unavailable:hover { border-color: var(--gpa-border); }
       .gpa-local-track-remove { flex-shrink: 0; opacity: 0.6; cursor: pointer; padding: 0 4px; }
       .gpa-local-track-remove:hover { opacity: 1; color: #e5453a; }
-      .gpa-local-player { margin-top: 10px; padding-top: 8px; border-top: 1px solid ${t.border}; }
-      #gpa-local-nowplaying { text-align: center; margin-bottom: 6px; font-weight: 700; color: ${t.accent}; }
+      .gpa-local-player { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--gpa-border); }
+      #gpa-local-nowplaying { text-align: center; margin-bottom: 6px; font-weight: 700; color: var(--gpa-accent); }
       .game-btn { flex: 1 1 auto; min-width: 64px; font-size: 9.5px; }
       .gpa-game-stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
       .gpa-game-viewport {
@@ -1923,25 +3172,25 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-game-timer {
         position: absolute; top: 4px; right: 6px; z-index: 8;
         padding: 3px 8px; border-radius: 3px; pointer-events: none;
-        background: ${t.field}cc; border: 1px solid ${t.accent}66; color: ${t.accent};
+        background: color-mix(in srgb, var(--gpa-field) 80%, transparent); border: 1px solid color-mix(in srgb, var(--gpa-accent) 40%, transparent); color: var(--gpa-accent);
         font-size: 11px; font-weight: 800; letter-spacing: 0.8px;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .gpa-pause-menu {
         position: absolute; inset: 0; z-index: 10;
-        background: ${t.bg}e8; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+        background: color-mix(in srgb, var(--gpa-bg) 91%, transparent); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
         display: flex; align-items: center; justify-content: center; padding: 10px;
         animation: gpa-pane-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
       }
       .gpa-pause-card {
         width: 100%; max-width: 340px; padding: 18px;
-        background: ${t.panel}; border: 1px solid ${t.border};
-        border-radius: 16px;
+        background: var(--gpa-panel); border: 1px solid var(--gpa-border);
+        border-radius: calc(16px * var(--gpa-rs));
         box-shadow: 0 10px 34px rgba(0,0,0,0.35);
       }
       .gpa-pause-title {
         text-align: center; font-size: 14px; font-weight: 600;
-        color: ${t.text}; margin-bottom: 12px;
+        color: var(--gpa-text); margin-bottom: 12px;
       }
       /* Collapsed: the panel is just a backdrop for the round button. */
       .gpa-panel.gpa-minimized {
@@ -1968,21 +3217,21 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-mini.gpa-mini-locked::after { display: none !important; }
       .gpa-login {
         position: absolute; inset: 0; z-index: 40;
-        background: ${t.bg};
+        background: var(--gpa-bg);
         display: flex; align-items: center; justify-content: center; padding: 16px;
         overflow-y: auto; overscroll-behavior: contain;
-        scrollbar-width: thin; scrollbar-color: ${t.border} transparent;
+        scrollbar-width: thin; scrollbar-color: var(--gpa-border) transparent;
       }
       .gpa-login::-webkit-scrollbar { width: 8px; }
       .gpa-login::-webkit-scrollbar-track { background: transparent; }
       .gpa-login::-webkit-scrollbar-thumb {
-        background: ${t.border}; border-radius: 99px;
-        border: 2px solid ${t.bg}; background-clip: padding-box;
+        background: var(--gpa-border); border-radius: 99px;
+        border: 2px solid var(--gpa-bg); background-clip: padding-box;
       }
       .gpa-login-card { margin: auto 0; }
       .gpa-login-card {
-        width: 100%; max-width: 320px; background: ${t.panel};
-        border: 1px solid ${t.border}; border-radius: 16px; padding: 24px 20px;
+        width: 100%; max-width: 320px; background: var(--gpa-panel);
+        border: 1px solid var(--gpa-border); border-radius: calc(16px * var(--gpa-rs)); padding: 24px 20px;
         box-shadow: 0 12px 34px rgba(0,0,0,0.3);
       }
       .gpa-login-brand { display: flex; align-items: center; gap: 12px; cursor: grab; }
@@ -1992,57 +3241,57 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-login-winbtns { display: flex; gap: 4px; flex-shrink: 0; }
       .gpa-login-winbtn {
         width: 22px; height: 22px; border: 1px solid transparent; background: transparent;
-        color: ${t.sub}; border-radius: 7px; cursor: pointer; line-height: 1;
+        color: var(--gpa-sub); border-radius: calc(7px * var(--gpa-rs)); cursor: pointer; line-height: 1;
         font-size: 13px; display: flex; align-items: center; justify-content: center;
         transition: background 0.15s ease, color 0.15s ease;
       }
-      .gpa-login-winbtn:hover { background: ${t.field}; color: ${t.text}; }
+      .gpa-login-winbtn:hover { background: var(--gpa-field); color: var(--gpa-text); }
       #gpa-login-close:hover { background: #e5453a; color: #fff; }
       .gpa-login-logo {
-        width: 36px; height: 36px; flex-shrink: 0; background: ${t.accent}; color: ${t.accentFg};
+        width: 36px; height: 36px; flex-shrink: 0; background: var(--gpa-accent); color: var(--gpa-accent-fg);
         display: flex; align-items: center; justify-content: center;
-        font-size: 16px; font-weight: 600; border-radius: 10px;
+        font-size: 16px; font-weight: 600; border-radius: calc(10px * var(--gpa-rs));
         border: none; padding: 0; cursor: pointer;
         transition: transform 0.1s ease, box-shadow 0.15s ease;
       }
-      .gpa-login-logo:hover { box-shadow: 0 0 0 3px ${t.accent}33; }
+      .gpa-login-logo:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
       .gpa-login-logo:active { transform: scale(0.94); }
-      .gpa-login-company { font-size: 15px; font-weight: 600; color: ${t.text}; line-height: 1.2; }
-      .gpa-login-dept { font-size: 11px; color: ${t.sub}; margin-top: 2px; }
-      .gpa-login-divider { height: 1px; background: ${t.border}; margin: 16px 0; }
-      .gpa-login-heading { font-size: 13px; font-weight: 600; color: ${t.text}; margin-bottom: 14px; }
+      .gpa-login-company { font-size: 15px; font-weight: 600; color: var(--gpa-text); line-height: 1.2; }
+      .gpa-login-dept { font-size: 11px; color: var(--gpa-sub); margin-top: 2px; }
+      .gpa-login-divider { height: 1px; background: var(--gpa-border); margin: 16px 0; }
+      .gpa-login-heading { font-size: 13px; font-weight: 600; color: var(--gpa-text); margin-bottom: 14px; }
       .gpa-login-label {
-        display: block; font-size: 11px; color: ${t.sub}; margin-bottom: 5px; font-weight: 500;
+        display: block; font-size: 11px; color: var(--gpa-sub); margin-bottom: 5px; font-weight: 500;
       }
       .gpa-login-input {
         width: 100%; padding: 8px 11px; margin-bottom: 14px;
-        border: 1px solid ${t.border}; border-radius: 9px; background: ${t.field};
-        font-size: 13px; color: ${t.text}; outline: none;
+        border: 1px solid var(--gpa-border); border-radius: calc(9px * var(--gpa-rs)); background: var(--gpa-field);
+        font-size: 13px; color: var(--gpa-text); outline: none;
         transition: border-color 0.15s ease, box-shadow 0.15s ease;
       }
-      .gpa-login-input:focus { border-color: ${t.accent}; box-shadow: 0 0 0 3px ${t.accent}2a; }
+      .gpa-login-input:focus { border-color: var(--gpa-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 16%, transparent); }
       .gpa-login-primary {
-        width: 100%; padding: 9px; background: ${t.accent}; color: ${t.accentFg};
-        border: none; border-radius: 9px; cursor: pointer;
+        width: 100%; padding: 9px; background: var(--gpa-accent); color: var(--gpa-accent-fg);
+        border: none; border-radius: calc(9px * var(--gpa-rs)); cursor: pointer;
         font-size: 13px; font-weight: 600;
         transition: box-shadow 0.15s ease, transform 0.1s ease;
       }
-      .gpa-login-primary:hover { box-shadow: 0 0 0 3px ${t.accent}33; }
+      .gpa-login-primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
       .gpa-login-primary:active { transform: scale(0.98); }
-      .gpa-login-msg { font-size: 11px; min-height: 14px; margin-bottom: 6px; color: ${t.accent}; }
+      .gpa-login-msg { font-size: 11px; min-height: 14px; margin-bottom: 6px; color: var(--gpa-accent); }
       .gpa-login-msg.error { color: #e5453a; }
       .gpa-login-actions { margin-top: 12px; text-align: center; }
       .gpa-login-link {
         background: none; border: none; padding: 0; cursor: pointer;
-        color: ${t.accent}; font-size: 11px; text-decoration: underline;
+        color: var(--gpa-accent); font-size: 11px; text-decoration: underline;
         text-underline-offset: 2px;
       }
-      .gpa-login-sep { color: ${t.border}; font-size: 11px; margin: 0 6px; }
+      .gpa-login-sep { color: var(--gpa-border); font-size: 11px; margin: 0 6px; }
       .gpa-login-footer {
-        margin-top: 18px; padding-top: 14px; border-top: 1px solid ${t.border};
-        font-size: 10.5px; color: ${t.sub}; line-height: 1.5;
+        margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--gpa-border);
+        font-size: 10.5px; color: var(--gpa-sub); line-height: 1.5;
       }
-      .gpa-login-legal { color: ${t.sub}; }
+      .gpa-login-legal { color: var(--gpa-sub); }
       /* First-run language picker: sits inside the console, centered over
          whatever pane is behind it, above the login overlay (z-index 40). */
       .gpa-langpick {
@@ -2053,8 +3302,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       @keyframes gpa-langpick-fade { from { opacity: 0; } to { opacity: 1; } }
       .gpa-langpick-card {
-        width: 100%; max-width: 300px; background: ${t.panel};
-        border: 1px solid ${t.accent}; border-radius: 16px; padding: 22px 20px;
+        width: 100%; max-width: 300px; background: var(--gpa-panel);
+        border: 1px solid var(--gpa-accent); border-radius: calc(16px * var(--gpa-rs)); padding: 22px 20px;
         box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
         text-align: center;
         animation: gpa-langpick-pop 0.18s ease-out;
@@ -2064,39 +3313,39 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         to { opacity: 1; transform: scale(1) translateY(0); }
       }
       .gpa-langpick-glyph { font-size: 22px; line-height: 1; margin-bottom: 10px; }
-      .gpa-langpick-title { font-size: 14px; font-weight: 600; color: ${t.text}; }
-      .gpa-langpick-sub { font-size: 11.5px; color: ${t.sub}; margin-top: 3px; }
+      .gpa-langpick-title { font-size: 14px; font-weight: 600; color: var(--gpa-text); }
+      .gpa-langpick-sub { font-size: 11.5px; color: var(--gpa-sub); margin-top: 3px; }
       .gpa-langpick-who {
-        font-size: 10.5px; color: ${t.accent}; margin-top: 8px;
+        font-size: 10.5px; color: var(--gpa-accent); margin-top: 8px;
         letter-spacing: 0.3px;
       }
       .gpa-langpick-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
       .gpa-langpick-opt {
-        width: 100%; padding: 10px 12px; border-radius: 9px;
-        background: ${t.field}; border: 1px solid ${t.border}; color: ${t.text};
+        width: 100%; padding: 10px 12px; border-radius: calc(9px * var(--gpa-rs));
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); color: var(--gpa-text);
         font-family: inherit; font-size: 12.5px; cursor: pointer;
       }
-      .gpa-langpick-opt:hover { border-color: ${t.accent}; box-shadow: 0 0 0 3px ${t.accent}22; }
+      .gpa-langpick-opt:hover { border-color: var(--gpa-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 13%, transparent); }
       .gpa-langpick-opt:active { transform: scale(0.98); }
-      .gpa-langpick-opt.current { border-color: ${t.accent}; color: ${t.accent}; }
+      .gpa-langpick-opt.current { border-color: var(--gpa-accent); color: var(--gpa-accent); }
       .gpa-langpick-note {
-        margin-top: 14px; padding-top: 12px; border-top: 1px solid ${t.border};
-        font-size: 10px; line-height: 1.5; color: ${t.sub};
+        margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--gpa-border);
+        font-size: 10px; line-height: 1.5; color: var(--gpa-sub);
       }
       .gpa-sync-box {
         width: 100%; min-height: 54px; margin-top: 6px; padding: 7px;
-        background: ${t.field}; border: 1px solid ${t.border}; border-radius: 5px;
-        color: ${t.text}; font-size: 9.5px; resize: vertical; outline: none;
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); border-radius: 5px;
+        color: var(--gpa-text); font-size: 9.5px; resize: vertical; outline: none;
         word-break: break-all;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
-      .gpa-sync-box:focus { border-color: ${t.accent}; }
+      .gpa-sync-box:focus { border-color: var(--gpa-accent); }
       /* ---- Admin console ---- */
-      .gpa-admin-title { font-weight: 700; color: ${t.accent}; }
+      .gpa-admin-title { font-weight: 700; color: var(--gpa-accent); }
       .gpa-admin-note {
-        font-size: 10px; line-height: 1.5; color: ${t.sub}; margin: 8px 0;
-        padding: 7px 9px; background: ${t.field}; border: 1px solid ${t.border};
-        border-radius: 6px;
+        font-size: 10px; line-height: 1.5; color: var(--gpa-sub); margin: 8px 0;
+        padding: 7px 9px; background: var(--gpa-field); border: 1px solid var(--gpa-border);
+        border-radius: calc(6px * var(--gpa-rs));
       }
       .gpa-admin-tabs { display: flex; gap: 5px; margin: 10px 0 8px; flex-wrap: wrap; }
       .gpa-admin-tab { font-size: 10px; padding: 4px 9px; }
@@ -2104,36 +3353,36 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-admin-pane.active { display: block; }
       .gpa-admin-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
       .gpa-admin-statcard {
-        padding: 8px 10px; background: ${t.field}; border: 1px solid ${t.border};
-        border-radius: 7px; text-align: center;
+        padding: 8px 10px; background: var(--gpa-field); border: 1px solid var(--gpa-border);
+        border-radius: calc(7px * var(--gpa-rs)); text-align: center;
       }
-      .gpa-admin-statcard .n { font-size: 18px; font-weight: 800; color: ${t.accent}; display: block; }
-      .gpa-admin-statcard .l { font-size: 9px; color: ${t.sub}; margin-top: 2px; }
+      .gpa-admin-statcard .n { font-size: 18px; font-weight: 800; color: var(--gpa-accent); display: block; }
+      .gpa-admin-statcard .l { font-size: 9px; color: var(--gpa-sub); margin-top: 2px; }
       .gpa-admin-users, .gpa-admin-log, .gpa-admin-ls {
         max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
       }
       .gpa-admin-userrow, .gpa-admin-logrow {
         display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
-        padding: 5px 8px; background: ${t.field}; border: 1px solid ${t.border};
+        padding: 5px 8px; background: var(--gpa-field); border: 1px solid var(--gpa-border);
         border-radius: 5px; font-size: 10px;
         font-family: 'JetBrains Mono', ui-monospace, monospace;
       }
-      .gpa-admin-userrow b { color: ${t.accent}; font-weight: 700; }
-      .gpa-admin-logrow .t { color: ${t.sub}; white-space: nowrap; }
+      .gpa-admin-userrow b { color: var(--gpa-accent); font-weight: 700; }
+      .gpa-admin-logrow .t { color: var(--gpa-sub); white-space: nowrap; }
       .gpa-admin-logrow .ev { flex: 1; overflow-wrap: anywhere; }
       .gpa-admin-ls-row { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px;
-        background: ${t.field}; border: 1px solid ${t.border}; border-radius: 5px; }
-      .gpa-admin-ls-row .k { font-size: 9.5px; color: ${t.accent}; font-weight: 700; overflow-wrap: anywhere; }
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); border-radius: 5px; }
+      .gpa-admin-ls-row .k { font-size: 9.5px; color: var(--gpa-accent); font-weight: 700; overflow-wrap: anywhere; }
       .gpa-admin-ls-row textarea {
-        width: 100%; min-height: 34px; background: ${t.panel}; color: ${t.text};
-        border: 1px solid ${t.border}; border-radius: 4px; font-size: 9px; padding: 4px;
+        width: 100%; min-height: 34px; background: var(--gpa-panel); color: var(--gpa-text);
+        border: 1px solid var(--gpa-border); border-radius: 4px; font-size: 9px; padding: 4px;
         font-family: 'JetBrains Mono', ui-monospace, monospace; resize: vertical;
       }
       .gpa-admin-ls-row .gpa-btn { align-self: flex-end; font-size: 9px; padding: 2px 7px; }
       .gpa-pause-stats { display: flex; flex-direction: column; gap: 5px; }
       .gpa-pause-stat {
         display: flex; justify-content: space-between; align-items: center; gap: 10px;
-        padding: 5px 8px; background: ${t.field}; border: 1px solid ${t.border}; border-radius: 5px;
+        padding: 5px 8px; background: var(--gpa-field); border: 1px solid var(--gpa-border); border-radius: 5px;
         font-size: 11px;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
@@ -2141,31 +3390,31 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-pause-options:empty { display: none; }
       .gpa-pause-optrow {
         display: flex; justify-content: space-between; align-items: center; gap: 8px;
-        padding: 4px 8px; background: ${t.field}; border: 1px solid ${t.border}; border-radius: 5px;
+        padding: 4px 8px; background: var(--gpa-field); border: 1px solid var(--gpa-border); border-radius: 5px;
       }
       .gpa-pause-optlabel {
-        color: ${t.sub}; text-transform: uppercase; letter-spacing: 0.5px; font-size: 9.5px;
+        color: var(--gpa-sub); text-transform: uppercase; letter-spacing: 0.5px; font-size: 9.5px;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .gpa-pause-optselect {
-        background: ${t.panel}; color: ${t.accent}; border: 1px solid ${t.accent}55;
+        background: var(--gpa-panel); color: var(--gpa-accent); border: 1px solid color-mix(in srgb, var(--gpa-accent) 33%, transparent);
         border-radius: 4px; font-size: 10px; font-weight: 700; padding: 3px 5px;
         cursor: pointer; outline: none; max-width: 110px;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .gpa-pause-optbtn {
-        background: ${t.panel}; color: ${t.accent}; border: 1px solid ${t.accent}55;
+        background: var(--gpa-panel); color: var(--gpa-accent); border: 1px solid color-mix(in srgb, var(--gpa-accent) 33%, transparent);
         border-radius: 4px; font-size: 10px; font-weight: 700; padding: 3px 9px; cursor: pointer;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
-      .gpa-pause-stat-label { color: ${t.sub}; text-transform: uppercase; letter-spacing: 0.5px; font-size: 9.5px; }
-      .gpa-pause-stat-value { color: ${t.accent}; font-weight: 800; }
+      .gpa-pause-stat-label { color: var(--gpa-sub); text-transform: uppercase; letter-spacing: 0.5px; font-size: 9.5px; }
+      .gpa-pause-stat-value { color: var(--gpa-accent); font-weight: 800; }
       /* Fullscreen: the stage becomes the whole screen, game centered on it.
          Scaling itself is handled in JS by fitGameToStage() so mouse
          coordinates stay correct (a fixed CSS scale would break them). */
       .gpa-game-stage:fullscreen,
       .gpa-game-stage:-webkit-full-screen {
-        background: ${t.bg}; padding: 20px;
+        background: var(--gpa-bg); padding: 20px;
       }
       .gpa-game-stage:fullscreen .gpa-game-viewport,
       .gpa-game-stage:-webkit-full-screen .gpa-game-viewport {
@@ -2183,50 +3432,50 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-panel:-webkit-full-screen {
         width: 100% !important; height: 100% !important;
         border-radius: 0; border: none;
-        background: ${t.bg};
+        background: var(--gpa-bg);
       }
       .gpa-game-status {
-        font-size: 12px; font-weight: 700; color: ${t.text}; text-align: center;
+        font-size: 12px; font-weight: 700; color: var(--gpa-text); text-align: center;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .ttt-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; width: 180px; }
       .ttt-cell {
         aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-        font-size: 26px; font-weight: 800; color: ${t.accent}; cursor: pointer;
-        background: ${t.field}; border: 1px solid ${t.accent}44; border-radius: 6px;
+        font-size: 26px; font-weight: 800; color: var(--gpa-accent); cursor: pointer;
+        background: var(--gpa-field); border: 1px solid color-mix(in srgb, var(--gpa-accent) 27%, transparent); border-radius: calc(6px * var(--gpa-rs));
       }
-      .ttt-cell:hover { border-color: ${t.accent}; }
+      .ttt-cell:hover { border-color: var(--gpa-accent); }
       .rps-row { display: flex; gap: 10px; }
       .rps-btn {
         font-size: 26px; width: 52px; height: 52px; border-radius: 50%;
-        background: ${t.field}; border: 1px solid ${t.accent}55; cursor: pointer;
+        background: var(--gpa-field); border: 1px solid color-mix(in srgb, var(--gpa-accent) 33%, transparent); cursor: pointer;
       }
-      .rps-btn:hover { border-color: ${t.accent}; box-shadow: 0 0 10px ${t.accent}55; }
+      .rps-btn:hover { border-color: var(--gpa-accent); box-shadow: 0 0 10px color-mix(in srgb, var(--gpa-accent) 33%, transparent); }
       .memory-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; width: 220px; }
       .memory-card {
         aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-        font-size: 20px; background: ${t.field}; border: 1px solid ${t.accent}44;
-        border-radius: 6px; cursor: pointer; user-select: none;
+        font-size: 20px; background: var(--gpa-field); border: 1px solid color-mix(in srgb, var(--gpa-accent) 27%, transparent);
+        border-radius: calc(6px * var(--gpa-rs)); cursor: pointer; user-select: none;
       }
-      .memory-card.flipped, .memory-card.matched { background: ${t.accent}22; border-color: ${t.accent}; }
+      .memory-card.flipped, .memory-card.matched { background: color-mix(in srgb, var(--gpa-accent) 13%, transparent); border-color: var(--gpa-accent); }
       .memory-card.matched { opacity: 0.55; cursor: default; }
-      .game-canvas { border: 1px solid ${t.accent}55; border-radius: 6px; background: ${t.bg}; }
+      .game-canvas { border: 1px solid color-mix(in srgb, var(--gpa-accent) 33%, transparent); border-radius: calc(6px * var(--gpa-rs)); background: var(--gpa-bg); }
       .g2048-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; width: 220px; }
       .g2048-cell {
         aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-        font-size: 15px; font-weight: 800; border-radius: 5px; background: ${t.field};
-        color: ${t.text};
+        font-size: 15px; font-weight: 800; border-radius: 5px; background: var(--gpa-field);
+        color: var(--gpa-text);
       }
       .whack-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 200px; }
       .whack-hole {
-        aspect-ratio: 1; border-radius: 50%; background: ${t.field};
-        border: 1px solid ${t.accent}44; cursor: pointer;
+        aspect-ratio: 1; border-radius: 50%; background: var(--gpa-field);
+        border: 1px solid color-mix(in srgb, var(--gpa-accent) 27%, transparent); cursor: pointer;
         display: flex; align-items: center; justify-content: center; font-size: 22px;
       }
-      .whack-hole.up { background: ${t.accent}33; border-color: ${t.accent}; }
+      .whack-hole.up { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); border-color: var(--gpa-accent); }
       .hangman-letters { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; width: 230px; }
       .hangman-letter {
-        font-size: 10px; padding: 5px 0; background: ${t.field}; border: 1px solid ${t.accent}44;
+        font-size: 10px; padding: 5px 0; background: var(--gpa-field); border: 1px solid color-mix(in srgb, var(--gpa-accent) 27%, transparent);
         border-radius: 4px; cursor: pointer; text-align: center;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
@@ -2234,30 +3483,30 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .hangman-word {
         font-size: 22px; letter-spacing: 5px; font-weight: 800;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
-        color: ${t.accent};
+        color: var(--gpa-accent);
       }
       .wordle-grid { display: flex; flex-direction: column; gap: 5px; margin: 6px 0; }
       .wordle-row { display: flex; gap: 5px; }
       .wordle-tile {
         width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
-        font-weight: 800; font-size: 16px; border: 1px solid ${t.accent}44; border-radius: 4px;
-        background: ${t.field}; color: ${t.text};
+        font-weight: 800; font-size: 16px; border: 1px solid color-mix(in srgb, var(--gpa-accent) 27%, transparent); border-radius: 4px;
+        background: var(--gpa-field); color: var(--gpa-text);
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .wordle-tile.correct { background: #22c55e; border-color: #22c55e; color: #fff; }
       .wordle-tile.present { background: #eab308; border-color: #eab308; color: #111; }
-      .wordle-tile.absent { background: ${t.border}; border-color: ${t.border}; color: ${t.sub}; }
-      .c4-board { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; width: 238px; background: ${t.field}; padding: 6px; border-radius: 6px; }
-      .c4-cell { aspect-ratio: 1; border-radius: 50%; background: ${t.panel}; border: 1px solid ${t.accent}33; cursor: pointer; }
+      .wordle-tile.absent { background: var(--gpa-border); border-color: var(--gpa-border); color: var(--gpa-sub); }
+      .c4-board { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; width: 238px; background: var(--gpa-field); padding: 6px; border-radius: calc(6px * var(--gpa-rs)); }
+      .c4-cell { aspect-ratio: 1; border-radius: 50%; background: var(--gpa-panel); border: 1px solid color-mix(in srgb, var(--gpa-accent) 20%, transparent); cursor: pointer; }
       .c4-cell.c4-red { background: #e5453a; border-color: #e5453a; }
       .c4-cell.c4-yellow { background: #f5c518; border-color: #f5c518; }
       .mine-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; width: 216px; }
       .mine-cell {
         aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-        font-size: 11px; font-weight: 800; background: ${t.field}; border: 1px solid ${t.accent}33;
+        font-size: 11px; font-weight: 800; background: var(--gpa-field); border: 1px solid color-mix(in srgb, var(--gpa-accent) 20%, transparent);
         cursor: pointer; border-radius: 2px; user-select: none;
       }
-      .mine-cell.revealed { background: ${t.panel}; cursor: default; }
+      .mine-cell.revealed { background: var(--gpa-panel); cursor: default; }
       .mine-cell.mine { background: #e5453a55; }
       .mine-cell.n1 { color: #4da3ff; }
       .mine-cell.n2 { color: #22c55e; }
@@ -2265,54 +3514,54 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .mine-cell.n4 { color: #8b5cf6; }
       .mine-cell.n5 { color: #f5c518; }
       .mine-cell.n6 { color: #06b6d4; }
-      .mine-cell.n7 { color: ${t.text}; }
-      .mine-cell.n8 { color: ${t.sub}; }
+      .mine-cell.n7 { color: var(--gpa-text); }
+      .mine-cell.n8 { color: var(--gpa-sub); }
       .simon-pad { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; width: 160px; height: 160px; }
-      .simon-btn { border-radius: 10px; cursor: pointer; opacity: 0.55; transition: opacity 0.1s ease; }
+      .simon-btn { border-radius: calc(10px * var(--gpa-rs)); cursor: pointer; opacity: 0.55; transition: opacity 0.1s ease; }
       .simon-btn.active { opacity: 1; box-shadow: 0 0 14px currentColor; }
       .simon-red { background: #e5453a; }
       .simon-blue { background: #4da3ff; }
       .simon-green { background: #22c55e; }
       .simon-yellow { background: #f5c518; }
       .reaction-box {
-        width: 100%; max-width: 240px; height: 120px; border-radius: 10px;
+        width: 100%; max-width: 240px; height: 120px; border-radius: calc(10px * var(--gpa-rs));
         display: flex; align-items: center; justify-content: center; text-align: center;
         font-weight: 800; font-size: 13px; cursor: pointer; padding: 10px; color: #fff;
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
       .reaction-box.waiting { background: #e5453a; }
       .reaction-box.ready { background: #22c55e; }
-      .checkers-board { display: grid; grid-template-columns: repeat(8, 1fr); width: 224px; border: 2px solid ${t.accent}55; }
+      .checkers-board { display: grid; grid-template-columns: repeat(8, 1fr); width: 224px; border: 2px solid color-mix(in srgb, var(--gpa-accent) 33%, transparent); }
       .checkers-cell { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-      .checkers-cell.light { background: ${t.field}; }
-      .checkers-cell.dark { background: ${t.panel}; }
-      .checkers-cell.selected { outline: 2px solid ${t.accent}; outline-offset: -2px; }
-      .checkers-cell.valid-move { box-shadow: inset 0 0 0 3px ${t.accent}88; }
+      .checkers-cell.light { background: var(--gpa-field); }
+      .checkers-cell.dark { background: var(--gpa-panel); }
+      .checkers-cell.selected { outline: 2px solid var(--gpa-accent); outline-offset: -2px; }
+      .checkers-cell.valid-move { box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 53%, transparent); }
       .checkers-piece {
         width: 70%; height: 70%; border-radius: 50%; display: flex;
         align-items: center; justify-content: center; font-size: 10px;
       }
       .checkers-piece.red { background: #e5453a; border: 2px solid #a8281f; }
       .checkers-piece.black { background: #2a2a30; border: 2px solid #111; }
-      .sudoku-grid { display: grid; grid-template-columns: repeat(9, 1fr); width: 225px; border: 2px solid ${t.accent}66; }
+      .sudoku-grid { display: grid; grid-template-columns: repeat(9, 1fr); width: 225px; border: 2px solid color-mix(in srgb, var(--gpa-accent) 40%, transparent); }
       .sudoku-cell {
         aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-        font-size: 13px; font-weight: 700; background: ${t.field}; border: 1px solid ${t.border};
-        cursor: pointer; color: ${t.text};
+        font-size: 13px; font-weight: 700; background: var(--gpa-field); border: 1px solid var(--gpa-border);
+        cursor: pointer; color: var(--gpa-text);
         font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
       }
-      .sudoku-cell.given { color: ${t.accent}; font-weight: 800; cursor: default; background: ${t.panel}; }
-      .sudoku-cell.selected { background: ${t.accent}33; }
+      .sudoku-cell.given { color: var(--gpa-accent); font-weight: 800; cursor: default; background: var(--gpa-panel); }
+      .sudoku-cell.selected { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
       .sudoku-cell.conflict { color: #e5453a; }
-      .sudoku-cell.border-right { border-right: 2px solid ${t.accent}66; }
-      .sudoku-cell.border-bottom { border-bottom: 2px solid ${t.accent}66; }
+      .sudoku-cell.border-right { border-right: 2px solid color-mix(in srgb, var(--gpa-accent) 40%, transparent); }
+      .sudoku-cell.border-bottom { border-bottom: 2px solid color-mix(in srgb, var(--gpa-accent) 40%, transparent); }
       .sudoku-numrow { display: flex; gap: 3px; margin-top: 8px; flex-wrap: wrap; }
       .sudoku-num { flex: 1; min-width: 20px; padding: 6px 0; font-size: 12px; }
 
       /* Themed scrollbars — thumb matches the current accent color */
       .gpa-body, .gpa-output, .gpa-chat, .gpa-sc-wrap {
         scrollbar-width: thin;
-        scrollbar-color: ${t.accent} ${t.field};
+        scrollbar-color: var(--gpa-accent) var(--gpa-field);
       }
       .gpa-body::-webkit-scrollbar, .gpa-output::-webkit-scrollbar,
       .gpa-chat::-webkit-scrollbar, .gpa-sc-wrap::-webkit-scrollbar {
@@ -2320,83 +3569,81 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-body::-webkit-scrollbar-track, .gpa-output::-webkit-scrollbar-track,
       .gpa-chat::-webkit-scrollbar-track, .gpa-sc-wrap::-webkit-scrollbar-track {
-        background: ${t.field}; border-radius: 8px;
+        background: var(--gpa-field); border-radius: calc(8px * var(--gpa-rs));
       }
       .gpa-body::-webkit-scrollbar-thumb, .gpa-output::-webkit-scrollbar-thumb,
       .gpa-chat::-webkit-scrollbar-thumb, .gpa-sc-wrap::-webkit-scrollbar-thumb {
-        background: ${t.accent}; border-radius: 8px; border: 2px solid ${t.field};
+        background: var(--gpa-accent); border-radius: calc(8px * var(--gpa-rs)); border: 2px solid var(--gpa-field);
       }
       .gpa-body::-webkit-scrollbar-thumb:hover, .gpa-output::-webkit-scrollbar-thumb:hover,
       .gpa-chat::-webkit-scrollbar-thumb:hover, .gpa-sc-wrap::-webkit-scrollbar-thumb:hover {
-        background: ${t.sub};
+        background: var(--gpa-sub);
       }
       .gpa-body::-webkit-scrollbar-corner { background: transparent; }
 
       /* ---- Extended tools ---- */
-      .gpa-sel-bubble { position: fixed; z-index: 2147483647; display: flex; gap: 2px; padding: 4px; border-radius: 10px; background: ${t.panel}; border: 1px solid ${t.accent}; box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
-      .gpa-sel-bubble button { background: transparent; border: none; color: ${t.text}; font-size: 11px; padding: 4px 7px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-family: inherit; }
-      .gpa-sel-bubble button:hover { background: ${t.accent}33; }
-      .gpa-sel-pop { position: fixed; z-index: 2147483647; max-width: 340px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: ${t.panel}; border: 1px solid ${t.accent}; color: ${t.text}; font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
+      .gpa-sel-bubble { position: fixed; z-index: 2147483647; display: flex; gap: 2px; padding: 4px; border-radius: calc(10px * var(--gpa-rs)); background: var(--gpa-panel); border: 1px solid var(--gpa-accent); box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
+      .gpa-sel-bubble button { background: transparent; border: none; color: var(--gpa-text); font-size: 11px; padding: 4px 7px; border-radius: calc(6px * var(--gpa-rs)); cursor: pointer; white-space: nowrap; font-family: inherit; }
+      .gpa-sel-bubble button:hover { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
+      .gpa-sel-pop { position: fixed; z-index: 2147483647; max-width: 340px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: calc(10px * var(--gpa-rs)); background: var(--gpa-panel); border: 1px solid var(--gpa-accent); color: var(--gpa-text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
       .gpa-sel-pop .gpa-sel-pop-src { display: block; margin-top: 8px; font-size: 10px; opacity: 0.65; overflow-wrap: break-word; }
-      .gpa-sel-pop .gpa-sel-pop-retry { display: block; margin-top: 8px; background: transparent; border: 1px solid ${t.accent}; color: ${t.text}; font-size: 11px; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-family: inherit; }
-      .gpa-sel-pop .gpa-sel-pop-retry:hover { background: ${t.accent}33; }
+      .gpa-sel-pop .gpa-sel-pop-retry { display: block; margin-top: 8px; background: transparent; border: 1px solid var(--gpa-accent); color: var(--gpa-text); font-size: 11px; padding: 4px 8px; border-radius: calc(6px * var(--gpa-rs)); cursor: pointer; font-family: inherit; }
+      .gpa-sel-pop .gpa-sel-pop-retry:hover { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
       .gpa-sel-pop .gpa-sel-pop-retry:disabled { opacity: 0.6; cursor: default; }
       .gpa-flip { perspective: 900px; cursor: pointer; min-height: 96px; }
       .gpa-flip-inner { position: relative; transition: transform 0.35s; transform-style: preserve-3d; min-height: 96px; }
       .gpa-flip.flipped .gpa-flip-inner { transform: rotateY(180deg); }
-      .gpa-flip-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; border-radius: 10px; border: 1px solid ${t.border}; background: ${t.field}; color: ${t.text}; font-size: 12.5px; line-height: 1.5; overflow: auto; }
-      .gpa-flip-back { transform: rotateY(180deg); background: ${t.accent}1f; border-color: ${t.accent}; }
+      .gpa-flip-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; border-radius: calc(10px * var(--gpa-rs)); border: 1px solid var(--gpa-border); background: var(--gpa-field); color: var(--gpa-text); font-size: 12.5px; line-height: 1.5; overflow: auto; }
+      .gpa-flip-back { transform: rotateY(180deg); background: color-mix(in srgb, var(--gpa-accent) 12%, transparent); border-color: var(--gpa-accent); }
       .gpa-pomo-time { font-size: 22px; font-weight: 700; letter-spacing: 2px; font-family: 'JetBrains Mono', ui-monospace, monospace; }
       .gpa-flash-once { animation: gpa-flash 1.2s ease-in-out 3; }
-      @keyframes gpa-flash { 0%, 100% { outline: none; } 50% { outline: 3px solid ${t.accent}; outline-offset: 2px; } }
+      @keyframes gpa-flash { 0%, 100% { outline: none; } 50% { outline: 3px solid var(--gpa-accent); outline-offset: 2px; } }
 
       /* ---- Saved tab: calendar + folders + save modal ---- */
       .gpa-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-top: 6px; }
-      .gpa-cal-dow { text-align: center; font-size: 9px; color: ${t.sub}; padding: 2px 0; letter-spacing: 1px; }
+      .gpa-cal-dow { text-align: center; font-size: 9px; color: var(--gpa-sub); padding: 2px 0; letter-spacing: 1px; }
       .gpa-cal-day {
         position: relative; min-height: 34px; padding: 3px 4px; text-align: left;
-        border: 1px solid ${t.border}; border-radius: 6px; background: ${t.field};
-        color: ${t.text}; font-size: 10.5px; cursor: pointer; font-family: inherit;
+        border: 1px solid var(--gpa-border); border-radius: calc(6px * var(--gpa-rs)); background: var(--gpa-field);
+        color: var(--gpa-text); font-size: 10.5px; cursor: pointer; font-family: inherit;
       }
-      .gpa-cal-day:hover { border-color: ${t.accent}; }
+      .gpa-cal-day:hover { border-color: var(--gpa-accent); }
       .gpa-cal-day.pad { visibility: hidden; cursor: default; }
-      .gpa-cal-day.thisweek { background: ${t.accent}14; }
-      .gpa-cal-day.today { border-color: ${t.accent}; box-shadow: 0 0 0 1px ${t.accent}66 inset; font-weight: 700; }
-      .gpa-cal-day.sel { background: ${t.accent}33; border-color: ${t.accent}; }
-      .gpa-cal-day .dot { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font-size: 7px; color: ${t.accent}; line-height: 1; }
+      .gpa-cal-day.thisweek { background: color-mix(in srgb, var(--gpa-accent) 8%, transparent); }
+      .gpa-cal-day.today { border-color: var(--gpa-accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--gpa-accent) 40%, transparent) inset; font-weight: 700; }
+      .gpa-cal-day.sel { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); border-color: var(--gpa-accent); }
+      .gpa-cal-day .dot { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font-size: 7px; color: var(--gpa-accent); line-height: 1; }
       .gpa-cal-title { font-size: 12px; font-weight: 700; letter-spacing: 1px; text-align: center; flex: 1; }
       .gpa-folder-tree { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
       .gpa-folder-chip {
         display: flex; align-items: center; gap: 6px; text-align: left; width: 100%;
-        border: 1px solid ${t.border}; border-radius: 8px; background: ${t.field};
-        color: ${t.text}; font-size: 11px; padding: 7px 9px; cursor: pointer; font-family: inherit;
+        border: 1px solid var(--gpa-border); border-radius: calc(8px * var(--gpa-rs)); background: var(--gpa-field);
+        color: var(--gpa-text); font-size: 11px; padding: 7px 9px; cursor: pointer; font-family: inherit;
       }
-      .gpa-folder-chip:hover { border-color: ${t.accent}; }
-      .gpa-folder-chip.sel { background: ${t.accent}26; border-color: ${t.accent}; }
+      .gpa-folder-chip:hover { border-color: var(--gpa-accent); }
+      .gpa-folder-chip.sel { background: color-mix(in srgb, var(--gpa-accent) 15%, transparent); border-color: var(--gpa-accent); }
       .gpa-folder-chip .grow { flex: 1; text-align: left; }
-      .gpa-folder-chip .mini { background: transparent; border: none; color: ${t.sub}; cursor: pointer; font-size: 10px; padding: 2px; font-family: inherit; }
-      .gpa-folder-chip .mini:hover { color: ${t.text}; }
+      .gpa-folder-chip .mini { background: transparent; border: none; color: var(--gpa-sub); cursor: pointer; font-size: 10px; padding: 2px; font-family: inherit; }
+      .gpa-folder-chip .mini:hover { color: var(--gpa-text); }
       .gpa-insight-card { position: relative; }
-      .gpa-insight-time { font-size: 10px; font-weight: 700; color: ${t.accent}; letter-spacing: 0.5px; }
-      .gpa-insight-label { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 999px; border: 1px solid ${t.accent}; color: ${t.accent}; margin-left: 6px; letter-spacing: 0.5px; }
+      .gpa-insight-time { font-size: 10px; font-weight: 700; color: var(--gpa-accent); letter-spacing: 0.5px; }
+      .gpa-insight-label { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--gpa-accent); color: var(--gpa-accent); margin-left: 6px; letter-spacing: 0.5px; }
       .gpa-insight-actions { display: flex; gap: 4px; margin-top: 6px; }
       .gpa-insight-actions .gpa-btn { font-size: 9px; padding: 4px 8px; flex: none; }
       .gpa-modal { position: fixed; inset: 0; z-index: 2147483647; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; }
       .gpa-modal-card {
-        width: min(92vw, 330px); background: ${t.panel}; border: 1px solid ${t.accent};
-        border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 7px;
+        width: min(92vw, 330px); background: var(--gpa-panel); border: 1px solid var(--gpa-accent);
+        border-radius: calc(12px * var(--gpa-rs)); padding: 14px; display: flex; flex-direction: column; gap: 7px;
         box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
       }
       .gpa-modal-title { font-size: 12px; font-weight: 700; letter-spacing: 1px; margin-bottom: 2px; }
-      .gpa-modal-card label { font-size: 10px; color: ${t.sub}; letter-spacing: 0.5px; }
+      .gpa-modal-card label { font-size: 10px; color: var(--gpa-sub); letter-spacing: 0.5px; }
       .gpa-modal-card input, .gpa-modal-card select {
-        background: ${t.field}; border: 1px solid ${t.border}; border-radius: 6px;
-        color: ${t.text}; font-size: 12px; padding: 6px 8px; font-family: inherit; width: 100%;
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); border-radius: calc(6px * var(--gpa-rs));
+        color: var(--gpa-text); font-size: 12px; padding: 6px 8px; font-family: inherit; width: 100%;
       }
-    `;
-    if (typeof applyMiniColorMode === 'function') applyMiniColorMode();
-  }
-  applyTheme(theme);
+    ` + GPS_CSS;
+  applyTheme(theme, { instant: true });
 
   // ---- Drag logic -----------------------------------------------------
   (function makeDraggable() {
@@ -2494,7 +3741,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     panel.classList.toggle('gpa-fullpage', !v && panelSizeKey === 'full');
     panel.style.width = v ? 'auto' : sizeFor(panelSizeKey).w + 'px';
     panel.style.height = v ? 'auto' : sizeFor(panelSizeKey).h + 'px';
-    panel.style.background = v ? 'transparent' : THEMES[theme].panel;
+    panel.style.background = v ? 'transparent' : '';
     panel.style.boxShadow = v ? 'none' : '';
     panel.style.border = v ? 'none' : '';
 
@@ -3039,9 +4286,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const perFrame = (Math.PI * 2) / (45 * 60);
       const orbitSpeed = perFrame * 2.2;
       const orbitRadius = 1.0; // stays inside the 45deg-fov frame at this camera distance
+      const welcomePane = panel.querySelector('.gpa-pane[data-pane="welcome"]');
       function frame() {
         if (reduceMotion()) {
           renderer.render(scene, camera); // one static frame, then stop
+          gpaWelcome3d.raf = null;
+          return;
+        }
+        // Off screen (another pane, minimized, hidden tab): stop rendering.
+        // resumeWelcome3d() restarts it when the Welcome pane is back.
+        if (isMin || !welcomePane || !welcomePane.classList.contains('active') || document.visibilityState === 'hidden') {
           gpaWelcome3d.raf = null;
           return;
         }
@@ -3062,8 +4316,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       // turning back off — this listener is what restarts it.
       if (motionQuery) {
         const onMotionChange = () => { if (!reduceMotion() && gpaWelcome3d && gpaWelcome3d.raf === null) frame(); };
-        if (motionQuery.addEventListener) motionQuery.addEventListener('change', onMotionChange);
-        else if (motionQuery.addListener) motionQuery.addListener(onMotionChange); // older Safari
+        if (motionQuery.addEventListener) {
+          motionQuery.addEventListener('change', onMotionChange);
+          gpaCleanups.push(() => motionQuery.removeEventListener('change', onMotionChange));
+        } else if (motionQuery.addListener) motionQuery.addListener(onMotionChange); // older Safari
+      }
+      gpaWelcome3d.frame = frame;
+      if (welcomePane) {
+        const resume = () => { if (gpaWelcome3d && gpaWelcome3d.raf === null) frame(); };
+        const obs = new MutationObserver(resume);
+        obs.observe(welcomePane, { attributes: true, attributeFilter: ['class'] });
+        obs.observe(panel, { attributes: true, attributeFilter: ['class'] });
+        onDoc('visibilitychange', resume);
+        gpaCleanups.push(() => obs.disconnect());
       }
       frame();
     } catch (e) {
@@ -3112,14 +4377,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const btns = panel.querySelectorAll('.gpa-reason');
   const note = panel.querySelector('#gpa-reason-note');
   function refresh() {
-    const active = modelSupportsReasoning(effectiveModel(OPENAI_MODEL, false));
+    // Active when either model can use it: the base model directly, or the
+    // smart model that hard tasks switch to when auto-upgrade is on.
+    const active = modelSupportsReasoning(effectiveModel(OPENAI_MODEL, false))
+      || (autoUpgradeOn() && modelSupportsReasoning(smartModel()));
     btns.forEach((b) => {
       b.classList.toggle('primary', b.dataset.reason === reasoningEffort);
       b.disabled = !active;
       b.style.opacity = active ? '' : '0.4';
     });
     if (note) note.textContent = active ? ''
-      : "Current model doesn't support reasoning effort — set a reasoning model (e.g. gpt-6-astra) in the admin model override.";
+      : "Neither model uses reasoning effort right now. It applies to the smart model (gpt-5) when auto-upgrade is on.";
   }
   btns.forEach((b) => b.addEventListener('click', () => {
     if (b.disabled) return;
@@ -3236,22 +4504,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   // ---- Theme swatches -----------------------------------------------------
+  // Set once someone picks a theme themselves, so the owner's server-side
+  // default theme never overrides a personal choice. Theme clicks are wired
+  // in the settings module (the gallery is rendered there).
   const THEME_USER_SET_KEY = 'gpa_theme_user_set';
-  panel.querySelectorAll('.gpa-swatch').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      localStorage.setItem(THEME_USER_SET_KEY, '1');
-      applyTheme(btn.dataset.theme);
-    });
-  });
-
-  const customColorInput = panel.querySelector('#gpa-custom-color');
-  customColorInput.value = savedCustomAccent;
-  customColorInput.addEventListener('input', (e) => {
-    const color = e.target.value;
-    localStorage.setItem(CUSTOM_COLOR_KEY, color);
-    THEMES.custom = { ...THEMES.dark, accent: color };
-    applyTheme('custom');
-  });
 
   panel.querySelector('#gpa-clear-openai-key').addEventListener('click', () => {
     localStorage.removeItem(OPENAI_STORAGE_KEY);
@@ -3356,6 +4612,30 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   resizeParticleCanvas();
 
+  // Particle tuning from Settings → Effects: multipliers on count, radius,
+  // velocity and opacity. Applied when particles are created (count, size,
+  // motion) and when they're drawn (intensity).
+  const PARTICLE_FX_KEY = 'gpa_particle_fx';
+  const PARTICLE_FX_DEFAULTS = { density: 1, size: 1, speed: 1, intensity: 1 };
+  const PARTICLE_FX_LIMITS = { density: [0.3, 2], size: [0.5, 2.5], speed: [0.2, 2.5], intensity: [0.2, 1.5] };
+  function loadParticleFx() {
+    let raw = {};
+    try { raw = JSON.parse(localStorage.getItem(PARTICLE_FX_KEY) || '{}') || {}; } catch (e) { raw = {}; }
+    const out = { ...PARTICLE_FX_DEFAULTS };
+    Object.keys(PARTICLE_FX_LIMITS).forEach((k) => {
+      const v = Number(raw[k]);
+      if (Number.isFinite(v)) out[k] = Math.max(PARTICLE_FX_LIMITS[k][0], Math.min(PARTICLE_FX_LIMITS[k][1], v));
+    });
+    return out;
+  }
+  let particleFx = loadParticleFx();
+  function setParticleFx(k, v) {
+    if (!PARTICLE_FX_LIMITS[k] || !Number.isFinite(v)) return;
+    particleFx = { ...particleFx, [k]: Math.max(PARTICLE_FX_LIMITS[k][0], Math.min(PARTICLE_FX_LIMITS[k][1], v)) };
+    try { localStorage.setItem(PARTICLE_FX_KEY, JSON.stringify(particleFx)); } catch (e) { /* storage blocked */ }
+    initParticles(localStorage.getItem(PARTICLE_KEY) || 'off');
+  }
+  const particleMotionQ = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
   let particles = [];
   let particleAnimId = null;
   let mouseX = -9999, mouseY = -9999;
@@ -3374,8 +4654,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return `rgba(${(num >> 16) & 255},${(num >> 8) & 255},${num & 255},${alpha})`;
   }
 
-  function makeParticle(styleName) {
-    const w = PW, h = PH;
+  function makeParticle(styleName, w = PW, h = PH) {
     const p = { style: styleName };
     if (styleName === 'snow') {
       p.x = Math.random() * w; p.y = Math.random() * h;
@@ -3408,78 +4687,87 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       p.vx = (Math.random() - 0.5) * 0.15; p.vy = (Math.random() - 0.5) * 0.15;
       p.r = 0.6 + Math.random() * 1.6; p.phase = Math.random() * Math.PI * 2; p.speed = 0.02 + Math.random() * 0.04;
     }
+    // Settings → Effects multipliers.
+    const sp = particleFx.speed, sz = particleFx.size;
+    p.vx *= sp; p.vy *= sp;
+    if (p.speed) p.speed *= sp;
+    if (p.vr) p.vr *= sp;
+    if (p.r) p.r *= sz;
+    if (p.rw) { p.rw *= sz; p.rh *= sz; }
     return p;
   }
 
+  // Density scales with the area so a bigger canvas doesn't look sparse,
+  // then by the user's density multiplier.
+  function buildParticles(styleName, w, h) {
+    if (styleName === 'off') return [];
+    const base = Math.max(16, Math.min(90, Math.round((w * h) / 4200)));
+    const count = Math.max(6, Math.min(180, Math.round(base * particleFx.density)));
+    const list = [];
+    for (let i = 0; i < count; i++) list.push(makeParticle(styleName, w, h));
+    return list;
+  }
   function initParticles(styleName) {
-    particles = [];
-    if (styleName === 'off') return;
-    // Density scales with the play area so a bigger canvas doesn't look sparse.
-    const count = Math.max(16, Math.min(90, Math.round((PW * PH) / 4200)));
-    for (let i = 0; i < count; i++) particles.push(makeParticle(styleName));
+    particles = buildParticles(styleName, PW, PH);
   }
 
-  function stepParticles() {
-    const styleName = localStorage.getItem(PARTICLE_KEY) || 'off';
-    if (styleName === 'off') {
-      particleCtx.clearRect(0, 0, PW, PH);
-      particleAnimId = null;
-      return;
-    }
-    const w = PW, h = PH;
-    particleCtx.clearRect(0, 0, w, h);
-    const accent = THEMES[theme].accent;
-    const shadeColors = [accent, THEMES[theme].text, THEMES[theme].sub];
+  // Draws one frame of a particle field onto any 2D context. Shared by the
+  // ambient field around the panel and the live preview in Settings.
+  function drawParticleFrame(ctx, list, w, h, styleName, mx, my, rgb) {
+    ctx.clearRect(0, 0, w, h);
+    const k = particleFx.intensity;
+    const R = rgb.r | 0, G = rgb.g | 0, B = rgb.b | 0;
+    const col = (a) => `rgba(${R},${G},${B},${Math.max(0, Math.min(1, a * k))})`;
 
     if (styleName === 'network') {
-      particles.forEach((p) => {
+      list.forEach((p) => {
         p.x += p.vx; p.y += p.vy;
         if (p.x < 0 || p.x > w) p.vx *= -1;
         if (p.y < 0 || p.y > h) p.vy *= -1;
       });
-      for (let i = 0; i < particles.length; i++) {
-        for (let j = i + 1; j < particles.length; j++) {
-          const a = particles[i], b = particles[j];
+      const linkDist = Math.min(w, h) * 0.18;
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i], b = list[j];
           const d = Math.hypot(a.x - b.x, a.y - b.y);
-          const linkDist = Math.min(w, h) * 0.18;
           if (d < linkDist) {
-            particleCtx.strokeStyle = hexToRgba(accent, 0.22 * (1 - d / linkDist));
-            particleCtx.lineWidth = 1;
-            particleCtx.beginPath();
-            particleCtx.moveTo(a.x, a.y);
-            particleCtx.lineTo(b.x, b.y);
-            particleCtx.stroke();
+            ctx.strokeStyle = col(0.22 * (1 - d / linkDist));
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
           }
         }
       }
-      particles.forEach((p) => {
-        particleCtx.beginPath();
-        particleCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        particleCtx.fillStyle = hexToRgba(accent, p.alpha);
-        particleCtx.fill();
+      list.forEach((p) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = col(p.alpha);
+        ctx.fill();
       });
-      particleAnimId = requestAnimationFrame(stepParticles);
       return;
     }
 
     if (styleName === 'confetti') {
-      particles.forEach((p) => {
+      const shades = [`rgb(${R},${G},${B})`, THEMES[theme].text, THEMES[theme].sub];
+      list.forEach((p) => {
         p.x += p.vx; p.y += p.vy; p.rot += p.vr;
         if (p.y > h + 10) { p.y = -10; p.x = Math.random() * w; }
-        particleCtx.save();
-        particleCtx.translate(p.x, p.y);
-        particleCtx.rotate(p.rot);
-        particleCtx.globalAlpha = 0.85;
-        particleCtx.fillStyle = shadeColors[p.shade % shadeColors.length];
-        particleCtx.fillRect(-p.rw / 2, -p.rh / 2, p.rw, p.rh);
-        particleCtx.restore();
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.globalAlpha = Math.min(1, 0.85 * k);
+        ctx.fillStyle = shades[p.shade % shades.length];
+        ctx.fillRect(-p.rw / 2, -p.rh / 2, p.rw, p.rh);
+        ctx.restore();
       });
-      particleAnimId = requestAnimationFrame(stepParticles);
       return;
     }
 
-    particles.forEach((p) => {
-      const dx = p.x - mouseX, dy = p.y - mouseY;
+    const sp = particleFx.speed;
+    list.forEach((p) => {
+      const dx = p.x - mx, dy = p.y - my;
       const dist = Math.hypot(dx, dy);
       if (dist < 60 && dist > 0.01) {
         const force = ((60 - dist) / 60) * 1.4;
@@ -3488,13 +4776,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       let alpha = 0.6;
       if (p.style === 'snow') {
-        p.sway += 0.02;
+        p.sway += 0.02 * sp;
         p.x += p.vx + Math.sin(p.sway) * 0.3;
         p.y += p.vy;
         if (p.y > h + 5) { p.y = -5; p.x = Math.random() * w; }
         alpha = p.alpha;
       } else if (p.style === 'bubbles') {
-        p.wobble += 0.03;
+        p.wobble += 0.03 * sp;
         p.x += p.vx + Math.sin(p.wobble) * 0.4;
         p.y += p.vy;
         if (p.y < -10) { p.y = h + 10; p.x = Math.random() * w; }
@@ -3508,13 +4796,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         if (p.x < 0 || p.x > w) p.vx *= -1;
         if (p.y < 0 || p.y > h) p.vy *= -1;
         alpha = 0.25 + Math.abs(Math.sin(p.phase)) * 0.6;
-        const glow = particleCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 4);
-        glow.addColorStop(0, hexToRgba(accent, alpha));
-        glow.addColorStop(1, hexToRgba(accent, 0));
-        particleCtx.fillStyle = glow;
-        particleCtx.beginPath();
-        particleCtx.arc(p.x, p.y, p.r * 4, 0, Math.PI * 2);
-        particleCtx.fill();
+        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 4);
+        glow.addColorStop(0, col(alpha));
+        glow.addColorStop(1, `rgba(${R},${G},${B},0)`);
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * 4, 0, Math.PI * 2);
+        ctx.fill();
       } else { // sparkles
         p.x += p.vx; p.y += p.vy;
         p.phase += p.speed;
@@ -3522,16 +4810,53 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         if (p.x < 0) p.x = w; if (p.x > w) p.x = 0;
         if (p.y < 0) p.y = h; if (p.y > h) p.y = 0;
       }
-      particleCtx.beginPath();
-      particleCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      particleCtx.fillStyle = hexToRgba(accent, alpha);
-      particleCtx.fill();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = col(alpha);
+      ctx.fill();
     });
-    particleAnimId = requestAnimationFrame(stepParticles);
   }
 
-  function setParticleStyle(styleName) {
-    localStorage.setItem(PARTICLE_KEY, styleName);
+  // The field's color eases toward the theme's particle token, so a theme
+  // change fades the particles over ~half a second instead of snapping.
+  let particleRGB = null;
+  function particleColorStep() {
+    const target = hexRgb(resolveTheme(theme).particle);
+    if (!particleRGB || (particleMotionQ && particleMotionQ.matches)) { particleRGB = { ...target }; return particleRGB; }
+    particleRGB.r += (target.r - particleRGB.r) * 0.1;
+    particleRGB.g += (target.g - particleRGB.g) * 0.1;
+    particleRGB.b += (target.b - particleRGB.b) * 0.1;
+    return particleRGB;
+  }
+
+  function stepParticles() {
+    const styleName = particlesSuppressed ? 'off' : (localStorage.getItem(PARTICLE_KEY) || 'off');
+    if (styleName === 'off') {
+      particleCtx.clearRect(0, 0, PW, PH);
+      particleAnimId = null;
+      return;
+    }
+    drawParticleFrame(particleCtx, particles, PW, PH, styleName, mouseX, mouseY, particleColorStep());
+    // Ambient motion is decorative: with reduced motion on, draw one still
+    // frame and stop. The change listener below restarts it if that flips.
+    if (particleMotionQ && particleMotionQ.matches) { particleAnimId = null; return; }
+    particleAnimId = requestAnimationFrame(stepParticles);
+  }
+  if (particleMotionQ && particleMotionQ.addEventListener) {
+    const onParticleMotion = () => {
+      if (!particleMotionQ.matches && !particleAnimId && !isMin && (localStorage.getItem(PARTICLE_KEY) || 'off') !== 'off') stepParticles();
+    };
+    particleMotionQ.addEventListener('change', onParticleMotion);
+    gpaCleanups.push(() => particleMotionQ.removeEventListener('change', onParticleMotion));
+  }
+
+  // True while signed out: the field stays hidden without touching the saved
+  // style. (Writing 'off' here used to erase the saved style on every page
+  // load, so a restored session always came back with particles off.)
+  let particlesSuppressed = false;
+  function setParticleStyle(styleName, opts) {
+    if (!(opts && opts.persist === false)) localStorage.setItem(PARTICLE_KEY, styleName);
+    if (particlesSuppressed) styleName = 'off';
     particleCanvas.style.display = styleName === 'off' || isMin ? 'none' : 'block';
     initParticles(styleName);
     if (particleAnimId) cancelAnimationFrame(particleAnimId);
@@ -3546,7 +4871,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   setParticleUI(localStorage.getItem(PARTICLE_KEY) || 'off');
   // Particles stay off until someone signs in — before login we don't know
   // whose preference applies, and the login screen should look plain.
-  setParticleStyle('off');
+  particlesSuppressed = true;
+  setParticleStyle('off', { persist: false });
 
   particleBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -7992,9 +9318,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function reapplyAllSettings() {
     try {
       const savedTheme = localStorage.getItem(THEME_KEY) || 'matte';
-      const savedCustom = localStorage.getItem(CUSTOM_COLOR_KEY);
-      if (savedCustom) THEMES.custom = { ...THEMES.dark, accent: savedCustom };
-      applyTheme(THEMES[savedTheme] ? savedTheme : 'matte');
+      THEMES.custom = loadCustomTheme();
+      appearance = loadAppearance();
+      particleFx = loadParticleFx();
+      applyTheme(THEMES[savedTheme] ? savedTheme : 'matte', { instant: true });
       if (typeof setSpeedUI === 'function') setSpeedUI(localStorage.getItem(SPEED_KEY) || 'normal');
       if (typeof setFontUI === 'function') setFontUI(localStorage.getItem(FONT_KEY) || 'mono');
       if (typeof setIconUI === 'function') setIconUI(localStorage.getItem(ICON_KEY) || 'dot');
@@ -8010,6 +9337,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         setSizeUI((PANEL_SIZES[sz] || sz === 'full') ? sz : 'full');
         applyPanelSize(sz);
       }
+      if (typeof gpsRefreshAll === 'function') gpsRefreshAll();
     } catch (e) { /* a restored-but-odd value shouldn't block sign-in */ }
   }
 
@@ -8020,9 +9348,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     minimized.classList.toggle('gpa-mini-locked', locked);
     if (locked) {
       minimized.textContent = '';
-      if (typeof setParticleStyle === 'function') setParticleStyle('off');
-    } else if (typeof renderMiniIcon === 'function') {
-      renderMiniIcon();
+      particlesSuppressed = true;
+      if (typeof setParticleStyle === 'function') setParticleStyle('off', { persist: false });
+    } else {
+      particlesSuppressed = false;
+      if (typeof renderMiniIcon === 'function') renderMiniIcon();
     }
   }
 
@@ -13269,6 +14599,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     try { gpaAbort.abort(); } catch (e) { /* listeners already gone */ }
     gpaIntervals.forEach((id) => { try { window.clearInterval(id); } catch (e) { /* ignore */ } });
     gpaIntervals.clear();
+    gpaCleanups.forEach((fn) => { try { fn(); } catch (e) { /* already gone */ } });
+    gpaCleanups.length = 0;
+    // Animation loops aren't intervals, so they'd keep drawing into the
+    // detached canvases forever after a reload without these.
+    try { if (particleAnimId) cancelAnimationFrame(particleAnimId); particleAnimId = null; } catch (e) { /* never started */ }
+    try { if (gpaWelcome3d && gpaWelcome3d.raf) cancelAnimationFrame(gpaWelcome3d.raf); } catch (e) { /* never mounted */ }
+    try { if (gpaWelcome3d && gpaWelcome3d.renderer) gpaWelcome3d.renderer.dispose(); } catch (e) { /* never mounted */ }
     try { stopAutoFollow(); } catch (e) { /* not started */ }
     try { closeTutorPopup(); } catch (e) { /* none open */ }
     try { clearPageHighlights(); } catch (e) { /* none injected */ }
@@ -13318,6 +14655,827 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   panel.querySelector('#gpa-reload').addEventListener('click', () => reloadInterface(panel.querySelector('#gpa-reload')));
+
+
+  // ---- Settings control center (behavior) ---------------------------------
+  // Drives the Settings pane: section navigation, overview, theme gallery with
+  // live 3D preview, custom theme builder, panel appearance, effects preview,
+  // typography sample, icon studio, AI status, search and resets.
+  //
+  // It sits at the end of the file on purpose: it calls into the particle
+  // engine, panel sizing, admin/model helpers and account state, which all
+  // have to be initialised first. Existing controls (size, particle, font,
+  // speed, icon, look, color, language, voice, auto-confirm buttons) keep
+  // their original wiring; this module only adds to it.
+  //
+  // Everything it starts is stopped when Settings is off screen and is
+  // registered in gpaCleanups so a reload leaves nothing running.
+  (function settingsCenter() {
+    const gps = panel.querySelector('#gps');
+    const pane = panel.querySelector('.gpa-pane[data-pane="theme"]');
+    if (!gps || !pane) return;
+    const $ = (sel) => gps.querySelector(sel);
+    const $$ = (sel) => Array.from(gps.querySelectorAll(sel));
+    const motionQ = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    const reduced = () => !!(motionQ && motionQ.matches);
+    const SECTION_KEY = 'gpa_settings_section';
+    const TYPE_KEY = 'gpa_type_scale';
+    const TYPE_DEFAULTS = { size: 13, lh: 1.6 };
+    const SECTIONS = $$('.gps-tab').map((t) => t.dataset.sec);
+    let activeSec = 'overview';
+    let searching = false;
+
+    // The confirm dialog belongs to the panel, not the scrolling pane, so it
+    // covers the whole console whatever the scroll position.
+    const dialog = $('#gps-dialog');
+    panel.appendChild(dialog);
+
+    // ---- Small helpers ----
+    const safeGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+    const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } };
+    const safeDel = (k) => { try { localStorage.removeItem(k); } catch (e) { /* storage blocked */ } };
+    function fillRange(input) {
+      const min = Number(input.min), max = Number(input.max), v = Number(input.value);
+      input.style.setProperty('--p', (((v - min) / (max - min)) * 100).toFixed(1) + '%');
+    }
+    function setOut(id, text) { const o = gps.querySelector('#' + id); if (o) o.textContent = text; }
+    const cap = (s) => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
+    const themeName = (n) => (THEME_META[n] && THEME_META[n].name) || cap(n);
+    const SIZE_NAMES = { compact: 'Compact', normal: 'Normal', large: 'Large', xl: 'XL', full: 'Full page' };
+
+    // ---- Typography scale (text size + line height for AI answers) ----
+    function loadTypeScale() {
+      let raw = {};
+      try { raw = JSON.parse(safeGet(TYPE_KEY) || '{}') || {}; } catch (e) { raw = {}; }
+      const size = Number(raw.size), lh = Number(raw.lh);
+      return {
+        size: Number.isFinite(size) ? Math.max(11, Math.min(18, size)) : TYPE_DEFAULTS.size,
+        lh: Number.isFinite(lh) ? Math.max(1.3, Math.min(2, lh)) : TYPE_DEFAULTS.lh
+      };
+    }
+    let typeScale = loadTypeScale();
+    function applyTypeScale() {
+      panel.style.setProperty('--gpa-out-size', typeScale.size + 'px');
+      panel.style.setProperty('--gpa-out-lh', String(typeScale.lh));
+    }
+    applyTypeScale();
+
+    // ---- Navigation ----
+    const main = panel.querySelector('#gpa-main');
+    function showSection(sec, opts) {
+      if (!SECTIONS.includes(sec)) sec = 'overview';
+      activeSec = sec;
+      $$('.gps-tab').forEach((t) => {
+        const on = t.dataset.sec === sec;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        if (on && opts && opts.focus) t.focus();
+      });
+      $$('.gps-sec').forEach((s) => s.classList.toggle('active', s.dataset.sec === sec));
+      safeSet(SECTION_KEY, sec);
+      if (opts && opts.scroll && main && main.scrollTop > 0) main.scrollTop = 0;
+      refreshSection(sec);
+      updateLive();
+    }
+    function refreshSection(sec) {
+      if (sec === 'overview') refreshOverview();
+      else if (sec === 'ai') refreshAi();
+      else if (sec === 'icon') refreshIconPreview();
+      else if (sec === 'colors') renderColorRows();
+      else if (sec === 'type') renderTypeSample(false);
+    }
+    const nav = $('.gps-nav');
+    nav.addEventListener('click', (e) => {
+      const tab = e.target.closest('.gps-tab');
+      if (!tab) return;
+      if (searching) clearSearch();
+      showSection(tab.dataset.sec, { scroll: true });
+    });
+    nav.addEventListener('keydown', (e) => {
+      const tabs = $$('.gps-tab');
+      const i = tabs.indexOf(e.target.closest('.gps-tab'));
+      if (i < 0) return;
+      let j = -1;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') j = (i + 1) % tabs.length;
+      else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') j = (i - 1 + tabs.length) % tabs.length;
+      else if (e.key === 'Home') j = 0;
+      else if (e.key === 'End') j = tabs.length - 1;
+      if (j < 0) return;
+      e.preventDefault();
+      if (searching) clearSearch();
+      showSection(tabs[j].dataset.sec, { focus: true });
+    });
+    gps.addEventListener('click', (e) => {
+      const jump = e.target.closest('[data-jump]');
+      if (!jump) return;
+      if (searching) clearSearch();
+      showSection(jump.dataset.jump, { scroll: true, focus: true });
+    });
+
+    // ---- Live state: previews only run while Settings is actually visible ----
+    function paneLive() {
+      return pane.classList.contains('active') && !isMin && document.visibilityState !== 'hidden';
+    }
+    function updateLive() {
+      const live = paneLive();
+      gps.classList.toggle('is-live', live && !reduced());
+      const fxShown = live && fxStage && fxStage.offsetParent !== null;
+      if (fxShown) startFx(); else stopFx();
+    }
+    const liveObserver = new MutationObserver(updateLive);
+    liveObserver.observe(pane, { attributes: true, attributeFilter: ['class'] });
+    liveObserver.observe(panel, { attributes: true, attributeFilter: ['class'] });
+    gpaCleanups.push(() => liveObserver.disconnect());
+    onDoc('visibilitychange', updateLive);
+    if (motionQ && motionQ.addEventListener) {
+      motionQ.addEventListener('change', updateLive);
+      gpaCleanups.push(() => motionQ.removeEventListener('change', updateLive));
+    }
+
+    // ---- 3D tilt: pointer position nudges the rig; eased by CSS ----
+    function wireTilt(stage) {
+      let raf = 0, rx = 0, ry = 0;
+      stage.addEventListener('pointermove', (e) => {
+        if (reduced() || e.pointerType === 'touch') return;
+        const r = stage.getBoundingClientRect();
+        rx = ((e.clientX - r.left) / r.width - 0.5) * 18;
+        ry = -((e.clientY - r.top) / r.height - 0.5) * 12;
+        if (!raf) raf = requestAnimationFrame(() => {
+          raf = 0;
+          stage.style.setProperty('--rx', rx.toFixed(2) + 'deg');
+          stage.style.setProperty('--ry', ry.toFixed(2) + 'deg');
+        });
+      });
+      stage.addEventListener('pointerleave', () => {
+        stage.style.setProperty('--rx', '0deg');
+        stage.style.setProperty('--ry', '0deg');
+      });
+    }
+    $$('[data-tilt]').forEach(wireTilt);
+
+    // ---- Theme gallery ----
+    const VAR_KEYS = { bg: '--gpa-bg', bg2: '--gpa-bg2', panel: '--gpa-panel', field: '--gpa-field', text: '--gpa-text', sub: '--gpa-sub', accent: '--gpa-accent', accent2: '--gpa-accent2', accentFg: '--gpa-accent-fg', border: '--gpa-border', glow: '--gpa-glow', atmos: '--gpa-atmos' };
+    // Scoped variable override: re-themes one element's subtree only.
+    function setScopedTheme(el, name) {
+      if (!name) {
+        Object.values(VAR_KEYS).forEach((v) => el.style.removeProperty(v));
+        el.style.removeProperty('--gpa-card-bg');
+        return;
+      }
+      const t = resolveTheme(name);
+      Object.keys(VAR_KEYS).forEach((k) => el.style.setProperty(VAR_KEYS[k], t[k]));
+      el.style.setProperty('--gpa-card-bg', t.panel);
+    }
+    function tileHtml(name) {
+      const m = THEME_META[name] || { name: cap(name) };
+      const t = resolveTheme(name);
+      const label = escapeHtml(m.name + ' theme' + (m.blurb ? '. ' + m.blurb : ''));
+      return `<button class="gps-tile" data-theme="${name}" aria-pressed="false" aria-label="${label}">`
+        + `<span class="gps-tile-scene">${gpsMiniConsole()}</span>`
+        + `<span class="gps-tile-meta"><span class="gps-tile-name">${escapeHtml(m.name)}</span>`
+        + `<span class="gps-tile-check">${GPS_ICONS.check}</span>`
+        + `<span class="gps-tile-dots"><i style="background:${t.accent}"></i><i style="background:${t.accent2}"></i><i style="background:${t.text}"></i></span></span></button>`;
+    }
+    function renderGalleries() {
+      const groups = { signature: [], classic: [], custom: [] };
+      Object.keys(THEME_META).forEach((n) => { if (THEMES[n]) groups[THEME_META[n].group].push(n); });
+      Object.keys(groups).forEach((g) => {
+        const box = $('#gps-gallery-' + g);
+        if (!box) return;
+        box.innerHTML = groups[g].map(tileHtml).join('');
+        box.querySelectorAll('.gps-tile').forEach((tile) => setScopedTheme(tile, tile.dataset.theme));
+      });
+      markTiles();
+    }
+    function markTiles() {
+      $$('.gps-tile').forEach((tile) => tile.setAttribute('aria-pressed', tile.dataset.theme === theme ? 'true' : 'false'));
+    }
+    function refreshCustomTile() {
+      const tile = gps.querySelector('.gps-tile[data-theme="custom"]');
+      if (!tile) return;
+      setScopedTheme(tile, 'custom');
+      const t = resolveTheme('custom');
+      const dots = tile.querySelectorAll('.gps-tile-dots i');
+      if (dots.length === 3) { dots[0].style.background = t.accent; dots[1].style.background = t.accent2; dots[2].style.background = t.text; }
+    }
+    const themeStage = $('#gps-theme-stage');
+    const themeCap = $('#gps-theme-cap');
+    let previewing = null;
+    function previewTheme(name) {
+      if (name === previewing) return;
+      previewing = name;
+      setScopedTheme(themeStage, name && name !== theme ? name : null);
+      themeCap.textContent = name && name !== theme ? 'Previewing ' + themeName(name) : themeName(theme);
+    }
+    const galleryWrap = $('.gps-sec[data-sec="theme"]');
+    galleryWrap.addEventListener('mouseover', (e) => {
+      const tile = e.target.closest('.gps-tile');
+      if (tile) previewTheme(tile.dataset.theme);
+    });
+    galleryWrap.addEventListener('mouseleave', () => previewTheme(null));
+    galleryWrap.addEventListener('focusin', (e) => {
+      const tile = e.target.closest('.gps-tile');
+      if (tile) previewTheme(tile.dataset.theme);
+    });
+    galleryWrap.addEventListener('focusout', (e) => {
+      if (!(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.gps-tile'))) previewTheme(null);
+    });
+    galleryWrap.addEventListener('click', (e) => {
+      const tile = e.target.closest('.gps-tile');
+      if (!tile) return;
+      safeSet(THEME_USER_SET_KEY, '1');
+      previewing = null;
+      setScopedTheme(themeStage, null);
+      applyTheme(tile.dataset.theme);
+      themeCap.textContent = themeName(theme);
+    });
+
+    // ---- Custom theme builder ----
+    const COLOR_ROWS = [
+      ['bg', 'Background', 'Behind everything'],
+      ['panel', 'Surface', 'Header, sidebar and cards'],
+      ['text', 'Text', 'Primary text'],
+      ['accent', 'Accent', 'Buttons and active states'],
+      ['accent2', 'Second accent', 'Gradients and 3D highlights'],
+      ['glow', 'Glow', 'Halo around the panel'],
+      ['border', 'Border', 'Outlines and dividers'],
+      ['particle', 'Particles', 'Ambient effect color']
+    ];
+    const colorsBox = $('#gps-colors');
+    colorsBox.innerHTML = COLOR_ROWS.map(([k, name, desc]) => {
+      const id = k === 'accent' ? 'gpa-custom-color' : 'gps-color-' + k;
+      return `<div class="gps-color gps-item-lite" data-color="${k}">`
+        + `<label class="gps-swatch" title="Pick ${name.toLowerCase()} color"><input type="color" id="${id}" aria-label="${name} color" /></label>`
+        + `<div class="gps-color-meta"><div class="gps-color-name">${name}</div><div class="gps-color-desc">${desc}</div></div>`
+        + `<input class="gps-hex" type="text" inputmode="text" maxlength="7" spellcheck="false" aria-label="${name} hex value" />`
+        + `<button class="gps-icon-btn" data-color-reset="${k}" aria-label="Reset ${name.toLowerCase()} to its default" title="Reset">${GPS_ICONS.reset}</button>`
+        + `</div>`;
+    }).join('');
+    function saveCustom(src, opts) {
+      safeSet(CUSTOM_THEME_KEY, JSON.stringify(src));
+      if (src.accent) safeSet(CUSTOM_COLOR_KEY, src.accent); // older builds read this key
+      THEMES.custom = customThemeFrom(src);
+      safeSet(THEME_USER_SET_KEY, '1');
+      applyTheme('custom', opts);
+      refreshCustomTile();
+    }
+    const builderStage = $('#gps-builder-stage');
+    const useCustomBtn = $('#gps-use-custom');
+    useCustomBtn.addEventListener('click', () => {
+      safeSet(THEME_USER_SET_KEY, '1');
+      applyTheme('custom');
+      renderColorRows();
+    });
+    function renderColorRows(except) {
+      const t = resolveTheme('custom');
+      // The preview always shows the custom palette being edited, even while
+      // another theme is active.
+      setScopedTheme(builderStage, 'custom');
+      const onCustom = theme === 'custom';
+      useCustomBtn.hidden = onCustom;
+      setOut('gps-builder-status', onCustom
+        ? 'Custom theme is active. Changes apply everywhere as you make them.'
+        : 'You are using ' + themeName(theme) + '. Editing a color switches to your custom theme.');
+      colorsBox.querySelectorAll('.gps-color').forEach((row) => {
+        const k = row.dataset.color;
+        const v = t[k];
+        const sw = row.querySelector('.gps-swatch');
+        sw.style.background = v;
+        const picker = row.querySelector('input[type="color"]');
+        const hex = row.querySelector('.gps-hex');
+        if (picker !== except) picker.value = v;
+        if (hex !== except) { hex.value = v; hex.removeAttribute('aria-invalid'); }
+      });
+      renderContrast();
+    }
+    function renderContrast() {
+      const t = resolveTheme('custom');
+      const onBg = contrastRatio(t.text, t.bg), onPanel = contrastRatio(t.text, t.panel), sub = contrastRatio(t.sub, t.panel);
+      const worst = Math.min(onBg, onPanel);
+      const ok = worst >= 4.5 && sub >= 4.5;
+      const box = $('#gps-contrast');
+      box.className = 'gps-contrast ' + (ok ? 'ok' : 'warn');
+      box.innerHTML = (ok ? GPS_ICONS.check : GPS_ICONS.warn)
+        + `<span>Text contrast <b>${worst.toFixed(1)}:1</b>${ok ? ', readable' : sub < 4.5 && worst >= 4.5 ? ', secondary text is faint' : ', below 4.5:1'}</span>`;
+    }
+    colorsBox.addEventListener('input', (e) => {
+      const row = e.target.closest('.gps-color');
+      if (!row || e.target.type !== 'color') return;
+      const src = customThemeSource();
+      src[row.dataset.color] = e.target.value;
+      saveCustom(src, { instant: true });
+      renderColorRows(e.target);
+    });
+    function commitHex(input) {
+      const row = input.closest('.gps-color');
+      const v = normHex(input.value);
+      if (!v) { input.setAttribute('aria-invalid', 'true'); return; }
+      const src = customThemeSource();
+      src[row.dataset.color] = v;
+      saveCustom(src);
+      renderColorRows();
+    }
+    colorsBox.addEventListener('change', (e) => { if (e.target.classList.contains('gps-hex')) commitHex(e.target); });
+    colorsBox.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.classList.contains('gps-hex')) { e.preventDefault(); commitHex(e.target); }
+    });
+    colorsBox.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-color-reset]');
+      if (!btn) return;
+      const src = customThemeSource();
+      delete src[btn.dataset.colorReset];
+      saveCustom(src);
+      renderColorRows();
+    });
+    $('#gps-seed').addEventListener('click', () => {
+      const t = resolveTheme(theme);
+      const src = {};
+      CUSTOM_FIELDS.forEach((k) => { src[k] = t[k]; });
+      saveCustom(src);
+      renderColorRows();
+      showToast('Custom theme now starts from ' + themeName(theme) + '. Adjust any color to make it yours.');
+    });
+
+    // ---- Panel appearance ----
+    const AP_FORMAT = {
+      radius: (v) => (v === 100 ? 'Default' : v + '%'),
+      opacity: (v) => v + '%',
+      blur: (v) => (v === 0 ? 'Off' : v + 'px'),
+      border: (v) => v + '%',
+      shadow: (v) => v + '%',
+      glow: (v) => (v === 0 ? 'Off' : v + '%')
+    };
+    function renderPanelCap() {
+      const bits = [SIZE_NAMES[panelSizeKey] || 'Full page'];
+      if (appearance.opacity < 100) bits.push(appearance.opacity + '% opacity');
+      if (appearance.blur > 0 && appearance.opacity < 100) bits.push(appearance.blur + 'px blur');
+      setOut('gps-panel-cap', bits.join(' · '));
+    }
+    function renderAppearance() {
+      renderPanelCap();
+      $$('input[data-ap]').forEach((inp) => {
+        const k = inp.dataset.ap;
+        inp.value = appearance[k];
+        fillRange(inp);
+        setOut(inp.id + '-v', AP_FORMAT[k](appearance[k]));
+      });
+      $$('[data-density]').forEach((b) => b.classList.toggle('primary', b.dataset.density === appearance.density));
+      syncPressed();
+    }
+    gps.addEventListener('input', (e) => {
+      const inp = e.target;
+      if (!inp.dataset) return;
+      if (inp.dataset.ap) {
+        const k = inp.dataset.ap;
+        const v = Number(inp.value);
+        applyAppearance({ [k]: v });
+        fillRange(inp);
+        setOut(inp.id + '-v', AP_FORMAT[k](v));
+        renderPanelCap();
+      } else if (inp.dataset.fx) {
+        setParticleFx(inp.dataset.fx, Number(inp.value));
+        fillRange(inp);
+        setOut(inp.id + '-v', '×' + Number(inp.value).toFixed(inp.dataset.fx === 'intensity' ? 2 : 1));
+        fx.style = null; // rebuild the preview field with the new values
+      } else if (inp.dataset.ty) {
+        typeScale = { ...typeScale, [inp.dataset.ty]: Number(inp.value) };
+        safeSet(TYPE_KEY, JSON.stringify(typeScale));
+        applyTypeScale();
+        fillRange(inp);
+        renderTypeOutputs();
+      } else if (inp.id === 'gpa-particle-size') {
+        fillRange(inp);
+        setOut('gps-fx-area-v', inp.value + 'px');
+        fx.style = null;
+      }
+    });
+    gps.addEventListener('click', (e) => {
+      const d = e.target.closest('[data-density]');
+      if (!d) return;
+      applyAppearance({ density: d.dataset.density });
+      renderAppearance();
+    });
+
+    // ---- Effects preview ----
+    const fxStage = $('#gps-fxstage');
+    const fxCanvas = $('#gps-fx-canvas');
+    const fxCtx = fxCanvas.getContext('2d');
+    const fx = { raf: 0, list: [], w: 0, h: 0, style: null, mx: -9999, my: -9999 };
+    function sizeFx() {
+      const r = fxStage.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      if (!r.width || !r.height) return false;
+      if (fx.w !== r.width || fx.h !== r.height) {
+        fx.w = r.width; fx.h = r.height;
+        fxCanvas.width = Math.round(r.width * ratio);
+        fxCanvas.height = Math.round(r.height * ratio);
+        fxCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        fx.style = null;
+      }
+      return true;
+    }
+    function fxLoop() {
+      fx.raf = 0;
+      const style = safeGet(PARTICLE_KEY) || 'off';
+      if (!sizeFx()) return;
+      if (style === 'off') {
+        fxCtx.clearRect(0, 0, fx.w, fx.h);
+        setOut('gps-fx-cap', 'Effects are off. Pick a style to preview it.');
+        fx.style = 'off';
+        return;
+      }
+      if (fx.style !== style) {
+        fx.list = buildParticles(style, fx.w, fx.h);
+        fx.style = style;
+        setOut('gps-fx-cap', cap(style));
+      }
+      drawParticleFrame(fxCtx, fx.list, fx.w, fx.h, style, fx.mx, fx.my, hexRgb(resolveTheme(theme).particle));
+      if (!reduced()) fx.raf = requestAnimationFrame(fxLoop);
+    }
+    function startFx() { if (!fx.raf) fx.raf = requestAnimationFrame(fxLoop); }
+    function stopFx() { if (fx.raf) cancelAnimationFrame(fx.raf); fx.raf = 0; }
+    gpaCleanups.push(stopFx);
+    fxStage.addEventListener('pointermove', (e) => {
+      const r = fxStage.getBoundingClientRect();
+      fx.mx = e.clientX - r.left; fx.my = e.clientY - r.top;
+    });
+    fxStage.addEventListener('pointerleave', () => { fx.mx = -9999; fx.my = -9999; });
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(() => { if (fx.raf || fx.style) { sizeFx(); if (!fx.raf && paneLive()) startFx(); } });
+      ro.observe(fxStage);
+      gpaCleanups.push(() => ro.disconnect());
+    }
+    function renderEffects() {
+      $$('input[data-fx]').forEach((inp) => {
+        inp.value = particleFx[inp.dataset.fx];
+        fillRange(inp);
+        setOut(inp.id + '-v', '×' + Number(inp.value).toFixed(inp.dataset.fx === 'intensity' ? 2 : 1));
+      });
+      const area = $('#gpa-particle-size');
+      area.value = particleMargin;
+      fillRange(area);
+      setOut('gps-fx-area-v', particleMargin + 'px');
+      fx.style = null;
+      if (!fx.raf && paneLive() && fxStage.offsetParent !== null) startFx();
+    }
+
+    // ---- Typography ----
+    const SAMPLE_TEXT = 'Photosynthesis turns light into chemical energy.\n\n1. Light is absorbed by chlorophyll.\n2. Water splits, releasing oxygen.\n3. The Calvin cycle builds glucose from CO2.';
+    const typeSample = $('#gps-type-sample');
+    let typeRun = 0;
+    function renderTypeOutputs() {
+      $$('input[data-ty]').forEach((inp) => {
+        inp.value = typeScale[inp.dataset.ty];
+        fillRange(inp);
+        setOut(inp.id + '-v', inp.dataset.ty === 'size' ? typeScale.size + 'px' : typeScale.lh.toFixed(2));
+      });
+    }
+    // Same timing as typeText(), but cancellable so replays never interleave.
+    function renderTypeSample(animate) {
+      const run = ++typeRun;
+      const speed = safeGet(SPEED_KEY) || 'normal';
+      if (!animate || speed === 'instant' || reduced()) {
+        typeSample.classList.remove('gpa-typing');
+        typeSample.textContent = SAMPLE_TEXT;
+        return;
+      }
+      const delay = { slow: 28, normal: 12, fast: 4 }[speed] || 12;
+      typeSample.classList.add('gpa-typing');
+      typeSample.textContent = '';
+      const cursor = document.createElement('span');
+      cursor.className = 'gpa-cursor';
+      typeSample.appendChild(cursor);
+      const chunk = Math.max(1, Math.ceil(SAMPLE_TEXT.length / 400));
+      let i = 0;
+      (function step() {
+        if (run !== typeRun) return;
+        if (i >= SAMPLE_TEXT.length) { cursor.remove(); typeSample.classList.remove('gpa-typing'); return; }
+        cursor.insertAdjacentText('beforebegin', SAMPLE_TEXT.slice(i, i + chunk));
+        i += chunk;
+        setTimeout(step, delay);
+      })();
+    }
+    $('#gps-type-play').addEventListener('click', () => renderTypeSample(true));
+
+    // ---- Icon studio ----
+    const miniPrev = $('#gps-mini-prev');
+    const iconStage = $('.gps-iconstage');
+    function refreshIconPreview() {
+      miniPrev.innerHTML = minimized.innerHTML;
+      miniPrev.className = 'gps-mini' + (minimized.classList.contains('gpa-mini-minimal') ? ' gpa-mini-minimal' : '');
+      miniPrev.style.background = minimized.style.background;
+      miniPrev.style.boxShadow = minimized.style.boxShadow;
+      // Paint the mock page with the real host page's colors, so "Match this
+      // page" previews against what it actually matches.
+      try {
+        const bg = parseRgbString(getComputedStyle(document.body).backgroundColor);
+        const c = bg && bg.a > 0.05 ? bg : { r: 255, g: 255, b: 255 };
+        iconStage.style.setProperty('--gps-page-bg', `rgb(${c.r},${c.g},${c.b})`);
+        iconStage.style.setProperty('--gps-page-fg', relativeLuminance(c) > 0.4 ? '#111827' : '#f3f4f6');
+      } catch (e) { /* keep the neutral default */ }
+    }
+
+    // ---- AI status (read-only; never touches key values) ----
+    function refreshAi() {
+      try {
+        const base = (admGet(ADMIN_KEYS.MODEL) || '').trim() || OPENAI_MODEL;
+        const smart = smartModel();
+        setOut('gps-ai-base', base);
+        setOut('gps-ai-smart', smart);
+        const auto = $('#gps-ai-auto');
+        auto.textContent = autoUpgradeOn() ? 'On' : 'Off';
+        auto.className = 'gps-badge ' + (autoUpgradeOn() ? 'ok' : 'off');
+        const reason = $('#gps-ai-reason');
+        reason.textContent = modelSupportsReasoning(smart) ? cap(reasoningEffort) : 'Not used';
+        reason.className = 'gps-badge ' + (modelSupportsReasoning(smart) ? 'ok' : 'off');
+        const assigned = !!serverAssignedKeys.openai;
+        const local = !!readStoredKey(OPENAI_STORAGE_KEY);
+        const key = $('#gps-ai-key');
+        key.textContent = assigned ? 'Owner key' : local ? 'Your key' : 'No key yet';
+        key.className = 'gps-badge ' + (assigned || local ? 'ok' : 'warn');
+        setOut('gps-ai-keyhint', assigned
+          ? 'The owner assigned a key. It stays on the worker and never reaches this browser.'
+          : local ? 'Using the key saved in this browser. Its value is never shown here.'
+            : "You'll be asked for a key on your first AI request.");
+        setOut('gps-ai-route', OPENAI_PROXY
+          ? 'Requests go through your worker at ' + OPENAI_PROXY.replace(/^https?:\/\//, '') + '.'
+          : 'Requests go directly to api.openai.com.');
+      } catch (e) { /* admin helpers not ready yet */ }
+    }
+
+    // ---- Overview ----
+    const ICON_NAMES = { dot: 'Dot', sparkle: 'Sparkle', bolt: 'Bolt', orbit: 'Orbit', chat: 'Chat', letter: 'Letter' };
+    // What "default" means for each preference, for the personalization meter.
+    function customizations() {
+      const checks = [
+        (safeGet(THEME_KEY) || 'matte') !== 'matte',
+        !!safeGet(CUSTOM_THEME_KEY),
+        (safeGet(PANEL_SIZE_KEY) || 'full') !== 'full',
+        ...Object.keys(APPEARANCE_DEFAULTS).map((k) => appearance[k] !== APPEARANCE_DEFAULTS[k]),
+        (safeGet(PARTICLE_KEY) || 'off') !== 'off',
+        particleMargin !== 40,
+        ...Object.keys(PARTICLE_FX_DEFAULTS).map((k) => particleFx[k] !== PARTICLE_FX_DEFAULTS[k]),
+        (safeGet(FONT_KEY) || 'mono') !== 'mono',
+        (safeGet(SPEED_KEY) || 'normal') !== 'normal',
+        typeScale.size !== TYPE_DEFAULTS.size, typeScale.lh !== TYPE_DEFAULTS.lh,
+        (safeGet(ICON_KEY) || 'dot') !== 'dot',
+        (safeGet(ICON_LOOK_KEY) || 'minimal') !== 'minimal',
+        (safeGet(ICON_COLOR_MODE_KEY) || 'page') !== 'page'
+      ];
+      return { n: checks.filter(Boolean).length, of: checks.length };
+    }
+    function refreshOverview() {
+      const t = resolveTheme(theme);
+      const m = THEME_META[theme] || {};
+      setOut('gps-ov-theme', themeName(theme));
+      setOut('gps-ov-blurb', m.blurb || (m.group === 'classic' ? 'Classic theme' : ''));
+      const pal = $$('#gps-ov-palette i');
+      [t.bg, t.panel, t.accent, t.accent2, t.text].forEach((c, i) => { if (pal[i]) pal[i].style.background = c; });
+      $('#gps-ov-accent-dot').style.background = t.accent;
+      setOut('gps-ov-accent', t.accent);
+      const bits = [SIZE_NAMES[panelSizeKey] || 'Full page'];
+      if (appearance.opacity < 100) bits.push(appearance.opacity + '% opacity');
+      if (appearance.density !== 'comfortable') bits.push(cap(appearance.density));
+      setOut('gps-ov-panel', bits.join(' · '));
+      const ps = safeGet(PARTICLE_KEY) || 'off';
+      setOut('gps-ov-fx', ps === 'off' ? 'Off' : cap(ps) + (particleFx.density !== 1 ? ' · ×' + particleFx.density.toFixed(1) : ''));
+      const f = (safeGet(FONT_KEY) || 'mono') === 'system' ? 'Standard' : 'Typewriter';
+      setOut('gps-ov-type', f + ' · ' + typeScale.size + 'px · ' + cap(safeGet(SPEED_KEY) || 'normal'));
+      try { setOut('gps-ov-ai', ((admGet(ADMIN_KEYS.MODEL) || '').trim() || OPENAI_MODEL) + ' · ' + smartModel()); } catch (e) { /* not ready */ }
+      setOut('gps-ov-icon', (ICON_NAMES[safeGet(ICON_KEY) || 'dot'] || 'Dot') + ' · ' + cap(safeGet(ICON_LOOK_KEY) || 'minimal'));
+      const c = customizations();
+      setOut('gps-ov-custom', c.n === 0 ? 'Default setup' : c.n + ' of ' + c.of + ' settings customized');
+      $('#gps-ov-meter').style.width = Math.round((c.n / c.of) * 100) + '%';
+    }
+
+    // ---- aria-pressed mirrors the legacy "primary" class on toggle buttons ----
+    function syncPressed() {
+      $$('.gps-seg-btn, .gps-choices > button, .gps-sizes > button, .gps-switch').forEach((b) => {
+        b.setAttribute('aria-pressed', b.classList.contains('primary') ? 'true' : 'false');
+      });
+    }
+    // Runs after the original handlers (bubbling), so it sees their result.
+    gps.addEventListener('click', (e) => {
+      // Read the target now: once dispatch ends, the browser clears
+      // event.target for nodes inside a shadow root.
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      requestAnimationFrame(() => {
+        syncPressed();
+        if (activeSec === 'overview') refreshOverview();
+        if (btn.matches('.icon-btn, .look-btn, .colormode-btn')) refreshIconPreview();
+        if (btn.matches('.speed-btn, .font-btn')) renderTypeSample(true);
+        if (btn.matches('.particle-btn')) { fx.style = null; updateLive(); }
+        if (btn.matches('.size-btn')) renderPanelCap();
+      });
+    });
+
+    // ---- Search ----
+    const searchInput = $('#gps-search');
+    const resultsHead = $('#gps-results-head');
+    const emptyBox = $('#gps-empty');
+    let haystacks = null;
+    function buildHaystacks() {
+      haystacks = new Map();
+      $$('.gps-sec').forEach((sec) => {
+        const secName = (sec.getAttribute('aria-label') || '').toLowerCase();
+        sec.querySelectorAll('.gps-item').forEach((it) => {
+          haystacks.set(it, ((it.dataset.k || '') + ' ' + secName + ' ' + (it.querySelector('.gps-label, .gps-sec-title') || {}).textContent).toLowerCase());
+        });
+      });
+    }
+    function runSearch() {
+      const q = searchInput.value.trim().toLowerCase();
+      if (!q) { clearSearch(true); return; }
+      if (!haystacks) buildHaystacks();
+      searching = true;
+      gps.classList.add('is-searching');
+      const terms = q.split(/\s+/).filter(Boolean);
+      let total = 0;
+      $$('.gps-sec').forEach((sec) => {
+        let n = 0;
+        if (sec.dataset.sec !== 'overview') {
+          sec.querySelectorAll('.gps-item').forEach((it) => {
+            const hay = haystacks.get(it) || '';
+            const hit = terms.every((t) => hay.includes(t));
+            it.classList.toggle('no-match', !hit);
+            if (hit) n++;
+          });
+        }
+        sec.classList.toggle('no-match', n === 0);
+        const tab = gps.querySelector(`.gps-tab[data-sec="${sec.dataset.sec}"]`);
+        if (tab) tab.classList.toggle('has-match', n > 0);
+        total += n;
+      });
+      emptyBox.hidden = total > 0;
+      resultsHead.textContent = total ? `${total} setting${total === 1 ? '' : 's'} match "${searchInput.value.trim()}"` : '';
+      updateLive();
+    }
+    function clearSearch(keepFocus) {
+      searching = false;
+      if (!keepFocus) searchInput.value = '';
+      gps.classList.remove('is-searching');
+      $$('.no-match').forEach((el) => el.classList.remove('no-match'));
+      $$('.has-match').forEach((el) => el.classList.remove('has-match'));
+      emptyBox.hidden = true;
+      resultsHead.textContent = '';
+      showSection(activeSec);
+    }
+    let searchRaf = 0;
+    searchInput.addEventListener('input', () => {
+      if (!searchRaf) searchRaf = requestAnimationFrame(() => { searchRaf = 0; runSearch(); });
+    });
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && searchInput.value) { e.preventDefault(); e.stopPropagation(); clearSearch(); }
+    });
+    // "/" focuses search while Settings is open (not while typing elsewhere).
+    panel.addEventListener('keydown', (e) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!pane.classList.contains('active')) return;
+      const t = e.composedPath ? e.composedPath()[0] : e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+      searchInput.focus();
+    });
+
+    // ---- Confirm dialog ----
+    let dialogResolve = null, dialogReturn = null;
+    const dlgOk = dialog.querySelector('#gps-dialog-ok');
+    const dlgCancel = dialog.querySelector('#gps-dialog-cancel');
+    function confirmReset(title, body, okLabel) {
+      dialog.querySelector('#gps-dialog-title').textContent = title;
+      dialog.querySelector('#gps-dialog-body').textContent = body;
+      dlgOk.textContent = okLabel || 'Reset';
+      dialogReturn = root.activeElement;
+      dialog.hidden = false;
+      dlgCancel.focus();
+      return new Promise((resolve) => { dialogResolve = resolve; });
+    }
+    function closeDialog(result) {
+      if (dialog.hidden) return;
+      dialog.hidden = true;
+      if (dialogResolve) dialogResolve(result);
+      dialogResolve = null;
+      if (dialogReturn && dialogReturn.focus) dialogReturn.focus();
+    }
+    dlgOk.addEventListener('click', () => closeDialog(true));
+    dlgCancel.addEventListener('click', () => closeDialog(false));
+    dialog.addEventListener('click', (e) => { if (e.target === dialog) closeDialog(false); });
+    dialog.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeDialog(false); }
+      else if (e.key === 'Tab') { // two buttons: keep focus inside
+        e.preventDefault();
+        (root.activeElement === dlgOk ? dlgCancel : dlgOk).focus();
+      }
+    });
+
+    // ---- Resets (only preference keys; never account, keys, notes or data) ----
+    const RESETS = {
+      theme() {
+        [THEME_KEY, THEME_USER_SET_KEY, CUSTOM_THEME_KEY, CUSTOM_COLOR_KEY].forEach(safeDel);
+        THEMES.custom = loadCustomTheme();
+        refreshCustomTile();
+        applyTheme('matte');
+      },
+      colors() {
+        [CUSTOM_THEME_KEY, CUSTOM_COLOR_KEY].forEach(safeDel);
+        THEMES.custom = loadCustomTheme();
+        refreshCustomTile();
+        if (theme === 'custom') applyTheme('custom');
+      },
+      panel() {
+        safeDel(APPEARANCE_KEY);
+        appearance = loadAppearance();
+        applyAppearance({}, { transient: true });
+        setSizeUI('full');
+        applyPanelSize('full');
+      },
+      effects() {
+        [PARTICLE_KEY, PARTICLE_SIZE_KEY, PARTICLE_FX_KEY].forEach(safeDel);
+        particleFx = loadParticleFx();
+        particleMargin = 40;
+        resizeParticleCanvas();
+        setParticleUI('off');
+        setParticleStyle('off', { persist: false });
+      },
+      type() {
+        [FONT_KEY, SPEED_KEY, TYPE_KEY].forEach(safeDel);
+        typeScale = loadTypeScale();
+        applyTypeScale();
+        setFontUI('mono');
+        setSpeedUI('normal');
+      },
+      icon() {
+        [ICON_KEY, ICON_LOOK_KEY, ICON_COLOR_MODE_KEY].forEach(safeDel);
+        setIconUI('dot'); setLookUI('minimal'); setColorModeUI('page');
+        renderMiniIcon(); applyMiniLook(); applyMiniColorMode();
+      },
+      controls() {
+        [TTS_KEY, AUTOCONFIRM_KEY].forEach(safeDel);
+        if ('speechSynthesis' in window) { try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } }
+        renderTtsBtn(); renderAutoConfirmBtn();
+      }
+    };
+    const RESET_COPY = {
+      theme: ['Reset theme?', 'Returns to Matte Black and clears your custom colors.'],
+      colors: ['Reset custom colors?', 'Your custom theme goes back to its starting palette.'],
+      panel: ['Reset panel?', 'Size returns to full page and every appearance slider to its default.'],
+      effects: ['Reset effects?', 'Particles turn off and their sliders return to defaults.'],
+      type: ['Reset typography?', 'Font, text size, line height and typing speed return to defaults.'],
+      icon: ['Reset icon?', 'The minimized button returns to the default dot.'],
+      appearance: ['Reset appearance?', 'Panel, effects, typography and icon settings return to defaults. Your theme stays.'],
+      all: ['Reset all settings?', 'Theme, colors, panel, effects, typography, icon, voice and page-action settings return to defaults for this profile. Your account, keys, notes and saved work are not touched.']
+    };
+    const RESET_GROUPS = {
+      appearance: ['panel', 'effects', 'type', 'icon'],
+      all: ['theme', 'panel', 'effects', 'type', 'icon', 'controls']
+    };
+    gps.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-reset]');
+      if (!btn) return;
+      const which = btn.dataset.reset;
+      const copy = RESET_COPY[which];
+      if (!copy) return;
+      const ok = await confirmReset(copy[0], copy[1], which === 'all' ? 'Reset all' : 'Reset');
+      if (!ok) return;
+      (RESET_GROUPS[which] || [which]).forEach((g) => { try { RESETS[g](); } catch (err) { console.warn('[Agent Console] reset failed:', g, err); } });
+      if (typeof saveProgress === 'function') { try { saveProgress(); } catch (err) { /* not signed in */ } }
+      refreshAll();
+      showToast(copy[0].replace('?', '') + ' done.');
+    });
+
+    // ---- Theme hook: called by applyTheme() after the tokens change ----
+    onThemeApplied = function () {
+      markTiles();
+      if (!previewing) themeCap.textContent = themeName(theme);
+      if (activeSec === 'overview') refreshOverview();
+      if (activeSec === 'icon') refreshIconPreview();
+      if (activeSec === 'colors') renderContrast();
+    };
+
+    // ---- Full refresh (initial load and after a profile restore) ----
+    function refreshAll() {
+      typeScale = loadTypeScale();
+      applyTypeScale();
+      renderGalleries();
+      renderColorRows();
+      renderAppearance();
+      renderEffects();
+      renderTypeOutputs();
+      renderTypeSample(false);
+      refreshIconPreview();
+      refreshOverview();
+      refreshAi();
+      syncPressed();
+      themeCap.textContent = themeName(theme);
+      if (searching) runSearch();
+    }
+    gpsRefreshAll = refreshAll;
+
+    refreshAll();
+    const saved = safeGet(SECTION_KEY);
+    showSection(SECTIONS.includes(saved) ? saved : 'overview');
+  })();
 
   // ---- Session restore on load ----
   // If this browser already had someone signed in, skip straight back in.
