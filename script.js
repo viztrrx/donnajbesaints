@@ -426,6 +426,36 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // Turns resolved tokens + appearance into the CSS custom properties the
   // stylesheet uses. Colors that need alpha variants are written with
   // color-mix() in the stylesheet itself, so only base values live here.
+  // Semantic tones derived from the active theme, so status colors, charts
+  // and overlays follow every theme (built-in, custom, or previewed) instead
+  // of using a fixed palette. A theme may set success / warning / danger
+  // itself; otherwise a conventional hue is pulled toward the theme's accent
+  // and then nudged toward its text color until it reads at 3:1 on panels.
+  function legibleOn(color, surface, toward, min) {
+    let c = color;
+    for (let i = 0; i < 12 && contrastRatio(c, surface) < min; i++) c = mixHex(c, toward, 0.12);
+    return c;
+  }
+  function semanticTokens(tk) {
+    const surf = tk.panel, ink = tk.text, dark = hexLum(tk.bg) <= 0.5;
+    const tone = (own, base) => legibleOn(normHex(own) || mixHex(base, tk.accent, 0.14), surf, ink, 3);
+    const success = tone(tk.success, dark ? '#34d399' : '#15803d');
+    const warning = tone(tk.warning, dark ? '#fbbf24' : '#b45309');
+    const danger = tone(tk.danger, dark ? '#f87171' : '#b91c1c');
+    const info = legibleOn(tk.accent, surf, ink, 3);
+    const muted = mixHex(surf, ink, 0.45);
+    return {
+      '--gpa-success': success, '--gpa-warning': warning, '--gpa-danger': danger, '--gpa-info': info,
+      '--gpa-status-active': success, '--gpa-status-idle': warning, '--gpa-status-offline': muted,
+      '--gpa-status-unknown': mixHex(surf, ink, 0.3),
+      '--gpa-chart-1': info, '--gpa-chart-2': legibleOn(tk.accent2, surf, ink, 3),
+      '--gpa-chart-success': success, '--gpa-chart-warning': warning, '--gpa-chart-danger': danger,
+      '--gpa-chart-muted': muted, '--gpa-chart-grid': mixHex(surf, ink, 0.12), '--gpa-chart-axis': tk.sub,
+      '--gpa-highlight': mixHex(tk.accent, ink, dark ? 0.7 : 0.15),
+      '--gpa-shade': dark ? mixHex(tk.bg, '#000000', 0.85) : mixHex(tk.text, tk.bg, 0.25),
+      '--gpa-scrim': rgbaHex(mixHex(tk.bg, dark ? '#000000' : tk.text, dark ? 0.5 : 0.3), dark ? 0.6 : 0.4)
+    };
+  }
   function tokenCss(tk, ap) {
     const op = ap.opacity / 100;
     const s = ap.shadow / 100, g = ap.glow / 100;
@@ -448,7 +478,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       '--gpa-panel-blur': ap.blur > 0 && op < 1 ? `blur(${ap.blur}px) saturate(1.35)` : 'none',
       '--gpa-rs': (ap.radius / 100).toFixed(2),
       '--gpa-dz': String(DENSITY_SCALE[ap.density] || 1),
-      '--gpa-scheme': hexLum(tk.bg) > 0.5 ? 'light' : 'dark'
+      '--gpa-scheme': hexLum(tk.bg) > 0.5 ? 'light' : 'dark',
+      ...semanticTokens(tk)
     };
     return ':host{' + Object.keys(vars).map((k) => `${k}:${vars[k]};`).join('') + 'color-scheme:' + vars['--gpa-scheme'] + ';}';
   }
@@ -464,6 +495,139 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   let previewThemeName = null;
   function effectiveTheme() { return previewThemeName || selectedTheme; }
 
+
+
+  // ---- Version history --------------------------------------------------------
+  // One entry per change, taken from this repo's git history (commit id and
+  // commit time). Each entry says which parts it touched and how:
+  //   'added' starts a part at 1.0.0 · 'redesign' bumps the major version ·
+  //   'feature' bumps the minor version · 'fix' bumps the patch version.
+  // Every version and "last updated" time shown in the console is computed
+  // from this list, so adding an entry here is the only step when shipping.
+  // Keys: tab ids, 'console' (shell, sign-in, shortcuts), 'selection'
+  // (the selection assistant), 'theme#<section>' for Settings sections and
+  // 'admin#<section>' for Admin sections; 'theme#*' / 'admin#*' mean every
+  // section of that screen.
+  const CHANGELOG = [
+    { at: '2026-09-18T17:15:35-04:00', commit: '313bfeb', title: 'First release of Agent Console (Saints edition)', parts: {
+      console: ['added'], selection: ['added'], scan: ['added'], ask: ['added'], chat: ['added'], music: ['added'], browser: ['added'],
+      games: ['added'], study: ['added'], notes: ['added'], saved: ['added'], theme: ['added'], admin: ['added', 'Hidden owner console'] } },
+    { at: '2026-09-18T18:21:44-04:00', commit: 'd0a354a', title: 'Bug fixes, collapsible sidebar, chat redesign, remote key push, admin expansion', parts: {
+      console: ['feature', 'Collapsible sidebar'], chat: ['redesign', 'Chat redesign'], admin: ['feature', 'Remote key push and more controls'] } },
+    { at: '2026-09-18T18:58:48-04:00', commit: '97d7441', title: 'Moderation, security and admin features in the worker, wired into the UI', parts: {
+      admin: ['feature', 'Block, lock, kick, mute and approval controls'], chat: ['feature', 'Moderation applies to chat'] } },
+    { at: '2026-09-18T19:26:28-04:00', commit: '3464101', title: 'Fix games going blank in fullscreen', parts: { games: ['fix'] } },
+    { at: '2026-09-18T19:41:15-04:00', commit: '7f46aee', title: 'Original platformer game and a full-console fullscreen toggle', parts: {
+      games: ['feature', 'New platformer game'], console: ['feature', 'Fullscreen the whole console'] } },
+    { at: '2026-09-18T19:53:34-04:00', commit: 'fb29b4b', title: 'Crusade and Racer games', parts: { games: ['feature', 'Crusade and Racer'] } },
+    { at: '2026-09-19T17:41:53-04:00', commit: '332ef35', title: 'Uploaded replacement of script.js (reverted below)', parts: {} },
+    { at: '2026-09-19T17:54:41-04:00', commit: '97d13ac', title: 'Point self-updates at this repository', parts: { console: ['fix', 'Self-update source URL'] } },
+    { at: '2026-09-19T18:00:15-04:00', commit: '5c05325', title: 'Restore script.js after the uploaded replacement', parts: {} },
+    { at: '2026-09-19T22:06:57Z', commit: '376156c', title: 'Ask each account for its language on sign-in', parts: {
+      console: ['feature', 'Language picker on sign-in'], theme: ['feature', 'Per-account language'] } },
+    { at: '2026-09-19T22:39:31Z', commit: 'ecb6e42', title: 'Security enforcement moved to the worker; no secrets shipped to browsers', parts: {
+      admin: ['feature', 'Admin token kept in memory only; checks enforced by the worker'] } },
+    { at: '2026-09-19T22:44:35Z', commit: '8885ea0', title: 'Close SSRF filter bypasses and the approval-queue gap', parts: { admin: ['fix', 'Approval queue gap closed'], scan: ['fix', 'Safer page reading for research'] } },
+    { at: '2026-09-20T02:32:07-04:00', commit: '65d7015', title: 'Fix CORS errors from the worker', parts: { console: ['fix', 'Worker errors no longer surface as CORS failures'] } },
+    { at: '2026-09-20T08:00:05Z', commit: '293be97', title: 'Stop polling chat with a KV list; never return a CORS-less 500', parts: { chat: ['fix', 'Cheaper, more reliable polling'] } },
+    { at: '2026-09-20T04:25:50-04:00', commit: 'b1ad842', title: 'Humanize action in the selection assistant', parts: { selection: ['feature', 'Humanize a selection'] } },
+    { at: '2026-09-20T04:53:20-04:00', commit: 'e865e45', title: 'Standalone Humanize tab; selection bubble fixed on hostile pages', parts: {
+      humanize: ['added'], selection: ['fix', 'Works on pages that fight injected UI'] } },
+    { at: '2026-09-20T05:03:57-04:00', commit: '4dc2c5f', title: 'Humanize grounded in documented AI-writing patterns', parts: { humanize: ['feature', 'Better rewrite prompt'] } },
+    { at: '2026-09-20T05:13:06-04:00', commit: '6547e27', title: 'Grammar action in the selection assistant', parts: { selection: ['feature', 'Grammar-check a selection'] } },
+    { at: '2026-09-20T05:37:52-04:00', commit: 'bbda61c', title: 'Standalone Grammar tab, full-page layout fix, animated sidebar close', parts: {
+      grammar: ['added'], console: ['fix', 'Full-page layout and sidebar animation'] } },
+    { at: '2026-09-20T05:52:49-04:00', commit: '686e08b', title: 'Cap and center pane content in full-page and fullscreen', parts: { console: ['fix', 'Panes no longer sprawl on wide screens'] } },
+    { at: '2026-09-20T06:07:25-04:00', commit: '63ec1a8', title: 'Page Snapshot, full-page Translate and an honest empty state', parts: { scan: ['feature', 'Snapshot and Translate'] } },
+    { at: '2026-09-20T06:35:27-04:00', commit: 'baf5c36', title: 'Quick actions and settings in Page Insights; Auto-explain overflow fixed', parts: { scan: ['feature', 'Quick actions'] } },
+    { at: '2026-09-20T07:00:27-04:00', commit: '69ad9f5', title: 'Page Insights redesigned as a full-width flow with Tone and Explore tools', parts: { scan: ['redesign', 'Full-width flow, Tone and Explore'] } },
+    { at: '2026-09-20T07:26:09-04:00', commit: '2f251f6', title: 'Fix Page Insights horizontal overflow', parts: { scan: ['fix'] } },
+    { at: '2026-09-20T09:29:23-04:00', commit: 'dd3fbc8', title: 'Welcome landing pane after sign-in', parts: { welcome: ['added'] } },
+    { at: '2026-09-20T09:44:46-04:00', commit: '23a3e15', title: 'Welcome: active users, personal stats, richer 3D, quick actions', parts: { welcome: ['feature', 'Stats, 3D and quick actions'] } },
+    { at: '2026-09-20T12:00:45-04:00', commit: 'e0da643', title: 'Welcome news no longer prompts for an API key', parts: { welcome: ['fix'] } },
+    { at: '2026-09-20T13:07:16-04:00', commit: 'd3a3b55', title: 'Terminal-style typed greeting', parts: { welcome: ['feature', 'Typed greeting'] } },
+    { at: '2026-09-20T13:19:06-04:00', commit: '7c67652', title: 'Live AI status line on Welcome', parts: { welcome: ['feature', 'AI status line'] } },
+    { at: '2026-09-20T13:25:38-04:00', commit: '78dbfe2', title: 'AI status check slowed to every 10 minutes', parts: { welcome: ['fix'] } },
+    { at: '2026-09-20T17:38:46-04:00', commit: '7cc3620', title: 'Add the proxy build of the console (acp.js)', parts: {} },
+    { at: '2026-09-20T17:39:12-04:00', commit: '1f8bbdb', title: 'Rename the proxy build to acp.js', parts: {} },
+    { at: '2026-09-20T18:15:45-04:00', commit: '3c8e3a2', title: 'Opt-in local-proxy routing in the Browser tab', parts: { browser: ['feature', 'Local proxy routing'] } },
+    { at: '2026-09-20T18:31:23-04:00', commit: '104759e', title: 'Browser tab replaced by a Scramjet-powered Proxy tab', parts: { browser: ['redesign', 'Now the Proxy tab'] } },
+    { at: '2026-09-20T18:57:24-04:00', commit: '08a74c2', title: 'Proxy defaults to https://localhost:4141', parts: { browser: ['fix'] } },
+    { at: '2026-09-20T19:06:04-04:00', commit: '2545da9', title: 'Admin unlock re-shows hidden tabs immediately', parts: { admin: ['fix'] } },
+    { at: '2026-09-20T19:11:54-04:00', commit: '22f1713', title: 'Model-list requests no longer count against the daily quota', parts: { admin: ['fix', 'Quota counts only real AI calls'] } },
+    { at: '2026-09-26T10:38:18-04:00', commit: 'b191afa', title: 'OpenAI only; gpt-4.1-mini and gpt-5 enforced on load and sign-in', parts: {
+      console: ['feature', 'OpenAI only'], ask: ['feature', 'Defaults: gpt-4.1-mini, smart gpt-5'], theme: ['feature', 'AI provider settings simplified'],
+      admin: ['feature', 'Model pickers are OpenAI only'], welcome: ['fix', 'Status line checks OpenAI only'] } },
+    { at: '2026-09-26T10:44:41-04:00', commit: 'e1d9d7c', title: 'Add saints.js as a backup copy of script.js', parts: {} },
+    { at: '2026-09-26T11:17:03-04:00', commit: '871c31b', title: 'Settings and Theme redesigned into a 3D control center', parts: {
+      theme: ['redesign', '3D control center'], 'theme#overview': ['added'], 'theme#theme': ['added'], 'theme#colors': ['added'], 'theme#panel': ['added'],
+      'theme#effects': ['added'], 'theme#type': ['added'], 'theme#icon': ['added'], 'theme#ai': ['added'], 'theme#controls': ['added'],
+      'theme#account': ['added'], 'theme#advanced': ['added'] } },
+    { at: '2026-09-26T14:14:45-04:00', commit: '3ee6303', title: 'Every tab redesigned on the Settings design system', parts: {
+      console: ['redesign', 'New navigation and design layer'], welcome: ['redesign'], scan: ['redesign'], ask: ['redesign'], chat: ['redesign'], music: ['redesign'],
+      browser: ['redesign'], games: ['redesign'], study: ['redesign'], notes: ['redesign'], humanize: ['redesign'], grammar: ['redesign'], saved: ['redesign'] } },
+    { at: '2026-09-27T00:11:35-04:00', commit: 'a471090', title: 'Hover a theme to preview it app-wide; click applies, leaving reverts', parts: {
+      'theme#theme': ['feature', 'Hover preview'], 'theme#overview': ['feature', 'Hover preview'], console: ['feature', 'Theme previews reach every pane'] } },
+    { at: '2026-09-27T00:22:24-04:00', commit: '19ed299', title: 'Press ↓ twice to show or hide the console; mini button taps fixed', parts: {
+      console: ['feature', '↓↓ shortcut'], 'theme#controls': ['feature', 'Shortcut documented'] } },
+    { at: '2026-09-27T01:35:43-04:00', commit: 'f0264ad', title: 'Admin Command Center, server-side AI memory, ↓↓ no longer touches the page', parts: {
+      admin: ['redesign', 'Admin Command Center'], 'admin#*': ['added'], 'theme#memory': ['added'], 'theme#account': ['feature', 'Server account status'],
+      ask: ['feature', 'Remembers across conversations; project picker'], notes: ['feature', 'Notes Q&A uses memory'], scan: ['feature', 'Page questions use memory'],
+      chat: ['feature', 'Report a message'], console: ['fix', '↓↓ isolated from the page'] } },
+    { at: '2026-09-27T02:44:00-04:00', commit: '', title: 'Admin, charts and status colors follow the current theme', parts: {
+      admin: ['feature', 'Fully theme-driven'], 'admin#*': ['feature', 'Theme-driven charts, status and scenes'], 'theme#memory': ['fix', 'Theme-driven highlight'],
+      console: ['feature', 'Shared semantic status and chart colors'] } },
+    { at: '2026-09-27T02:49:36-04:00', commit: '', title: 'Selection bubble and answer popup styled and themed again on every page', parts: { selection: ['fix', 'Styles now reach the page; follows the current theme'] } },
+    { at: '2026-09-27T02:49:36-04:00', commit: '', title: 'Version and version history on every tab and section', parts: {
+      console: ['feature'], selection: ['feature'], welcome: ['feature'], scan: ['feature'], ask: ['feature'], chat: ['feature'], music: ['feature'], browser: ['feature'],
+      games: ['feature'], study: ['feature'], notes: ['feature'], humanize: ['feature'], grammar: ['feature'], saved: ['feature'], theme: ['feature'], admin: ['feature'],
+      'theme#*': ['feature'], 'admin#*': ['feature'] } }
+  ];
+  const PART_NAMES = {
+    console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
+    music: 'Music', browser: 'Proxy', games: 'Games', study: 'Study', notes: 'Notes', humanize: 'Humanize', grammar: 'Grammar',
+    saved: 'Saved', theme: 'Settings', admin: 'Admin'
+  };
+  const SECTION_IDS = {
+    theme: ['overview', 'theme', 'colors', 'panel', 'effects', 'type', 'icon', 'ai', 'memory', 'controls', 'account', 'advanced'],
+    admin: ['overview', 'users', 'ai', 'memory', 'security', 'moderation', 'content', 'system', 'automation', 'developer', 'audit', 'danger']
+  };
+  const VH_RANK = { fix: 1, feature: 2, added: 2, redesign: 3 };
+  // Computes { part: { version, updated, history: [{version, at, kind, note, title, commit}] } }
+  // plus the console-wide release list.
+  const VERSIONS = (function computeVersions() {
+    const bump = (v, kind) => {
+      if (!v || kind === 'added') return [1, 0, 0];
+      if (kind === 'redesign') return [v[0] + 1, 0, 0];
+      if (kind === 'feature') return [v[0], v[1] + 1, 0];
+      return [v[0], v[1], v[2] + 1];
+    };
+    const entries = CHANGELOG.slice().sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    const parts = {};
+    const releases = [];
+    let app = null;
+    const touch = (id, kind, note, e) => {
+      const p = parts[id] || (parts[id] = { v: null, history: [] });
+      p.v = bump(p.v, kind);
+      p.history.unshift({ version: p.v.join('.'), at: e.at, kind, note: note || e.title, title: e.title, commit: e.commit });
+    };
+    entries.forEach((e) => {
+      let top = 0;
+      Object.keys(e.parts).forEach((key) => {
+        const [kind, note] = e.parts[key];
+        top = Math.max(top, VH_RANK[kind] || 1);
+        const m = key.match(/^(\w+)#\*$/);
+        if (m) SECTION_IDS[m[1]].forEach((s) => touch(m[1] + '#' + s, kind, note, e));
+        else touch(key, kind, note, e);
+      });
+      app = bump(app, !app ? 'added' : top === 3 ? 'redesign' : top === 2 ? 'feature' : 'fix');
+      releases.unshift({ version: app.join('.'), at: e.at, title: e.title, commit: e.commit, parts: Object.keys(e.parts) });
+    });
+    const out = {};
+    Object.keys(parts).forEach((id) => { out[id] = { version: parts[id].v.join('.'), updated: parts[id].history[0].at, history: parts[id].history }; });
+    return { parts: out, app: app.join('.'), updated: releases[0].at, releases };
+  })();
+  const APP_VERSION = VERSIONS.app;
 
   // ---- Settings control center: static building blocks --------------------
   // Declared before panel.innerHTML because the Settings markup interpolates
@@ -624,7 +788,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         --gps-soft: color-mix(in srgb, var(--gpa-text) 6%, transparent);
         --gps-e1: 0 1px 0 color-mix(in srgb, var(--gpa-text) 5%, transparent) inset;
         --gps-e2: 0 1px 0 color-mix(in srgb, var(--gpa-text) 6%, transparent) inset, 0 10px 28px -12px rgba(0,0,0,0.45);
-        --gpx-ok: #34d399; --gpx-warn: #fbbf24; --gpx-err: #f87171;
+        /* Room status tones alias the theme's shared semantic tokens. */
+        --gpx-ok: var(--gpa-success); --gpx-warn: var(--gpa-warning); --gpx-err: var(--gpa-danger);
       }
       .gpa-panel svg { flex-shrink: 0; }
 
@@ -687,7 +852,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-toast {
         border-radius: var(--gps-r2); border: 1px solid var(--gpa-border);
         background: color-mix(in srgb, var(--gpa-panel) 94%, transparent); backdrop-filter: blur(10px);
-        box-shadow: 0 16px 36px -14px rgba(0,0,0,0.6); padding-left: 14px; border-left: 3px solid var(--gpa-accent);
+        box-shadow: 0 16px 36px -14px color-mix(in srgb, var(--gpa-shade) 60%, transparent); padding-left: 14px; border-left: 3px solid var(--gpa-accent);
       }
       .gpa-toast.danger { border-left-color: var(--gpx-err); }
 
@@ -954,19 +1119,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gv-ring b { position: absolute; top: -5px; left: calc(50% - 5px); width: 10px; height: 10px; border-radius: 50%; background: var(--gpa-accent2); box-shadow: 0 0 12px var(--gpa-accent2); }
       .gv-nucleus {
         position: relative; width: 40px; height: 40px; border-radius: 50%;
-        background: radial-gradient(circle at 35% 30%, #fff 0%, var(--gpa-accent) 38%, var(--gpa-accent2) 100%);
-        box-shadow: 0 0 28px var(--gpa-accent), inset -6px -8px 14px rgba(0,0,0,0.3);
+        background: radial-gradient(circle at 35% 30%, var(--gpa-highlight) 0%, var(--gpa-accent) 38%, var(--gpa-accent2) 100%);
+        box-shadow: 0 0 28px var(--gpa-accent), inset -6px -8px 14px color-mix(in srgb, var(--gpa-shade) 30%, transparent);
         transition: box-shadow var(--gps-t3) ease;
       }
       .gpx-hero[data-state="working"] .gv-nucleus { animation: gv-pulse 1.1s ease-in-out infinite; }
-      .gpx-hero[data-state="error"] .gv-nucleus { background: radial-gradient(circle at 35% 30%, #fff 0%, var(--gpx-err) 45%, #7f1d1d 100%); box-shadow: 0 0 22px var(--gpx-err); }
+      .gpx-hero[data-state="error"] .gv-nucleus { background: radial-gradient(circle at 35% 30%, var(--gpa-highlight) 0%, var(--gpx-err) 45%, color-mix(in srgb, var(--gpx-err) 40%, var(--gpa-shade)) 100%); box-shadow: 0 0 22px var(--gpx-err); }
       .gpx-hero[data-state="error"] .gv-ring u { border-color: color-mix(in srgb, var(--gpx-err) 50%, transparent); animation-play-state: paused; }
       @keyframes gv-spin { to { transform: rotate(360deg); } }
       @keyframes gv-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); box-shadow: 0 0 44px var(--gpa-accent); } }
 
       /* Page Insights: stacked page layers with a scan beam */
       .gv-pages-rig { position: relative; width: 92px; height: 118px; transform-style: preserve-3d; transform: rotateX(56deg) rotateZ(-36deg); }
-      .gv-sheet { position: absolute; inset: 0; border-radius: 6px; border: 1px solid var(--gpa-border); background: var(--gpa-panel); box-shadow: 0 10px 20px -8px rgba(0,0,0,0.6); }
+      .gv-sheet { position: absolute; inset: 0; border-radius: 6px; border: 1px solid var(--gpa-border); background: var(--gpa-panel); box-shadow: 0 10px 20px -8px color-mix(in srgb, var(--gpa-shade) 60%, transparent); }
       .gv-s3 { transform: translateZ(0); opacity: 0.55; } .gv-s2 { transform: translateZ(14px); opacity: 0.8; }
       .gv-s1 { transform: translateZ(28px); padding: 12px 10px; display: flex !important; flex-direction: column; gap: 7px; overflow: hidden; background: var(--gpa-field); }
       .gv-s1 b { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-text) 22%, transparent); transition: background var(--gps-t3) ease; }
@@ -982,8 +1147,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       /* Chat: message bubbles orbiting a room hub */
       .gv-b-rig { position: relative; width: 120px; height: 100px; transform-style: preserve-3d; transform: rotateX(18deg) rotateY(-22deg); animation: gv-sway 8s ease-in-out infinite; }
       @keyframes gv-sway { 0%, 100% { transform: rotateX(18deg) rotateY(-22deg); } 50% { transform: rotateX(14deg) rotateY(-8deg); } }
-      .gv-hub { position: absolute; left: calc(50% - 16px); top: calc(50% - 16px); width: 32px; height: 32px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, var(--gpa-accent) 45%, var(--gpa-accent2)); box-shadow: 0 0 22px var(--gpa-accent); transition: filter var(--gps-t3) ease; }
-      .gv-bub { position: absolute; height: 24px; border-radius: 12px 12px 12px 4px; background: var(--gpa-field); border: 1px solid var(--gpa-border); box-shadow: 0 10px 18px -10px rgba(0,0,0,0.6); }
+      .gv-hub { position: absolute; left: calc(50% - 16px); top: calc(50% - 16px); width: 32px; height: 32px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--gpa-highlight), var(--gpa-accent) 45%, var(--gpa-accent2)); box-shadow: 0 0 22px var(--gpa-accent); transition: filter var(--gps-t3) ease; }
+      .gv-bub { position: absolute; height: 24px; border-radius: 12px 12px 12px 4px; background: var(--gpa-field); border: 1px solid var(--gpa-border); box-shadow: 0 10px 18px -10px color-mix(in srgb, var(--gpa-shade) 60%, transparent); }
       .gv-bub::after { content: ''; position: absolute; left: 10px; right: 12px; top: 10px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--gpa-text) 30%, transparent); }
       .gv-b1 { width: 64px; left: -6px; top: 4px; transform: translateZ(40px); }
       .gv-b2 { width: 54px; right: -10px; top: 30px; transform: translateZ(20px); border-radius: 12px 12px 4px 12px; background: var(--gpa-accent); border-color: var(--gpa-accent); }
@@ -1000,13 +1165,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gv-vinyl {
         position: absolute; inset: 8px; border-radius: 50%;
         background: repeating-radial-gradient(circle, #111 0 2px, #1c1c1c 2px 3px), #111;
-        box-shadow: 0 16px 24px -10px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(255,255,255,0.06);
+        box-shadow: 0 16px 24px -10px color-mix(in srgb, var(--gpa-shade) 70%, transparent), inset 0 0 0 1px rgba(255,255,255,0.06);
         animation: gv-spin 2.4s linear infinite; animation-play-state: paused;
       }
       .gv-vinyl::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 20deg, transparent 0 20%, rgba(255,255,255,0.12) 25%, transparent 32% 70%, rgba(255,255,255,0.08) 75%, transparent 82%); }
       .gv-vinyl span { position: absolute; inset: 34%; border-radius: 50%; background: radial-gradient(circle, var(--gpa-bg) 0 8%, var(--gpa-accent) 9% 60%, var(--gpa-accent2) 100%); }
       .gv-progress { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(var(--gpa-accent) calc(var(--p) * 1%), color-mix(in srgb, var(--gpa-text) 12%, transparent) 0); -webkit-mask: radial-gradient(circle, transparent 64%, #000 65%); mask: radial-gradient(circle, transparent 64%, #000 65%); }
-      .gv-arm { position: absolute; right: 12px; top: 10px; width: 5px; height: 70px; border-radius: 3px; background: linear-gradient(180deg, var(--gpa-text), var(--gpa-sub)); transform-origin: 50% 6px; transform: rotate(-28deg); transition: transform 600ms var(--gps-ease); box-shadow: 0 6px 12px -4px rgba(0,0,0,0.6); }
+      .gv-arm { position: absolute; right: 12px; top: 10px; width: 5px; height: 70px; border-radius: 3px; background: linear-gradient(180deg, var(--gpa-text), var(--gpa-sub)); transform-origin: 50% 6px; transform: rotate(-28deg); transition: transform 600ms var(--gps-ease); box-shadow: 0 6px 12px -4px color-mix(in srgb, var(--gpa-shade) 60%, transparent); }
       .gv-arm::before { content: ''; position: absolute; top: -4px; left: -4px; width: 13px; height: 13px; border-radius: 50%; background: var(--gpa-sub); }
       .gpx-hero[data-playing="1"] .gv-vinyl { animation-play-state: running; }
       .gpx-hero[data-playing="1"] .gv-arm { transform: rotate(8deg); }
@@ -1014,7 +1179,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       /* Proxy: device, tunnel rings and a browser window */
       .gv-tunnel { width: 176px; perspective: 400px; }
       .gv-dev { position: absolute; left: 4px; top: calc(50% - 18px); width: 28px; height: 36px; border-radius: 6px; border: 1.5px solid var(--gpa-text); background: var(--gpa-field); }
-      .gv-win { position: absolute; right: 2px; top: calc(50% - 26px); width: 46px; height: 52px; border-radius: 6px; border: 1px solid var(--gpa-border); background: var(--gpa-panel); padding: 12px 6px 6px; display: flex !important; flex-direction: column; gap: 5px; box-shadow: 0 10px 20px -8px rgba(0,0,0,0.6); }
+      .gv-win { position: absolute; right: 2px; top: calc(50% - 26px); width: 46px; height: 52px; border-radius: 6px; border: 1px solid var(--gpa-border); background: var(--gpa-panel); padding: 12px 6px 6px; display: flex !important; flex-direction: column; gap: 5px; box-shadow: 0 10px 20px -8px color-mix(in srgb, var(--gpa-shade) 60%, transparent); }
       .gv-win::before { content: ''; position: absolute; top: 5px; left: 6px; width: 16px; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--gpa-text) 40%, transparent); }
       .gv-win s { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--gpa-text) 18%, transparent); }
       .gv-tube { position: absolute; left: 36px; right: 52px; top: calc(50% - 24px); height: 48px; display: flex !important; align-items: center; justify-content: space-around; transform-style: preserve-3d; }
@@ -1031,7 +1196,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
       /* Games: isometric blocks */
       .gv-blocks-rig { display: grid !important; grid-template-columns: repeat(3, 28px); gap: 6px; transform-style: preserve-3d; transform: rotateX(56deg) rotateZ(45deg); }
-      .gv-blocks-rig i { width: 28px; height: 28px; border-radius: 6px; background: var(--gpa-field); border: 1px solid var(--gpa-border); box-shadow: -4px 4px 0 color-mix(in srgb, var(--gpa-text) 10%, transparent), -8px 8px 14px -6px rgba(0,0,0,0.6); transform: translateZ(0); transition: transform var(--gps-t3) var(--gps-spring); }
+      .gv-blocks-rig i { width: 28px; height: 28px; border-radius: 6px; background: var(--gpa-field); border: 1px solid var(--gpa-border); box-shadow: -4px 4px 0 color-mix(in srgb, var(--gpa-text) 10%, transparent), -8px 8px 14px -6px color-mix(in srgb, var(--gpa-shade) 60%, transparent); transform: translateZ(0); transition: transform var(--gps-t3) var(--gps-spring); }
       .gv-blocks-rig i:nth-child(2), .gv-blocks-rig i:nth-child(4), .gv-blocks-rig i:nth-child(9) { background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2)); border-color: var(--gpa-accent); }
       .gv-blocks-rig i:nth-child(5) { transform: translateZ(14px); }
       .gpx-hero[data-playing="1"] .gv-blocks-rig i { animation: gv-bob 1.6s ease-in-out infinite; }
@@ -1041,7 +1206,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
       /* Saved: fanned library cards with a real count */
       .gv-lib-rig { position: relative; width: 70px; height: 92px; transform-style: preserve-3d; transform: rotateX(20deg) rotateY(-18deg); }
-      .gv-lib-rig i { position: absolute; inset: 0; border-radius: 8px; border: 1px solid var(--gpa-border); background: var(--gpa-field); box-shadow: 0 12px 20px -10px rgba(0,0,0,0.6); transform-origin: 50% 100%; transition: transform var(--gps-t3) var(--gps-spring); }
+      .gv-lib-rig i { position: absolute; inset: 0; border-radius: 8px; border: 1px solid var(--gpa-border); background: var(--gpa-field); box-shadow: 0 12px 20px -10px color-mix(in srgb, var(--gpa-shade) 60%, transparent); transform-origin: 50% 100%; transition: transform var(--gps-t3) var(--gps-spring); }
       .gv-lib-rig i::after { content: ''; position: absolute; left: 10px; right: 10px; top: 12px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-text) 25%, transparent); box-shadow: 0 10px 0 color-mix(in srgb, var(--gpa-text) 14%, transparent), 0 20px 0 color-mix(in srgb, var(--gpa-text) 14%, transparent); }
       .gv-lib-rig i:nth-child(1) { transform: rotate(-16deg) translateZ(0); } .gv-lib-rig i:nth-child(2) { transform: rotate(-6deg) translateZ(10px); }
       .gv-lib-rig i:nth-child(3) { transform: rotate(5deg) translateZ(20px); } .gv-lib-rig i:nth-child(4) { transform: rotate(15deg) translateZ(30px); background: linear-gradient(160deg, color-mix(in srgb, var(--gpa-accent) 30%, var(--gpa-field)), var(--gpa-field)); border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); }
@@ -1053,7 +1218,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gv-flash { --p: 0; }
       .gv-flash-rig { position: relative; width: 78px; height: 100px; transform-style: preserve-3d; animation: gv-flip 6s var(--gps-ease) infinite; }
       .gpx-hero[data-empty="1"] .gv-flash-rig { animation: none; transform: rotateY(-18deg); }
-      .gv-card-f, .gv-card-b { position: absolute; inset: 0; display: grid !important; place-items: center; border-radius: 10px; backface-visibility: hidden; font: 700 26px 'Geist', sans-serif; box-shadow: 0 14px 24px -12px rgba(0,0,0,0.7); }
+      .gv-card-f, .gv-card-b { position: absolute; inset: 0; display: grid !important; place-items: center; border-radius: 10px; backface-visibility: hidden; font: 700 26px 'Geist', sans-serif; box-shadow: 0 14px 24px -12px color-mix(in srgb, var(--gpa-shade) 70%, transparent); }
       .gv-card-f { background: var(--gpa-field); border: 1px solid var(--gpa-border); color: var(--gpa-text); }
       .gv-card-b { background: linear-gradient(145deg, var(--gpa-accent), var(--gpa-accent2)); color: var(--gpa-accent-fg); transform: rotateY(180deg); }
       @keyframes gv-flip { 0%, 35% { transform: rotateY(-18deg); } 50%, 85% { transform: rotateY(162deg); } 100% { transform: rotateY(342deg); } }
@@ -1061,13 +1226,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
       /* Notes: document stack, highlighter and a sticky note */
       .gv-notes-rig { position: relative; width: 96px; height: 112px; transform-style: preserve-3d; transform: rotateX(24deg) rotateY(-24deg); }
-      .gv-doc { position: absolute; inset: 0; border-radius: 6px; border: 1px solid var(--gpa-border); background: var(--gpa-panel); box-shadow: 0 14px 24px -12px rgba(0,0,0,0.7); }
+      .gv-doc { position: absolute; inset: 0; border-radius: 6px; border: 1px solid var(--gpa-border); background: var(--gpa-panel); box-shadow: 0 14px 24px -12px color-mix(in srgb, var(--gpa-shade) 70%, transparent); }
       .gv-d2 { transform: translate(10px, 8px) translateZ(-16px); opacity: 0.7; }
       .gv-d1 { background: var(--gpa-field); padding: 14px 12px; display: flex !important; flex-direction: column; gap: 8px; }
       .gv-d1 b { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-text) 22%, transparent); transform-origin: left; }
       .gv-d1 b:nth-child(1) { width: 60%; height: 7px; background: color-mix(in srgb, var(--gpa-text) 45%, transparent); }
       .gv-d1 b:nth-child(2) { width: 90%; } .gv-d1 b:nth-child(3) { width: 78%; background: color-mix(in srgb, var(--gpa-accent) 55%, transparent); height: 7px; } .gv-d1 b:nth-child(4) { width: 85%; } .gv-d1 b:nth-child(5) { width: 55%; }
-      .gv-sticky { position: absolute; right: -18px; top: -10px; width: 34px; height: 34px; border-radius: 4px; transform: translateZ(26px) rotate(8deg); background: linear-gradient(145deg, var(--gpa-accent2), color-mix(in srgb, var(--gpa-accent2) 70%, #000)); box-shadow: 0 10px 16px -8px rgba(0,0,0,0.6); }
+      .gv-sticky { position: absolute; right: -18px; top: -10px; width: 34px; height: 34px; border-radius: 4px; transform: translateZ(26px) rotate(8deg); background: linear-gradient(145deg, var(--gpa-accent2), color-mix(in srgb, var(--gpa-accent2) 70%, #000)); box-shadow: 0 10px 16px -8px color-mix(in srgb, var(--gpa-shade) 60%, transparent); }
       .gpx-hero[data-state="working"] .gv-d1 b { animation: gv-write 1.6s var(--gps-ease) infinite; }
       .gpx-hero[data-state="working"] .gv-d1 b:nth-child(2) { animation-delay: 0.15s; } .gpx-hero[data-state="working"] .gv-d1 b:nth-child(3) { animation-delay: 0.3s; } .gpx-hero[data-state="working"] .gv-d1 b:nth-child(4) { animation-delay: 0.45s; } .gpx-hero[data-state="working"] .gv-d1 b:nth-child(5) { animation-delay: 0.6s; }
       @keyframes gv-write { 0% { transform: scaleX(0); } 60%, 100% { transform: scaleX(1); } }
@@ -1075,7 +1240,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
       /* Humanize: a stiff sheet becomes a natural one */
       .gv-morph { width: 176px; perspective: 500px; }
-      .gv-sheet-a, .gv-sheet-b { position: absolute; top: calc(50% - 46px); width: 62px; height: 92px; border-radius: 6px; border: 1px solid var(--gpa-border); padding: 12px 9px; display: flex !important; flex-direction: column; gap: 9px; box-shadow: 0 14px 22px -12px rgba(0,0,0,0.7); }
+      .gv-sheet-a, .gv-sheet-b { position: absolute; top: calc(50% - 46px); width: 62px; height: 92px; border-radius: 6px; border: 1px solid var(--gpa-border); padding: 12px 9px; display: flex !important; flex-direction: column; gap: 9px; box-shadow: 0 14px 22px -12px color-mix(in srgb, var(--gpa-shade) 70%, transparent); }
       .gv-sheet-a { left: 6px; background: var(--gpa-panel); transform: rotateY(24deg); }
       .gv-sheet-a b { height: 5px; width: 100%; border-radius: 0; background: color-mix(in srgb, var(--gpa-text) 22%, transparent); }
       .gv-sheet-b { right: 6px; background: var(--gpa-field); transform: rotateY(-24deg); border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); }
@@ -1088,7 +1253,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       @keyframes gv-nudge { 0%, 100% { transform: translateX(-4px); } 50% { transform: translateX(4px); } }
 
       /* Grammar: squiggles that resolve into checks */
-      .gv-gsheet { position: relative; width: 104px; height: 112px; border-radius: 8px; border: 1px solid var(--gpa-border); background: var(--gpa-field); padding: 16px 12px; display: flex !important; flex-direction: column; gap: 12px; overflow: hidden; transform: rotateX(20deg) rotateY(-20deg); box-shadow: 0 16px 26px -14px rgba(0,0,0,0.7); }
+      .gv-gsheet { position: relative; width: 104px; height: 112px; border-radius: 8px; border: 1px solid var(--gpa-border); background: var(--gpa-field); padding: 16px 12px; display: flex !important; flex-direction: column; gap: 12px; overflow: hidden; transform: rotateX(20deg) rotateY(-20deg); box-shadow: 0 16px 26px -14px color-mix(in srgb, var(--gpa-shade) 70%, transparent); }
       .gv-gsheet b { position: relative; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-text) 24%, transparent); }
       .gv-gsheet b:nth-child(2) { width: 80%; } .gv-gsheet b:nth-child(4) { width: 70%; } .gv-gsheet b:nth-child(5) { width: 55%; }
       .gv-gsheet .gv-bad::after { content: ''; position: absolute; left: 0; right: 0; bottom: -5px; height: 4px; background: radial-gradient(circle at 2px 0, transparent 2px, var(--gpx-err) 2px 3px, transparent 3px) 0 0 / 6px 4px repeat-x; }
@@ -1098,7 +1263,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       /* Welcome: the Three.js scene, with a CSS orb until/unless it loads */
       .gpx-hero-welcome .gpx-visual canvas { position: relative; z-index: 1; width: 140px; height: 140px; }
       .gv-orb { position: absolute; }
-      .gv-orb span { width: 60px; height: 60px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, var(--gpa-accent) 40%, var(--gpa-accent2)); box-shadow: 0 0 36px var(--gpa-accent); }
+      .gv-orb span { width: 60px; height: 60px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--gpa-highlight), var(--gpa-accent) 40%, var(--gpa-accent2)); box-shadow: 0 0 36px var(--gpa-accent); }
       .gv-orb i { position: absolute; inset: 20px 10px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--gpa-accent) 50%, transparent); transform: rotateX(70deg); animation: gv-spin 10s linear infinite; }
       .gv-orb i:nth-child(2) { transform: rotateX(70deg) rotateY(50deg); animation-duration: 14s; }
       .gpx-hero-welcome .gpx-visual:has(canvas:not([style*="none"])) .gv-orb { display: none; }
@@ -1137,7 +1302,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-seg .gps-seg-btn:hover, .gpx-seg-inline .gps-seg-btn:hover { color: var(--gpa-text); background: var(--gps-soft); }
       .gpx-seg .gps-seg-btn.primary, .gpx-seg-inline .gps-seg-btn.primary {
         color: var(--gpa-text); background: var(--gpa-card-bg);
-        box-shadow: 0 0 0 1px color-mix(in srgb, var(--gpa-accent) 55%, transparent), 0 4px 12px -6px rgba(0,0,0,0.5);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--gpa-accent) 55%, transparent), 0 4px 12px -6px color-mix(in srgb, var(--gpa-shade) 50%, transparent);
       }
       .gpx-seg .gps-seg-btn:focus-visible, .gpx-seg-inline .gps-seg-btn:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 2px; }
 
@@ -1156,7 +1321,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-study .gpa-flip-face {
         padding: 28px; font-size: 17px; font-weight: 600; line-height: 1.45; border-radius: calc(18px * var(--gpa-rs));
         background: radial-gradient(90% 90% at 0% 0%, color-mix(in srgb, var(--gpa-glow) 14%, transparent), transparent 70%), var(--gpa-card-bg);
-        box-shadow: 0 24px 40px -24px rgba(0,0,0,0.7), inset 0 1px 0 color-mix(in srgb, var(--gpa-text) 8%, transparent);
+        box-shadow: 0 24px 40px -24px color-mix(in srgb, var(--gpa-shade) 70%, transparent), inset 0 1px 0 color-mix(in srgb, var(--gpa-text) 8%, transparent);
       }
       .gpx-study .gpa-flip-back { background: linear-gradient(145deg, color-mix(in srgb, var(--gpa-accent) 22%, var(--gpa-card-bg)), var(--gpa-card-bg)); border-color: color-mix(in srgb, var(--gpa-accent) 55%, var(--gpa-border)); }
       .gpx-study > .gpa-row { gap: 8px; }
@@ -1186,6 +1351,44 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         .gpx-room-convo:has(.gpa-chat-msg) .gpx-visual { height: 56px; }
       }
 
+      /* ---- Version chips + history (every tab and section) ---- */
+      .gvh { align-self: flex-start; max-width: 100%; font-size: 11.5px; color: var(--gpa-sub); }
+      .gvh > summary {
+        display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 10px 0 8px; list-style: none; cursor: pointer;
+        border-radius: 999px; border: 1px solid var(--gpa-border); background: var(--gpa-field);
+        transition: border-color var(--gps-t1, 140ms) ease, color var(--gps-t1, 140ms) ease;
+      }
+      .gvh > summary::-webkit-details-marker { display: none; }
+      .gvh > summary:hover, .gvh[open] > summary { color: var(--gpa-text); border-color: color-mix(in srgb, var(--gpa-accent) 50%, var(--gpa-border)); }
+      .gvh > summary:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 2px; }
+      .gvh > summary svg { width: 13px; height: 13px; color: var(--gpa-accent); }
+      .gvh-v { font: 600 11px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-text); }
+      .gvh-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gvh-body { margin-top: 8px; padding: 10px 12px; max-height: 280px; overflow: auto; border-radius: var(--gps-r2, 12px); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); color: var(--gpa-text); animation: gps-in var(--gps-t2, 240ms) var(--gps-ease, ease) both; }
+      .gvh-head { font-weight: 600; font-size: 12.5px; margin-bottom: 8px; }
+      .gvh-list { list-style: none; margin: 0; padding: 0 0 0 12px; border-left: 1px solid var(--gpa-border); display: flex; flex-direction: column; gap: 10px; }
+      .gvh-list li { position: relative; font-size: 12px; line-height: 1.45; }
+      .gvh-list li::before { content: ''; position: absolute; left: -16px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--gpa-accent); }
+      .gvh-list p { margin: 2px 0 0; overflow-wrap: anywhere; }
+      .gvh-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
+      .gvh-row b { font: 600 11.5px 'Geist Mono', ui-monospace, monospace; }
+      .gvh-row time, .gvh-sub { color: var(--gpa-sub); }
+      .gvh-list code { font: 10.5px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-sub); }
+      .gvh-kind { padding: 0 6px; border-radius: 999px; font: 600 10px 'Geist Mono', ui-monospace, monospace; border: 1px solid var(--gpa-border); }
+      .gvh-kind.k-added { color: var(--gpa-success); border-color: color-mix(in srgb, var(--gpa-success) 45%, var(--gpa-border)); }
+      .gvh-kind.k-feature { color: var(--gpa-info); border-color: color-mix(in srgb, var(--gpa-info) 45%, var(--gpa-border)); }
+      .gvh-kind.k-fix { color: var(--gpa-warning); border-color: color-mix(in srgb, var(--gpa-warning) 45%, var(--gpa-border)); }
+      .gvh-kind.k-redesign { color: var(--gpa-text); border-color: var(--gpa-accent); background: color-mix(in srgb, var(--gpa-accent) 14%, transparent); }
+      .gps-sec-head .gvh { margin-top: 6px; }
+      .gps-titleblock .gvh { margin-top: 6px; }
+      .gvh-card { display: flex; flex-direction: column; gap: 10px; }
+      .gvh-table { display: flex; flex-direction: column; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2, 12px); overflow: hidden; }
+      .gvh-tr { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 1.4fr); gap: 10px; padding: 7px 12px; font-size: 12.5px; border-top: 1px solid var(--gps-soft, var(--gpa-border)); }
+      .gvh-tr > span { min-width: 0; overflow-wrap: anywhere; }
+      .gvh-th { border-top: none; background: var(--gpa-field); font: 500 11px 'Geist Mono', ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gpa-sub); }
+      .gvh-tr time { color: var(--gpa-sub); }
+      .gvh-all .gvh-list { margin: 4px 0 12px 4px; max-height: 360px; overflow: auto; }
+
       /* ===== Admin Command Center ===== */
       .gac-content { container: room / inline-size; }
       .gac-top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -1207,29 +1410,30 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gac-kpi::after { content: ''; position: absolute; inset: 0 0 auto; height: 2px; background: linear-gradient(90deg, var(--gpa-accent), transparent); opacity: 0.7; }
       .gac-kpi:hover { transform: perspective(600px) rotateX(4deg) translateY(-2px); box-shadow: var(--gps-e2); }
-      .gac-kpi.warn::after { background: linear-gradient(90deg, var(--gpx-warn), transparent); }
+      .gac-kpi.warn::after { background: linear-gradient(90deg, var(--gpa-warning), transparent); }
       .gac-kpi-k { font-size: 11.5px; color: var(--gpa-sub); }
       .gac-kpi-v { font: 600 22px/1.1 'Geist Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; overflow-wrap: anywhere; }
       .gac-kpi-d { font-size: 11px; color: var(--gpa-sub); line-height: 1.35; }
       .gps .gac-bars { width: 100%; height: 88px; display: block; }
-      .gac-bars rect { fill: var(--gpa-accent); opacity: 0.85; }
-      .gac-bars.is-bad rect { fill: var(--gpx-err); }
-      .gac-bars.is-alt rect { fill: var(--gpa-accent2); }
+      .gac-bars rect { fill: var(--gpa-chart-1); opacity: 0.9; transition: fill var(--gps-t2) ease, opacity var(--gps-t1) ease; }
+      .gac-bars line { stroke: var(--gpa-chart-grid); stroke-width: 0.4; vector-effect: non-scaling-stroke; }
+      .gac-bars.is-bad rect { fill: var(--gpa-chart-danger); }
+      .gac-bars.is-alt rect { fill: var(--gpa-chart-2); }
       .gac-bars rect:hover { opacity: 1; }
-      .gac-axis { display: flex; justify-content: space-between; font: 500 10.5px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-sub); }
-      .gac-ratio { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--gpa-accent2) 45%, var(--gpa-field)); }
-      .gac-ratio i { display: block; background: var(--gpa-accent); }
+      .gac-axis { display: flex; justify-content: space-between; font: 500 10.5px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-chart-axis); }
+      .gac-ratio { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: var(--gpa-chart-2); }
+      .gac-ratio i { display: block; background: var(--gpa-chart-1); }
       .gac-ratio-l { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--gpa-sub); }
       .gac-dist, .gac-rank, .gac-health, .gac-keys, .gac-memlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
       .gac-dist li { display: grid; grid-template-columns: minmax(0, 120px) minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 12.5px; }
       .gac-dist li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .gac-dist li i { display: block; height: 8px; border-radius: 999px; background: linear-gradient(90deg, var(--gpa-accent) var(--w), var(--gpa-field) var(--w)); }
+      .gac-dist li i { display: block; height: 8px; border-radius: 999px; background: linear-gradient(90deg, var(--gpa-chart-1) var(--w), var(--gpa-chart-grid) var(--w)); }
       .gac-dist li b { font: 600 12px 'Geist Mono', ui-monospace, monospace; }
       .gac-rank li { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid var(--gps-soft); }
       .gac-rank li span:last-child { color: var(--gpa-sub); }
       .gac-health li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 12.5px; padding: 4px 0; }
-      .gac-health li i { width: 8px; height: 8px; border-radius: 50%; background: var(--gpx-ok); box-shadow: 0 0 8px var(--gpx-ok); }
-      .gac-health li.bad i { background: var(--gpx-err); box-shadow: 0 0 8px var(--gpx-err); }
+      .gac-health li i { width: 8px; height: 8px; border-radius: 50%; background: var(--gpa-success); box-shadow: 0 0 8px var(--gpa-success); }
+      .gac-health li.bad i { background: var(--gpa-danger); box-shadow: 0 0 8px var(--gpa-danger); }
       .gac-health li.off i { background: var(--gpa-sub); box-shadow: none; }
       .gac-health li em { font-style: normal; color: var(--gpa-sub); text-align: right; overflow-wrap: anywhere; }
       .gac-timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 1px solid var(--gpa-border); display: flex; flex-direction: column; gap: 8px; }
@@ -1250,9 +1454,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gac-meter { display: inline-block; vertical-align: middle; width: 48px; height: 6px; border-radius: 999px; background: var(--gpa-field); overflow: hidden; }
       .gac-meter i { display: block; height: 100%; background: var(--gpa-accent); }
       .gac-badge { display: inline-flex; align-items: center; padding: 1px 7px; margin: 1px 2px 1px 0; border-radius: 999px; font: 600 10.5px 'Geist Mono', ui-monospace, monospace; border: 1px solid var(--gpa-border); color: var(--gpa-sub); white-space: nowrap; }
-      .gac-badge.ok { color: var(--gpx-ok); border-color: color-mix(in srgb, var(--gpx-ok) 45%, var(--gpa-border)); }
-      .gac-badge.warn { color: var(--gpa-text); border-color: var(--gpx-warn); background: color-mix(in srgb, var(--gpx-warn) 14%, transparent); }
-      .gac-badge.bad { color: var(--gpa-text); border-color: var(--gpx-err); background: color-mix(in srgb, var(--gpx-err) 16%, transparent); }
+      .gac-badge.ok { color: var(--gpa-success); border-color: color-mix(in srgb, var(--gpa-success) 45%, var(--gpa-border)); }
+      .gac-badge.warn { color: var(--gpa-text); border-color: var(--gpa-warning); background: color-mix(in srgb, var(--gpa-warning) 14%, transparent); }
+      .gac-badge.bad { color: var(--gpa-text); border-color: var(--gpa-danger); background: color-mix(in srgb, var(--gpa-danger) 16%, transparent); }
       .gac-badge.role-owner, .gac-badge.role-admin { color: var(--gpa-text); border-color: var(--gpa-accent); background: color-mix(in srgb, var(--gpa-accent) 16%, transparent); }
       .gac-link { border: none; background: none; padding: 0; color: var(--gpa-accent); font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
       .gac-link:hover { text-decoration: underline; }
@@ -1266,8 +1470,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gac-insp-head h3 { margin: 0; font-size: 17px; }
       .gac-insp-head p { margin: 2px 0 0; }
       .gac-insp-head .gps-btn { margin-left: auto; }
-      .gac-avatar { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font: 700 18px 'Geist Mono', ui-monospace, monospace; color: #fff; background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2)); box-shadow: 0 10px 22px -10px var(--gpa-accent); transform: perspective(300px) rotateY(-14deg); }
+      .gac-avatar { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font: 700 18px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-accent-fg); background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2)); box-shadow: 0 10px 22px -10px var(--gpa-accent); transform: perspective(300px) rotateY(-14deg); }
       .gac-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+      .gac-inline-confirm { flex-basis: 100%; padding: 10px; border-radius: var(--gps-r2); border: 1px solid color-mix(in srgb, var(--gpa-danger) 45%, var(--gpa-border)); background: color-mix(in srgb, var(--gpa-danger) 6%, var(--gpa-field)); }
       .gac-form { display: flex; flex-direction: column; gap: 8px; }
       .gac-form label, .gac-inline { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--gpa-sub); }
       .gac-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; }
@@ -1280,26 +1485,26 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gac-keys li > div:first-child { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
       .gac-keys-meta { font-size: 11.5px; color: var(--gpa-sub); }
       .gac-keys .gps-btn { align-self: flex-start; }
-      .gac-keytest { font-size: 12px; } .gac-keytest.ok { color: var(--gpx-ok); } .gac-keytest.bad { color: var(--gpx-err); }
+      .gac-keytest { font-size: 12px; } .gac-keytest.ok { color: var(--gpa-success); } .gac-keytest.bad { color: var(--gpa-danger); }
       .gac-reports, .gac-jobs, .gac-danger { display: flex; flex-direction: column; gap: 10px; }
       .gac-report, .gac-job, .gac-dz { padding: 12px 14px; border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); display: flex; flex-direction: column; gap: 8px; }
       .gac-report header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; }
       .gac-report header time { color: var(--gpa-sub); font-size: 11.5px; }
-      .gac-report blockquote { margin: 0; padding: 8px 12px; border-left: 3px solid var(--gpx-warn); background: var(--gpa-field); border-radius: 0 var(--gps-r1) var(--gps-r1) 0; font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
+      .gac-report blockquote { margin: 0; padding: 8px 12px; border-left: 3px solid var(--gpa-warning); background: var(--gpa-field); border-radius: 0 var(--gps-r1) var(--gps-r1) 0; font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
       .gac-job { flex-direction: row; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
       .gac-job-body { flex: 1 1 260px; min-width: 0; }
       .gac-job h4, .gac-dz h4 { margin: 0 0 2px; font-size: 13.5px; }
       .gac-job-dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: var(--gpa-sub); }
-      .gac-job-dot.ok { background: var(--gpx-ok); box-shadow: 0 0 8px var(--gpx-ok); }
-      .gac-job-dot.bad { background: var(--gpx-err); box-shadow: 0 0 8px var(--gpx-err); }
-      .gac-dz { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 280px); gap: 14px; border-color: color-mix(in srgb, var(--gpx-err) 35%, var(--gpa-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--gpx-err) 6%, var(--gpa-card-bg)), var(--gpa-card-bg)); }
+      .gac-job-dot.ok { background: var(--gpa-success); box-shadow: 0 0 8px var(--gpa-success); }
+      .gac-job-dot.bad { background: var(--gpa-danger); box-shadow: 0 0 8px var(--gpa-danger); }
+      .gac-dz { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 280px); gap: 14px; border-color: color-mix(in srgb, var(--gpa-danger) 35%, var(--gpa-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--gpa-danger) 6%, var(--gpa-card-bg)), var(--gpa-card-bg)); }
       .gac-legacy { margin-top: 2px; }
       .gac-legacy > .gac-legacy-group, .gac-legacy > .gpa-admin-pane { display: block; padding: 4px 0 14px; }
       .gac-legacy .gpa-admin-pane { display: block !important; }
       .gac-empty { padding: 28px 12px; }
       /* Palette */
-      .gac-palette { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; background: color-mix(in srgb, #000 45%, transparent); backdrop-filter: blur(3px); }
-      .gac-pal-box { width: min(560px, 100%); display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: var(--gps-r3); border: 1px solid var(--gpa-border); background: var(--gpa-panel); box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6); animation: gps-pop 220ms var(--gps-spring) both; }
+      .gac-palette { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; background: var(--gpa-scrim); backdrop-filter: blur(3px); }
+      .gac-pal-box { width: min(560px, 100%); display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: var(--gps-r3); border: 1px solid var(--gpa-border); background: var(--gpa-panel); box-shadow: 0 30px 60px -20px color-mix(in srgb, var(--gpa-shade) 60%, transparent); animation: gps-pop 220ms var(--gps-spring) both; }
       .gac-pal-box .gps-search { flex: none; width: 100%; }
       .gac-pal-box .gps-search input:focus-visible { outline: none; }
       .gac-form label code, .gac-dz code { font: 600 11.5px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-text); padding: 1px 5px; border-radius: 4px; background: var(--gpa-field); border: 1px solid var(--gpa-border); }
@@ -1315,17 +1520,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gv-deck { transform: rotateX(58deg) rotateZ(-30deg); }
       .gv-deck i { position: absolute; width: 96px; height: 64px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--gpa-accent) 60%, transparent); background: color-mix(in srgb, var(--gpa-accent) 10%, transparent); box-shadow: 0 0 18px color-mix(in srgb, var(--gpa-accent) 30%, transparent); }
       .gv-deck i:nth-child(1) { transform: translateZ(0); } .gv-deck i:nth-child(2) { transform: translateZ(18px); opacity: 0.8; } .gv-deck i:nth-child(3) { transform: translateZ(36px); opacity: 0.6; }
-      .gv-deck b { position: absolute; bottom: 42px; width: 10px; border-radius: 3px 3px 0 0; background: var(--gpa-accent2); transform-origin: bottom; transform: translateZ(38px) rotateX(-90deg); animation: gac-bar 2.6s ease-in-out infinite alternate; }
+      .gv-deck b { position: absolute; bottom: 42px; width: 10px; border-radius: 3px 3px 0 0; background: var(--gpa-chart-2); transform-origin: bottom; transform: translateZ(38px) rotateX(-90deg); animation: gac-bar 2.6s ease-in-out infinite alternate; }
       .gv-deck b:nth-of-type(1) { left: 52px; height: 26px; } .gv-deck b:nth-of-type(2) { left: 70px; height: 40px; animation-delay: -0.8s; } .gv-deck b:nth-of-type(3) { left: 88px; height: 18px; animation-delay: -1.6s; }
       @keyframes gac-bar { from { scale: 1 0.55; } to { scale: 1 1; } }
-      .gv-ids i { position: absolute; width: 58px; height: 78px; border-radius: 10px; border: 1px solid var(--gpa-border); background: linear-gradient(160deg, color-mix(in srgb, var(--gpa-accent) 22%, var(--gpa-card-bg)), var(--gpa-card-bg)); box-shadow: 0 12px 24px -12px rgba(0,0,0,0.6); animation: gac-float 5s ease-in-out infinite; }
+      .gv-ids i { position: absolute; width: 58px; height: 78px; border-radius: 10px; border: 1px solid var(--gpa-border); background: linear-gradient(160deg, color-mix(in srgb, var(--gpa-accent) 22%, var(--gpa-card-bg)), var(--gpa-card-bg)); box-shadow: 0 12px 24px -12px color-mix(in srgb, var(--gpa-shade) 60%, transparent); animation: gac-float 5s ease-in-out infinite; }
       .gv-ids i s { position: absolute; left: 17px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--gpa-accent); box-shadow: 0 30px 0 -8px color-mix(in srgb, var(--gpa-text) 25%, transparent); }
       .gv-ids i:nth-child(1) { transform: translateX(-44px) rotateY(34deg); animation-delay: -1s; } .gv-ids i:nth-child(2) { transform: translateZ(20px); z-index: 1; } .gv-ids i:nth-child(3) { transform: translateX(44px) rotateY(-34deg); animation-delay: -2.5s; }
       @keyframes gac-float { 50% { translate: 0 -6px; } }
       .gv-mem-rig { position: absolute; inset: 20px; transform-style: preserve-3d; animation: gmc-spin 30s linear infinite; }
       .gv-mem-rig i { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--gpa-accent); box-shadow: 0 0 10px var(--gpa-accent); }
       .gv-mem-rig i:nth-child(1) { left: 10%; top: 20%; transform: translateZ(30px); } .gv-mem-rig i:nth-child(2) { left: 80%; top: 30%; transform: translateZ(-20px); } .gv-mem-rig i:nth-child(3) { left: 30%; top: 80%; transform: translateZ(10px); background: var(--gpa-accent2); } .gv-mem-rig i:nth-child(4) { left: 70%; top: 75%; transform: translateZ(40px); } .gv-mem-rig i:nth-child(5) { left: 50%; top: 5%; transform: translateZ(-35px); background: var(--gpa-accent2); } .gv-mem-rig i:nth-child(6) { left: 5%; top: 60%; transform: translateZ(-10px); } .gv-mem-rig i:nth-child(7) { left: 90%; top: 60%; transform: translateZ(15px); }
-      .gv-mem > span { width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, var(--gpa-accent) 45%, var(--gpa-accent2)); box-shadow: 0 0 24px var(--gpa-accent); }
+      .gv-mem > span { width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--gpa-highlight), var(--gpa-accent) 45%, var(--gpa-accent2)); box-shadow: 0 0 24px var(--gpa-accent); }
       .gv-shield i { width: 84px; height: 100px; clip-path: polygon(50% 0, 100% 16%, 92% 66%, 50% 100%, 8% 66%, 0 16%); background: repeating-linear-gradient(60deg, color-mix(in srgb, var(--gpa-accent) 35%, transparent) 0 2px, transparent 2px 12px), repeating-linear-gradient(-60deg, color-mix(in srgb, var(--gpa-accent) 35%, transparent) 0 2px, transparent 2px 12px), color-mix(in srgb, var(--gpa-accent) 14%, var(--gpa-bg2)); animation: gac-sway 6s ease-in-out infinite; }
       .gv-shield b { position: absolute; width: 120px; height: 120px; border-radius: 50%; border: 1px dashed color-mix(in srgb, var(--gpa-accent) 50%, transparent); transform: rotateX(70deg); animation: gv-spin 14s linear infinite; }
       @keyframes gac-sway { 50% { transform: rotateY(22deg); } }
@@ -1337,7 +1542,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gv-stack { transform: rotateX(56deg) rotateZ(-34deg); }
       .gv-stack i { position: absolute; width: 90px; height: 50px; border-radius: 8px; border: 1px solid var(--gpa-border); background: linear-gradient(135deg, color-mix(in srgb, var(--gpa-accent) 16%, var(--gpa-card-bg)), var(--gpa-card-bg)); }
       .gv-stack i:nth-child(1) { transform: translateZ(0); } .gv-stack i:nth-child(2) { transform: translateZ(22px); } .gv-stack i:nth-child(3) { transform: translateZ(44px); }
-      .gv-stack s { position: absolute; top: 20px; width: 6px; height: 6px; border-radius: 50%; background: var(--gpx-ok); box-shadow: 0 0 6px var(--gpx-ok); animation: gac-blink 1.8s steps(2) infinite; }
+      .gv-stack s { position: absolute; top: 20px; width: 6px; height: 6px; border-radius: 50%; background: var(--gpa-success); box-shadow: 0 0 6px var(--gpa-success); animation: gac-blink 1.8s steps(2) infinite; }
       .gv-stack s:nth-child(1) { left: 10px; } .gv-stack s:nth-child(2) { left: 22px; animation-delay: -0.6s; background: var(--gpa-accent); box-shadow: 0 0 6px var(--gpa-accent); }
       @keyframes gac-blink { 50% { opacity: 0.25; } }
       .gv-flow i { position: absolute; width: 22px; height: 22px; border-radius: 7px; border: 1.5px solid var(--gpa-accent); background: color-mix(in srgb, var(--gpa-accent) 14%, var(--gpa-bg2)); }
@@ -1345,7 +1550,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gv-flow b { position: absolute; height: 2px; width: 28px; background: linear-gradient(90deg, transparent, var(--gpa-accent), transparent); background-size: 200% 100%; animation: gac-pulse 1.6s linear infinite; }
       .gv-flow b:nth-of-type(1) { transform: translate(-25px, -26px); } .gv-flow b:nth-of-type(2) { transform: translate(25px, -26px); } .gv-flow b:nth-of-type(3) { transform: translate(0, 2px) rotate(90deg); width: 34px; }
       @keyframes gac-pulse { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-      .gv-term i { width: 118px; height: 80px; border-radius: 10px; border: 1px solid var(--gpa-border); background: var(--gpa-bg2); padding: 20px 10px 0; transform: rotateY(-18deg) rotateX(8deg); box-shadow: 0 16px 30px -14px rgba(0,0,0,0.6), inset 0 12px 0 var(--gpa-field); }
+      .gv-term i { width: 118px; height: 80px; border-radius: 10px; border: 1px solid var(--gpa-border); background: var(--gpa-bg2); padding: 20px 10px 0; transform: rotateY(-18deg) rotateX(8deg); box-shadow: 0 16px 30px -14px color-mix(in srgb, var(--gpa-shade) 60%, transparent), inset 0 12px 0 var(--gpa-field); }
       .gv-term s { height: 5px; margin-bottom: 7px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-accent) 60%, transparent); }
       .gv-term s:nth-child(1) { width: 70%; } .gv-term s:nth-child(2) { width: 45%; background: color-mix(in srgb, var(--gpa-text) 30%, transparent); } .gv-term s:nth-child(3) { width: 58%; }
       .gv-term em { width: 7px; height: 9px; background: var(--gpa-accent); animation: gac-blink 1s steps(2) infinite; }
@@ -1354,8 +1559,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gv-time i { position: absolute; left: calc(50% + 10px); width: 54px; height: 14px; border-radius: 5px; background: color-mix(in srgb, var(--gpa-accent) 18%, var(--gpa-card-bg)); border: 1px solid var(--gpa-border); animation: gac-float 4s ease-in-out infinite; }
       .gv-time i::before { content: ''; position: absolute; left: -15px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--gpa-accent); }
       .gv-time i:nth-child(1) { top: 16px; } .gv-time i:nth-child(2) { top: 42px; animation-delay: -1s; } .gv-time i:nth-child(3) { top: 68px; animation-delay: -2s; } .gv-time i:nth-child(4) { top: 94px; animation-delay: -3s; }
-      .gv-hazard i { position: absolute; width: 100px; height: 100px; border-radius: 16px; background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--gpx-warn) 70%, transparent) 0 8px, transparent 8px 16px); -webkit-mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); padding: 8px; transform: rotateX(18deg) rotateY(-20deg); animation: gac-sway 7s ease-in-out infinite; }
-      .gv-hazard b { font: 800 42px/1 'Geist Mono', ui-monospace, monospace; color: var(--gpx-err); text-shadow: 0 0 18px color-mix(in srgb, var(--gpx-err) 60%, transparent); }
+      .gv-hazard i { position: absolute; width: 100px; height: 100px; border-radius: 16px; background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--gpa-warning) 70%, transparent) 0 8px, transparent 8px 16px); -webkit-mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); padding: 8px; transform: rotateX(18deg) rotateY(-20deg); animation: gac-sway 7s ease-in-out infinite; }
+      .gv-hazard b { font: 800 42px/1 'Geist Mono', ui-monospace, monospace; color: var(--gpa-danger); text-shadow: 0 0 18px color-mix(in srgb, var(--gpa-danger) 60%, transparent); }
       @container room (max-width: 780px) {
         .gac-tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
         .gac-th { display: none; }
@@ -1471,8 +1676,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gps-btn svg { width: 16px; height: 16px; }
       .gps-btn-primary { background: var(--gpa-accent); border-color: var(--gpa-accent); color: var(--gpa-accent-fg); }
       .gps-btn-primary:hover { box-shadow: 0 6px 20px -6px var(--gpa-accent); border-color: var(--gpa-accent); }
-      .gps-btn-danger { color: #f87171; border-color: color-mix(in srgb, #ef4444 45%, var(--gpa-border)); background: color-mix(in srgb, #ef4444 8%, var(--gpa-field)); }
-      .gps-btn-danger:hover { border-color: #ef4444; background: color-mix(in srgb, #ef4444 16%, var(--gpa-field)); }
+      .gps-btn-danger { color: var(--gpa-danger); border-color: color-mix(in srgb, var(--gpa-danger) 45%, var(--gpa-border)); background: color-mix(in srgb, var(--gpa-danger) 8%, var(--gpa-field)); }
+      .gps-btn-danger:hover { border-color: var(--gpa-danger); background: color-mix(in srgb, var(--gpa-danger) 16%, var(--gpa-field)); }
       .gps-reset {
         display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; flex-shrink: 0;
         border-radius: var(--gps-r1); border: 1px solid transparent; background: transparent; color: var(--gpa-sub);
@@ -1561,8 +1766,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         background: var(--gpa-field); border: 1px solid var(--gpa-border); color: var(--gpa-text);
       }
       .gps-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--gpa-sub); }
-      .gps-badge.ok::before { background: #34d399; box-shadow: 0 0 8px #34d399; }
-      .gps-badge.warn::before { background: #fbbf24; }
+      .gps-badge.ok::before { background: var(--gpa-success); box-shadow: 0 0 8px var(--gpa-success); }
+      .gps-badge.warn::before { background: var(--gpa-warning); }
       .gps-badge.off::before { background: var(--gpa-sub); }
 
       /* ---- 3D: miniature console ---- */
@@ -1880,7 +2085,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gmc-rig { position: relative; width: 1px; height: 1px; transform-style: preserve-3d; transform: rotateX(calc(-14deg + var(--ry))) rotateY(var(--rx)); animation: gmc-spin 40s linear infinite; }
       .gps:not(.is-live) .gmc-rig { animation-play-state: paused; }
       @keyframes gmc-spin { to { rotate: y 360deg; } }
-      .gmc-core { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, var(--gpa-accent) 45%, var(--gpa-accent2)); box-shadow: 0 0 26px var(--gpa-accent); }
+      .gmc-core { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--gpa-highlight), var(--gpa-accent) 45%, var(--gpa-accent2)); box-shadow: 0 0 26px var(--gpa-accent); }
       .gmc-node { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%; background: var(--gpa-accent); box-shadow: 0 0 10px var(--gpa-accent); }
       .gmc-node.t-profile { background: var(--gpa-accent2); box-shadow: 0 0 10px var(--gpa-accent2); }
       .gmc-node.t-project { background: var(--gpa-text); box-shadow: 0 0 8px var(--gpa-text); }
@@ -1930,7 +2135,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       /* ---- Confirm dialog (mounted directly on the panel) ---- */
       .gps-dialog-scrim {
         position: absolute; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px;
-        background: rgba(0,0,0,0.5); backdrop-filter: blur(3px); animation: gps-fade var(--gps-t2, 240ms) ease both;
+        background: var(--gpa-scrim); backdrop-filter: blur(3px); animation: gps-fade var(--gps-t2, 240ms) ease both;
       }
       .gps-dialog-scrim[hidden] { display: none; }
       .gps-dialog {
@@ -3693,7 +3898,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       clearTimeout(themeFadeTimer);
       themeFadeTimer = setTimeout(() => panel.classList.remove('gpa-theming', 'gpa-theming-fast'), opts.fast ? 240 : 520);
     }
-    tokenStyle.textContent = tokenCss(tk, appearance);
+    writeTokens(tokenCss(tk, appearance));
     if (typeof applyMiniColorMode === 'function') applyMiniColorMode();
     if (typeof onThemeApplied === 'function') onThemeApplied();
   }
@@ -3723,12 +3928,41 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     renderTheme(selectedTheme, { fast: true });
   }
   // Re-writes the tokens after an appearance (Panel section) change.
+  // The selection bubble and its answer popup live in the host page (they
+  // must sit over page text), where shadow-root styles and :host tokens
+  // don't reach. They get their own page-level stylesheet plus a mirror of
+  // the current theme tokens, so they match the console in every theme.
+  const PAGE_WIDGET_SEL = '.gpa-sel-bubble, .gpa-sel-pop';
+  const pageWidgetStyle = document.createElement('style');
+  pageWidgetStyle.id = 'gpa-page-widget-style';
+  pageWidgetStyle.textContent = `
+      .gpa-sel-bubble { font: 11px 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--gpa-text); position: fixed; z-index: 2147483647; display: flex; gap: 2px; padding: 4px; border-radius: calc(10px * var(--gpa-rs)); background: var(--gpa-panel); border: 1px solid var(--gpa-accent); box-shadow: 0 6px 24px color-mix(in srgb, var(--gpa-shade) 45%, transparent); }
+      .gpa-sel-bubble button { background: transparent; border: none; color: var(--gpa-text); font-size: 11px; padding: 4px 7px; border-radius: calc(6px * var(--gpa-rs)); cursor: pointer; white-space: nowrap; font-family: inherit; }
+      .gpa-sel-bubble button:hover { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
+      .gpa-sel-pop { font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-sizing: border-box; position: fixed; z-index: 2147483647; max-width: 340px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: calc(10px * var(--gpa-rs)); background: var(--gpa-panel); border: 1px solid var(--gpa-accent); color: var(--gpa-text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; box-shadow: 0 8px 28px color-mix(in srgb, var(--gpa-shade) 50%, transparent); }
+      .gpa-sel-pop .gpa-sel-pop-src { display: block; margin-top: 8px; font-size: 10px; opacity: 0.65; overflow-wrap: break-word; }
+      .gpa-sel-pop .gpa-sel-pop-retry { display: block; margin-top: 8px; background: transparent; border: 1px solid var(--gpa-accent); color: var(--gpa-text); font-size: 11px; padding: 4px 8px; border-radius: calc(6px * var(--gpa-rs)); cursor: pointer; font-family: inherit; }
+      .gpa-sel-pop .gpa-sel-pop-retry:hover { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
+      .gpa-sel-pop .gpa-sel-pop-retry:disabled { opacity: 0.6; cursor: default; }
+      .gpa-sel-bubble button { font: inherit; line-height: 1.2; margin: 0; box-shadow: none; text-transform: none; letter-spacing: normal; }
+      .gpa-sel-bubble button:focus-visible, .gpa-sel-pop button:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 1px; }
+  `;
+  const pageTokenStyle = document.createElement('style');
+  pageTokenStyle.id = 'gpa-page-widget-tokens';
+  document.head.appendChild(pageWidgetStyle);
+  document.head.appendChild(pageTokenStyle);
+  gpaCleanups.push(() => { pageWidgetStyle.remove(); pageTokenStyle.remove(); });
+  function writeTokens(css) {
+    tokenStyle.textContent = css;
+    pageTokenStyle.textContent = css.replace(/^:host\{/, PAGE_WIDGET_SEL + '{');
+  }
+
   function applyAppearance(next, opts) {
     appearance = { ...appearance, ...next };
     if (!(opts && opts.transient)) {
       try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance)); } catch (e) { /* storage blocked */ }
     }
-    tokenStyle.textContent = tokenCss(resolveTheme(theme), appearance);
+    writeTokens(tokenCss(resolveTheme(theme), appearance));
   }
   style.textContent = `
       * { box-sizing: border-box; font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
@@ -3953,15 +4187,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-welcome-ai-line { display: inline-flex; align-items: center; gap: 5px; }
       .gpa-status-dot {
         display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-        background: #9ca3af; flex-shrink: 0;
+        background: var(--gpa-status-unknown); flex-shrink: 0;
       }
-      .gpa-status-dot.checking { background: #f59e0b; animation: gpa-status-pulse 0.9s ease-in-out infinite; }
+      .gpa-status-dot.checking { background: var(--gpa-status-idle); animation: gpa-status-pulse 0.9s ease-in-out infinite; }
       .gpa-status-dot.online {
-        background: #22c55e; box-shadow: 0 0 0 0 rgba(34,197,94,0.6);
+        background: var(--gpa-status-active); box-shadow: 0 0 0 0 color-mix(in srgb, var(--gpa-status-active) 60%, transparent);
         animation: gpa-live-pulse 2s ease-out infinite;
       }
-      .gpa-status-dot.down { background: #ef4444; animation: gpa-status-pulse 1.4s ease-in-out infinite; }
-      .gpa-status-dot.unset { background: #6b7280; }
+      .gpa-status-dot.down { background: var(--gpa-danger); animation: gpa-status-pulse 1.4s ease-in-out infinite; }
+      .gpa-status-dot.unset { background: var(--gpa-status-offline); }
       @keyframes gpa-status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
       #gpa-welcome-3d { width: 140px; height: 140px; flex-shrink: 0; border-radius: calc(12px * var(--gpa-rs)); }
       .gpa-welcome-news-text { font-size: 13px; line-height: 1.6; color: var(--gpa-text); white-space: pre-wrap; overflow-wrap: break-word; }
@@ -4064,8 +4298,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-btn:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 1px; }
       .gpa-btn.primary { background: var(--gpa-accent); color: var(--gpa-accent-fg); border-color: var(--gpa-accent); }
       .gpa-btn.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
-      .gpa-btn.danger { background: transparent; color: #e5453a; border-color: #e5453a55; }
-      .gpa-btn.danger:hover { background: #e5453a1a; border-color: #e5453a; }
+      .gpa-btn.danger { background: transparent; color: var(--gpa-danger); border-color: color-mix(in srgb, var(--gpa-danger) 35%, transparent); }
+      .gpa-btn.danger:hover { background: color-mix(in srgb, var(--gpa-danger) 10%, transparent); border-color: var(--gpa-danger); }
       /* A joined 3-way control (e.g. reasoning effort), not 3 loose buttons */
       .gpa-segmented { display: flex; flex: 1; border: 1px solid var(--gpa-border); border-radius: calc(9px * var(--gpa-rs)); overflow: hidden; }
       .gpa-segmented .gpa-btn {
@@ -4148,7 +4382,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         animation: gpa-toast-in 0.18s ease both;
         max-width: 100%; overflow-wrap: break-word;
       }
-      .gpa-toast.danger { border-color: #e5453a99; }
+      .gpa-toast.danger { border-color: color-mix(in srgb, var(--gpa-danger) 60%, transparent); border-left-color: var(--gpa-danger); }
       .gpa-toast.fade-out { animation: gpa-toast-out 0.18s ease both; }
       @keyframes gpa-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes gpa-toast-out { from { opacity: 1; } to { opacity: 0; } }
@@ -4778,14 +5012,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-body::-webkit-scrollbar-corner { background: transparent; }
 
       /* ---- Extended tools ---- */
-      .gpa-sel-bubble { position: fixed; z-index: 2147483647; display: flex; gap: 2px; padding: 4px; border-radius: calc(10px * var(--gpa-rs)); background: var(--gpa-panel); border: 1px solid var(--gpa-accent); box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
-      .gpa-sel-bubble button { background: transparent; border: none; color: var(--gpa-text); font-size: 11px; padding: 4px 7px; border-radius: calc(6px * var(--gpa-rs)); cursor: pointer; white-space: nowrap; font-family: inherit; }
-      .gpa-sel-bubble button:hover { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
-      .gpa-sel-pop { position: fixed; z-index: 2147483647; max-width: 340px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: calc(10px * var(--gpa-rs)); background: var(--gpa-panel); border: 1px solid var(--gpa-accent); color: var(--gpa-text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
-      .gpa-sel-pop .gpa-sel-pop-src { display: block; margin-top: 8px; font-size: 10px; opacity: 0.65; overflow-wrap: break-word; }
-      .gpa-sel-pop .gpa-sel-pop-retry { display: block; margin-top: 8px; background: transparent; border: 1px solid var(--gpa-accent); color: var(--gpa-text); font-size: 11px; padding: 4px 8px; border-radius: calc(6px * var(--gpa-rs)); cursor: pointer; font-family: inherit; }
-      .gpa-sel-pop .gpa-sel-pop-retry:hover { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
-      .gpa-sel-pop .gpa-sel-pop-retry:disabled { opacity: 0.6; cursor: default; }
       .gpa-flip { perspective: 900px; cursor: pointer; min-height: 96px; }
       .gpa-flip-inner { position: relative; transition: transform 0.35s; transform-style: preserve-3d; min-height: 96px; }
       .gpa-flip.flipped .gpa-flip-inner { transform: rotateY(180deg); }
@@ -15407,6 +15633,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const w = 100 / series.length;
       const label = (opts.label || key) + ': ' + series.map((d) => `${d.day.slice(5)} ${d[key] || 0}`).join(', ');
       return `<svg class="gac-bars ${opts.cls || ''}" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="${esc(label)}">`
+        + '<line x1="0" y1="39.8" x2="100" y2="39.8"/><line x1="0" y1="22" x2="100" y2="22"/><line x1="0" y1="4" x2="100" y2="4"/>'
         + series.map((d, i) => { const hgt = ((d[key] || 0) / max) * 36; return `<rect x="${(i * w + w * 0.18).toFixed(2)}" y="${(40 - hgt).toFixed(2)}" width="${(w * 0.64).toFixed(2)}" height="${Math.max(0.6, hgt).toFixed(2)}" rx="0.8"><title>${esc(d.day)}: ${esc(d[key] || 0)}</title></rect>`; }).join('')
         + `</svg><div class="gac-axis"><span>${esc(series[0].day.slice(5))}</span><span>${esc(series[series.length - 1].day.slice(5))}</span></div>`;
     }
@@ -15432,9 +15659,24 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (b) b.innerHTML = `<div class="gpa-error" role="alert"><span class="gpa-error-icon">${GPS_ICONS.warn}</span><div class="gpa-error-body"><div class="gpa-error-title">Couldn't load this section</div><div>${esc(e.status === 403 ? 'Your role does not include this.' : e.message)}</div></div></div>`;
       setHero(id, e.status === 403 ? 'No access' : 'Error', 'error');
     };
-    const typedConfirm = (phrase) => new Promise((resolve) => {
-      const v = prompt(`Type ${phrase} to confirm.`);
-      resolve(v === phrase ? v : null);
+    // Typed confirmation, inline and in the same form language as the
+    // Danger zone (the shared Settings dialog lives in the Settings pane).
+    const typedConfirm = (anchor, phrase, label) => new Promise((resolve) => {
+      const old = anchor.parentNode.querySelector('.gac-inline-confirm');
+      if (old) old.remove();
+      const box = document.createElement('div');
+      box.className = 'gac-form gac-inline-confirm';
+      box.innerHTML = `<label><span>Type <code>${esc(phrase)}</code> to confirm</span><input class="gpa-input" autocomplete="off" spellcheck="false" aria-label="Type ${esc(phrase)} to confirm"></label>`
+        + `<div class="gps-row"><button class="gps-btn" data-c="cancel">Cancel</button><button class="gps-btn gps-btn-danger" data-c="ok" disabled>${esc(label)}</button></div>`;
+      anchor.insertAdjacentElement('afterend', box);
+      const input = box.querySelector('input');
+      const ok = box.querySelector('[data-c="ok"]');
+      const done = (v) => { box.remove(); anchor.focus(); resolve(v); };
+      input.addEventListener('input', () => { ok.disabled = input.value !== phrase; });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); done(null); } else if (e.key === 'Enter' && !ok.disabled) { e.preventDefault(); done(input.value); } });
+      ok.addEventListener('click', () => done(input.value));
+      box.querySelector('[data-c="cancel"]').addEventListener('click', () => done(null));
+      input.focus();
     });
 
     // ---- Renderers ----
@@ -15771,7 +16013,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const payload = { u: key, action };
         if (action === 'setrole') payload.role = box.querySelector('#gac-role').value;
         if (action === 'quota') box.querySelectorAll('[data-q]').forEach((i) => { payload[i.dataset.q] = i.dataset.q === 'allowedModels' ? i.value.split(',').map((x) => x.trim()).filter(Boolean) : i.value; });
-        if (action === 'delete') { const c = await typedConfirm(key); if (!c) return; payload.confirm = c; }
+        if (action === 'delete') { const c = await typedConfirm(b, key, 'Delete user'); if (!c) return; payload.confirm = c; }
         try { await api('/admin/user/action', { method: 'POST', body: payload }); showToast('Done.'); if (action === 'delete') { box.hidden = true; RENDER.users(); } else openUser(key); }
         catch (e) { showToast(e.message, { type: 'danger' }); }
       }));
@@ -18485,6 +18727,83 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
     syncScan(); syncAskModels(); syncChat(); syncMusic(); syncProxy(); syncGames(); syncSaved(); syncStudy();
     ['notes', 'humanize', 'grammar'].forEach(refreshIdle);
+  })();
+
+  // ---- Version chips: every tab, Settings section and Admin section ----------
+  // A small "vX.Y.Z · Updated …" disclosure that opens that part's history
+  // inline (heroes clip overflow, so nothing floats). All data comes from
+  // CHANGELOG via VERSIONS.
+  (function versionHistoryUI() {
+    const fmt = (iso) => new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const ago = (iso) => {
+      const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+      if (s < 3600) return Math.max(1, Math.round(s / 60)) + ' min ago';
+      if (s < 86400) return Math.round(s / 3600) + ' h ago';
+      return Math.round(s / 86400) + ' d ago';
+    };
+    const KIND = { added: 'Added', feature: 'Feature', fix: 'Fix', redesign: 'Redesign' };
+    const timeTag = (iso) => `<time datetime="${escapeHtml(iso)}" title="${escapeHtml(ago(iso))}">${escapeHtml(fmt(iso))}</time>`;
+    function chip(id, label) {
+      const p = VERSIONS.parts[id];
+      if (!p) return null;
+      const d = document.createElement('details');
+      d.className = 'gvh';
+      d.dataset.part = id;
+      d.innerHTML = `<summary aria-label="${escapeHtml(label)} version ${escapeHtml(p.version)}, updated ${escapeHtml(fmt(p.updated))}. Show version history">`
+        + `${GPS_ICONS.timer}<span class="gvh-v">v${escapeHtml(p.version)}</span><span class="gvh-t">Updated ${timeTag(p.updated)}</span></summary>`
+        + `<div class="gvh-body"><div class="gvh-head">${escapeHtml(label)} · version history</div><ol class="gvh-list">`
+        + p.history.map((h) => `<li><div class="gvh-row"><b>v${escapeHtml(h.version)}</b><span class="gvh-kind k-${h.kind}">${KIND[h.kind] || h.kind}</span>${timeTag(h.at)}</div>`
+          + `<p>${escapeHtml(h.note)}</p>${h.note !== h.title ? `<p class="gvh-sub">${escapeHtml(h.title)}</p>` : ''}`
+          + (h.commit ? `<code>${escapeHtml(h.commit)}</code>` : '') + `</li>`).join('')
+        + `</ol></div>`;
+      d.addEventListener('keydown', (e) => { if (e.key === 'Escape' && d.open) { e.stopPropagation(); d.open = false; d.querySelector('summary').focus(); } });
+      return d;
+    }
+    const put = (host, id, label) => { if (!host || host.querySelector(':scope > .gvh')) return; const c = chip(id, label); if (c) host.appendChild(c); };
+
+    // Tabs: into each pane's hero copy (Settings and Admin: their title blocks).
+    Object.keys(PART_NAMES).forEach((id) => {
+      if (id === 'console' || id === 'selection') return;
+      const pane = panel.querySelector(`.gpa-pane[data-pane="${id}"]`);
+      if (!pane) return;
+      const host = id === 'theme' ? pane.querySelector('#gps > .gps-top .gps-titleblock')
+        : id === 'admin' ? pane.querySelector('#gac > .gac-top .gps-titleblock')
+        : pane.querySelector('.gpx-hero .gpx-copy');
+      put(host, id, PART_NAMES[id]);
+    });
+    // Settings sections: into the section header (Overview: its hero copy).
+    SECTION_IDS.theme.forEach((s) => {
+      const sec = panel.querySelector(`#gps .gps-sec[data-sec="${s}"]`);
+      if (!sec) return;
+      const head = sec.querySelector(':scope > .gps-sec-head > div') || sec.querySelector('.gps-hero-copy') || sec;
+      const title = (sec.getAttribute('aria-label') || s);
+      put(head, 'theme#' + s, 'Settings → ' + title);
+    });
+    // Admin sections: into each section's hero copy.
+    SECTION_IDS.admin.forEach((s) => {
+      const sec = panel.querySelector(`#gac .gac-sec[data-asec="${s}"]`);
+      if (!sec) return;
+      put(sec.querySelector('.gpx-hero .gpx-copy'), 'admin#' + s, 'Admin → ' + (sec.getAttribute('aria-label') || s));
+    });
+
+    // Settings → Advanced: the whole console's versions and release history.
+    const adv = panel.querySelector('#gps .gps-sec[data-sec="advanced"]');
+    if (adv) {
+      const card = document.createElement('div');
+      card.className = 'gps-item gvh-card';
+      card.dataset.k = 'version history changelog release updates what changed last updated about';
+      const ids = Object.keys(PART_NAMES);
+      card.innerHTML = `<div class="gps-label">Version history</div>`
+        + `<p class="gps-hint">Agent Console <b>v${escapeHtml(APP_VERSION)}</b> · updated ${timeTag(VERSIONS.updated)}. Every version below comes from this project's commit history.</p>`
+        + `<div class="gvh-table" role="table" aria-label="Component versions"><div role="row" class="gvh-tr gvh-th"><span role="columnheader">Part</span><span role="columnheader">Version</span><span role="columnheader">Last updated</span></div>`
+        + ids.filter((id) => VERSIONS.parts[id]).map((id) => `<div role="row" class="gvh-tr"><span role="cell">${escapeHtml(PART_NAMES[id])}</span><span role="cell"><code>v${escapeHtml(VERSIONS.parts[id].version)}</code></span><span role="cell">${timeTag(VERSIONS.parts[id].updated)}</span></div>`).join('')
+        + `</div><details class="gpx-details gvh-all"><summary>All releases (${VERSIONS.releases.length})</summary><ol class="gvh-list">`
+        + VERSIONS.releases.map((r) => `<li><div class="gvh-row"><b>v${escapeHtml(r.version)}</b>${timeTag(r.at)}${r.commit ? `<code>${escapeHtml(r.commit)}</code>` : ''}</div><p>${escapeHtml(r.title)}</p>`
+          + (r.parts.length ? `<p class="gvh-sub">${escapeHtml([...new Set(r.parts.map((k) => { const [a, b] = k.split('#'); return b ? (PART_NAMES[a] + (b === '*' ? ' (all sections)' : ' → ' + b)) : PART_NAMES[a]; }))].join(', '))}</p>` : '<p class="gvh-sub">Repository only</p>') + `</li>`).join('')
+        + `</ol></details>`;
+      const list = adv.querySelector('.gps-list');
+      if (list && list.parentNode === adv) adv.insertBefore(card, list); else adv.appendChild(card);
+    }
   })();
 
   // ---- Session restore on load ----
