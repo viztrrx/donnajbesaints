@@ -1185,6 +1185,182 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-visual,
         .gpx-room-convo:has(.gpa-chat-msg) .gpx-visual { height: 56px; }
       }
+
+      /* ===== Admin Command Center ===== */
+      .gac-content { container: room / inline-size; }
+      .gac-top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+      .gac-top-actions kbd { font: 500 10.5px 'Geist Mono', ui-monospace, monospace; padding: 2px 5px; border-radius: 5px; border: 1px solid var(--gpa-border); color: var(--gpa-sub); }
+      .gac-layout[hidden], .gac-auth[hidden], .gac-inspector[hidden], .gac-palette[hidden] { display: none !important; }
+      .gac-auth { max-width: 640px; }
+      .gac-auth-fields { display: flex; flex-direction: column; gap: 8px; }
+      .gac-auth-fields .gpa-row { margin: 0; }
+      .gac-nav .gps-tab[hidden] { display: none; }
+      .gac-sec { gap: 14px; }
+      .gac-body { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+      .gac-card { min-width: 0; }
+      .gac-sub { margin-top: 6px; font: 500 11px 'Geist Mono', ui-monospace, monospace; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gpa-sub); }
+      .gac-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+      .gac-kpi {
+        position: relative; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; min-width: 0; overflow: hidden;
+        border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); box-shadow: var(--gps-e1);
+        transform: perspective(600px) rotateX(0deg); transition: transform var(--gps-t2) var(--gps-ease), box-shadow var(--gps-t2) ease;
+      }
+      .gac-kpi::after { content: ''; position: absolute; inset: 0 0 auto; height: 2px; background: linear-gradient(90deg, var(--gpa-accent), transparent); opacity: 0.7; }
+      .gac-kpi:hover { transform: perspective(600px) rotateX(4deg) translateY(-2px); box-shadow: var(--gps-e2); }
+      .gac-kpi.warn::after { background: linear-gradient(90deg, var(--gpx-warn), transparent); }
+      .gac-kpi-k { font-size: 11.5px; color: var(--gpa-sub); }
+      .gac-kpi-v { font: 600 22px/1.1 'Geist Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+      .gac-kpi-d { font-size: 11px; color: var(--gpa-sub); line-height: 1.35; }
+      .gps .gac-bars { width: 100%; height: 88px; display: block; }
+      .gac-bars rect { fill: var(--gpa-accent); opacity: 0.85; }
+      .gac-bars.is-bad rect { fill: var(--gpx-err); }
+      .gac-bars.is-alt rect { fill: var(--gpa-accent2); }
+      .gac-bars rect:hover { opacity: 1; }
+      .gac-axis { display: flex; justify-content: space-between; font: 500 10.5px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-sub); }
+      .gac-ratio { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--gpa-accent2) 45%, var(--gpa-field)); }
+      .gac-ratio i { display: block; background: var(--gpa-accent); }
+      .gac-ratio-l { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--gpa-sub); }
+      .gac-dist, .gac-rank, .gac-health, .gac-keys, .gac-memlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+      .gac-dist li { display: grid; grid-template-columns: minmax(0, 120px) minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 12.5px; }
+      .gac-dist li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gac-dist li i { display: block; height: 8px; border-radius: 999px; background: linear-gradient(90deg, var(--gpa-accent) var(--w), var(--gpa-field) var(--w)); }
+      .gac-dist li b { font: 600 12px 'Geist Mono', ui-monospace, monospace; }
+      .gac-rank li { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid var(--gps-soft); }
+      .gac-rank li span:last-child { color: var(--gpa-sub); }
+      .gac-health li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 12.5px; padding: 4px 0; }
+      .gac-health li i { width: 8px; height: 8px; border-radius: 50%; background: var(--gpx-ok); box-shadow: 0 0 8px var(--gpx-ok); }
+      .gac-health li.bad i { background: var(--gpx-err); box-shadow: 0 0 8px var(--gpx-err); }
+      .gac-health li.off i { background: var(--gpa-sub); box-shadow: none; }
+      .gac-health li em { font-style: normal; color: var(--gpa-sub); text-align: right; overflow-wrap: anywhere; }
+      .gac-timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 1px solid var(--gpa-border); display: flex; flex-direction: column; gap: 8px; }
+      .gac-timeline li { position: relative; font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+      .gac-timeline li::before { content: ''; position: absolute; left: -18px; top: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--gpa-accent); }
+      .gac-timeline time { font: 500 11px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-sub); }
+      .gac-timeline em { font-style: normal; color: var(--gpa-sub); }
+      .gac-table { display: flex; flex-direction: column; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); overflow: hidden; background: var(--gpa-card-bg); }
+      .gac-tr { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr); gap: 10px; align-items: center; padding: 9px 12px; font-size: 12.5px; border-top: 1px solid var(--gps-soft); }
+      .gac-tr > span { min-width: 0; overflow-wrap: anywhere; }
+      .gac-tr em { font-style: normal; color: var(--gpa-sub); font-size: 11.5px; }
+      .gac-th { border-top: none; font: 500 11px 'Geist Mono', ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gpa-sub); background: var(--gpa-field); }
+      .gac-user { cursor: pointer; transition: background var(--gps-t1) ease; }
+      .gac-user:hover, .gac-user:focus-visible { background: var(--gps-soft); }
+      .gac-users-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .gac-users-tools .gps-search { flex: 1 1 220px; }
+      .gac-users-tools select { width: auto; flex: 0 0 auto; }
+      .gac-meter { display: inline-block; vertical-align: middle; width: 48px; height: 6px; border-radius: 999px; background: var(--gpa-field); overflow: hidden; }
+      .gac-meter i { display: block; height: 100%; background: var(--gpa-accent); }
+      .gac-badge { display: inline-flex; align-items: center; padding: 1px 7px; margin: 1px 2px 1px 0; border-radius: 999px; font: 600 10.5px 'Geist Mono', ui-monospace, monospace; border: 1px solid var(--gpa-border); color: var(--gpa-sub); white-space: nowrap; }
+      .gac-badge.ok { color: var(--gpx-ok); border-color: color-mix(in srgb, var(--gpx-ok) 45%, var(--gpa-border)); }
+      .gac-badge.warn { color: var(--gpa-text); border-color: var(--gpx-warn); background: color-mix(in srgb, var(--gpx-warn) 14%, transparent); }
+      .gac-badge.bad { color: var(--gpa-text); border-color: var(--gpx-err); background: color-mix(in srgb, var(--gpx-err) 16%, transparent); }
+      .gac-badge.role-owner, .gac-badge.role-admin { color: var(--gpa-text); border-color: var(--gpa-accent); background: color-mix(in srgb, var(--gpa-accent) 16%, transparent); }
+      .gac-link { border: none; background: none; padding: 0; color: var(--gpa-accent); font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+      .gac-link:hover { text-decoration: underline; }
+      .gac-inspector {
+        display: flex; flex-direction: column; gap: 14px; padding: 14px; border-radius: var(--gps-r3);
+        border: 1px solid color-mix(in srgb, var(--gpa-accent) 40%, var(--gpa-border));
+        background: linear-gradient(160deg, color-mix(in srgb, var(--gpa-accent) 8%, var(--gpa-card-bg)), var(--gpa-card-bg));
+        box-shadow: var(--gps-e2); animation: gps-in var(--gps-t2) var(--gps-ease) both;
+      }
+      .gac-insp-head { display: flex; align-items: center; gap: 12px; }
+      .gac-insp-head h3 { margin: 0; font-size: 17px; }
+      .gac-insp-head p { margin: 2px 0 0; }
+      .gac-insp-head .gps-btn { margin-left: auto; }
+      .gac-avatar { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font: 700 18px 'Geist Mono', ui-monospace, monospace; color: #fff; background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2)); box-shadow: 0 10px 22px -10px var(--gpa-accent); transform: perspective(300px) rotateY(-14deg); }
+      .gac-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+      .gac-form { display: flex; flex-direction: column; gap: 8px; }
+      .gac-form label, .gac-inline { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--gpa-sub); }
+      .gac-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; }
+      .gac-dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 12.5px; }
+      .gac-dl dt { color: var(--gpa-sub); }
+      .gac-dl dd { margin: 0; overflow-wrap: anywhere; }
+      .gac-pre { margin: 0; max-height: 340px; overflow: auto; padding: 10px 12px; border-radius: var(--gps-r2); background: var(--gpa-bg2); border: 1px solid var(--gpa-border); font: 11.5px/1.5 'Geist Mono', ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .gac-meta { margin: 0 12px 10px; }
+      .gac-keys li { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--gps-soft); }
+      .gac-keys li > div:first-child { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+      .gac-keys-meta { font-size: 11.5px; color: var(--gpa-sub); }
+      .gac-keys .gps-btn { align-self: flex-start; }
+      .gac-keytest { font-size: 12px; } .gac-keytest.ok { color: var(--gpx-ok); } .gac-keytest.bad { color: var(--gpx-err); }
+      .gac-reports, .gac-jobs, .gac-danger { display: flex; flex-direction: column; gap: 10px; }
+      .gac-report, .gac-job, .gac-dz { padding: 12px 14px; border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); display: flex; flex-direction: column; gap: 8px; }
+      .gac-report header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; }
+      .gac-report header time { color: var(--gpa-sub); font-size: 11.5px; }
+      .gac-report blockquote { margin: 0; padding: 8px 12px; border-left: 3px solid var(--gpx-warn); background: var(--gpa-field); border-radius: 0 var(--gps-r1) var(--gps-r1) 0; font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
+      .gac-job { flex-direction: row; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+      .gac-job-body { flex: 1 1 260px; min-width: 0; }
+      .gac-job h4, .gac-dz h4 { margin: 0 0 2px; font-size: 13.5px; }
+      .gac-job-dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: var(--gpa-sub); }
+      .gac-job-dot.ok { background: var(--gpx-ok); box-shadow: 0 0 8px var(--gpx-ok); }
+      .gac-job-dot.bad { background: var(--gpx-err); box-shadow: 0 0 8px var(--gpx-err); }
+      .gac-dz { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 280px); gap: 14px; border-color: color-mix(in srgb, var(--gpx-err) 35%, var(--gpa-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--gpx-err) 6%, var(--gpa-card-bg)), var(--gpa-card-bg)); }
+      .gac-legacy { margin-top: 2px; }
+      .gac-legacy > .gac-legacy-group, .gac-legacy > .gpa-admin-pane { display: block; padding: 4px 0 14px; }
+      .gac-legacy .gpa-admin-pane { display: block !important; }
+      .gac-empty { padding: 28px 12px; }
+      /* Palette */
+      .gac-palette { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; background: color-mix(in srgb, #000 45%, transparent); backdrop-filter: blur(3px); }
+      .gac-pal-box { width: min(560px, 100%); display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: var(--gps-r3); border: 1px solid var(--gpa-border); background: var(--gpa-panel); box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6); animation: gps-pop 220ms var(--gps-spring) both; }
+      .gac-pal-box .gps-search { flex: none; width: 100%; }
+      .gac-pal-box .gps-search input:focus-visible { outline: none; }
+      .gac-form label code, .gac-dz code { font: 600 11.5px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-text); padding: 1px 5px; border-radius: 4px; background: var(--gpa-field); border: 1px solid var(--gpa-border); }
+      .gac-pal-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+      .gac-pal-list li { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: var(--gps-r1); cursor: pointer; }
+      .gac-pal-list li b { font-weight: 600; font-size: 13px; }
+      .gac-pal-list li span { font-size: 11.5px; color: var(--gpa-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gac-pal-list li.on, .gac-pal-list li:hover { background: color-mix(in srgb, var(--gpa-accent) 16%, transparent); }
+      .gac-pal-empty { color: var(--gpa-sub); cursor: default !important; }
+      .gac-pal-foot { display: flex; gap: 14px; font-size: 11px; color: var(--gpa-sub); padding: 2px 4px; }
+      .gac-pal-foot kbd { font: 500 10.5px 'Geist Mono', ui-monospace, monospace; padding: 1px 5px; margin-right: 3px; border-radius: 4px; border: 1px solid var(--gpa-border); }
+      /* Admin scenes */
+      .gv-deck { transform: rotateX(58deg) rotateZ(-30deg); }
+      .gv-deck i { position: absolute; width: 96px; height: 64px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--gpa-accent) 60%, transparent); background: color-mix(in srgb, var(--gpa-accent) 10%, transparent); box-shadow: 0 0 18px color-mix(in srgb, var(--gpa-accent) 30%, transparent); }
+      .gv-deck i:nth-child(1) { transform: translateZ(0); } .gv-deck i:nth-child(2) { transform: translateZ(18px); opacity: 0.8; } .gv-deck i:nth-child(3) { transform: translateZ(36px); opacity: 0.6; }
+      .gv-deck b { position: absolute; bottom: 42px; width: 10px; border-radius: 3px 3px 0 0; background: var(--gpa-accent2); transform-origin: bottom; transform: translateZ(38px) rotateX(-90deg); animation: gac-bar 2.6s ease-in-out infinite alternate; }
+      .gv-deck b:nth-of-type(1) { left: 52px; height: 26px; } .gv-deck b:nth-of-type(2) { left: 70px; height: 40px; animation-delay: -0.8s; } .gv-deck b:nth-of-type(3) { left: 88px; height: 18px; animation-delay: -1.6s; }
+      @keyframes gac-bar { from { scale: 1 0.55; } to { scale: 1 1; } }
+      .gv-ids i { position: absolute; width: 58px; height: 78px; border-radius: 10px; border: 1px solid var(--gpa-border); background: linear-gradient(160deg, color-mix(in srgb, var(--gpa-accent) 22%, var(--gpa-card-bg)), var(--gpa-card-bg)); box-shadow: 0 12px 24px -12px rgba(0,0,0,0.6); animation: gac-float 5s ease-in-out infinite; }
+      .gv-ids i s { position: absolute; left: 17px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--gpa-accent); box-shadow: 0 30px 0 -8px color-mix(in srgb, var(--gpa-text) 25%, transparent); }
+      .gv-ids i:nth-child(1) { transform: translateX(-44px) rotateY(34deg); animation-delay: -1s; } .gv-ids i:nth-child(2) { transform: translateZ(20px); z-index: 1; } .gv-ids i:nth-child(3) { transform: translateX(44px) rotateY(-34deg); animation-delay: -2.5s; }
+      @keyframes gac-float { 50% { translate: 0 -6px; } }
+      .gv-mem-rig { position: absolute; inset: 20px; transform-style: preserve-3d; animation: gmc-spin 30s linear infinite; }
+      .gv-mem-rig i { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--gpa-accent); box-shadow: 0 0 10px var(--gpa-accent); }
+      .gv-mem-rig i:nth-child(1) { left: 10%; top: 20%; transform: translateZ(30px); } .gv-mem-rig i:nth-child(2) { left: 80%; top: 30%; transform: translateZ(-20px); } .gv-mem-rig i:nth-child(3) { left: 30%; top: 80%; transform: translateZ(10px); background: var(--gpa-accent2); } .gv-mem-rig i:nth-child(4) { left: 70%; top: 75%; transform: translateZ(40px); } .gv-mem-rig i:nth-child(5) { left: 50%; top: 5%; transform: translateZ(-35px); background: var(--gpa-accent2); } .gv-mem-rig i:nth-child(6) { left: 5%; top: 60%; transform: translateZ(-10px); } .gv-mem-rig i:nth-child(7) { left: 90%; top: 60%; transform: translateZ(15px); }
+      .gv-mem > span { width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, var(--gpa-accent) 45%, var(--gpa-accent2)); box-shadow: 0 0 24px var(--gpa-accent); }
+      .gv-shield i { width: 84px; height: 100px; clip-path: polygon(50% 0, 100% 16%, 92% 66%, 50% 100%, 8% 66%, 0 16%); background: repeating-linear-gradient(60deg, color-mix(in srgb, var(--gpa-accent) 35%, transparent) 0 2px, transparent 2px 12px), repeating-linear-gradient(-60deg, color-mix(in srgb, var(--gpa-accent) 35%, transparent) 0 2px, transparent 2px 12px), color-mix(in srgb, var(--gpa-accent) 14%, var(--gpa-bg2)); animation: gac-sway 6s ease-in-out infinite; }
+      .gv-shield b { position: absolute; width: 120px; height: 120px; border-radius: 50%; border: 1px dashed color-mix(in srgb, var(--gpa-accent) 50%, transparent); transform: rotateX(70deg); animation: gv-spin 14s linear infinite; }
+      @keyframes gac-sway { 50% { transform: rotateY(22deg); } }
+      .gv-lens i { position: absolute; width: 64px; height: 44px; border-radius: 6px; border: 1px solid var(--gpa-border); background: var(--gpa-card-bg); }
+      .gv-lens i:nth-child(1) { transform: translate(-22px, -12px) rotate(-6deg); } .gv-lens i:nth-child(2) { transform: translate(18px, 14px) rotate(5deg); }
+      .gv-lens b { position: absolute; width: 50px; height: 50px; border-radius: 50%; border: 4px solid var(--gpa-accent); background: color-mix(in srgb, var(--gpa-accent) 12%, transparent); box-shadow: 0 0 20px color-mix(in srgb, var(--gpa-accent) 40%, transparent); animation: gac-scan 4s ease-in-out infinite; }
+      .gv-lens b::after { content: ''; position: absolute; right: -16px; bottom: -14px; width: 20px; height: 5px; border-radius: 3px; background: var(--gpa-accent); transform: rotate(45deg); }
+      @keyframes gac-scan { 0%, 100% { translate: -24px -10px; } 50% { translate: 20px 12px; } }
+      .gv-stack { transform: rotateX(56deg) rotateZ(-34deg); }
+      .gv-stack i { position: absolute; width: 90px; height: 50px; border-radius: 8px; border: 1px solid var(--gpa-border); background: linear-gradient(135deg, color-mix(in srgb, var(--gpa-accent) 16%, var(--gpa-card-bg)), var(--gpa-card-bg)); }
+      .gv-stack i:nth-child(1) { transform: translateZ(0); } .gv-stack i:nth-child(2) { transform: translateZ(22px); } .gv-stack i:nth-child(3) { transform: translateZ(44px); }
+      .gv-stack s { position: absolute; top: 20px; width: 6px; height: 6px; border-radius: 50%; background: var(--gpx-ok); box-shadow: 0 0 6px var(--gpx-ok); animation: gac-blink 1.8s steps(2) infinite; }
+      .gv-stack s:nth-child(1) { left: 10px; } .gv-stack s:nth-child(2) { left: 22px; animation-delay: -0.6s; background: var(--gpa-accent); box-shadow: 0 0 6px var(--gpa-accent); }
+      @keyframes gac-blink { 50% { opacity: 0.25; } }
+      .gv-flow i { position: absolute; width: 22px; height: 22px; border-radius: 7px; border: 1.5px solid var(--gpa-accent); background: color-mix(in srgb, var(--gpa-accent) 14%, var(--gpa-bg2)); }
+      .gv-flow i:nth-child(1) { transform: translate(-50px, -26px); } .gv-flow i:nth-child(2) { transform: translate(0, -26px); } .gv-flow i:nth-child(3) { transform: translate(50px, -26px); } .gv-flow i:nth-child(4) { transform: translate(0, 30px); border-color: var(--gpa-accent2); }
+      .gv-flow b { position: absolute; height: 2px; width: 28px; background: linear-gradient(90deg, transparent, var(--gpa-accent), transparent); background-size: 200% 100%; animation: gac-pulse 1.6s linear infinite; }
+      .gv-flow b:nth-of-type(1) { transform: translate(-25px, -26px); } .gv-flow b:nth-of-type(2) { transform: translate(25px, -26px); } .gv-flow b:nth-of-type(3) { transform: translate(0, 2px) rotate(90deg); width: 34px; }
+      @keyframes gac-pulse { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+      .gv-term i { width: 118px; height: 80px; border-radius: 10px; border: 1px solid var(--gpa-border); background: var(--gpa-bg2); padding: 20px 10px 0; transform: rotateY(-18deg) rotateX(8deg); box-shadow: 0 16px 30px -14px rgba(0,0,0,0.6), inset 0 12px 0 var(--gpa-field); }
+      .gv-term s { height: 5px; margin-bottom: 7px; border-radius: 3px; background: color-mix(in srgb, var(--gpa-accent) 60%, transparent); }
+      .gv-term s:nth-child(1) { width: 70%; } .gv-term s:nth-child(2) { width: 45%; background: color-mix(in srgb, var(--gpa-text) 30%, transparent); } .gv-term s:nth-child(3) { width: 58%; }
+      .gv-term em { width: 7px; height: 9px; background: var(--gpa-accent); animation: gac-blink 1s steps(2) infinite; }
+      .gv-time { transform: rotateY(-24deg); }
+      .gv-time b { position: absolute; width: 2px; height: 104px; background: linear-gradient(transparent, var(--gpa-accent), transparent); }
+      .gv-time i { position: absolute; left: calc(50% + 10px); width: 54px; height: 14px; border-radius: 5px; background: color-mix(in srgb, var(--gpa-accent) 18%, var(--gpa-card-bg)); border: 1px solid var(--gpa-border); animation: gac-float 4s ease-in-out infinite; }
+      .gv-time i::before { content: ''; position: absolute; left: -15px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--gpa-accent); }
+      .gv-time i:nth-child(1) { top: 16px; } .gv-time i:nth-child(2) { top: 42px; animation-delay: -1s; } .gv-time i:nth-child(3) { top: 68px; animation-delay: -2s; } .gv-time i:nth-child(4) { top: 94px; animation-delay: -3s; }
+      .gv-hazard i { position: absolute; width: 100px; height: 100px; border-radius: 16px; background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--gpx-warn) 70%, transparent) 0 8px, transparent 8px 16px); -webkit-mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); padding: 8px; transform: rotateX(18deg) rotateY(-20deg); animation: gac-sway 7s ease-in-out infinite; }
+      .gv-hazard b { font: 800 42px/1 'Geist Mono', ui-monospace, monospace; color: var(--gpx-err); text-shadow: 0 0 18px color-mix(in srgb, var(--gpx-err) 60%, transparent); }
+      @container room (max-width: 780px) {
+        .gac-tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+        .gac-th { display: none; }
+        .gac-dz { grid-template-columns: minmax(0, 1fr); }
+      }
       @media (pointer: coarse) {
         .gpa-btn, .gpx-suggest { min-height: 44px; }
         .gpx-icon-btn { min-width: 44px; }
@@ -1698,6 +1874,59 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gps-empty svg { width: 28px; height: 28px; }
       .gps-empty[hidden] { display: none; }
 
+
+      /* ---- Memory: constellation, list, notes and confirm chips ---- */
+      .gps-memstage { height: 220px; }
+      .gmc-rig { position: relative; width: 1px; height: 1px; transform-style: preserve-3d; transform: rotateX(calc(-14deg + var(--ry))) rotateY(var(--rx)); animation: gmc-spin 40s linear infinite; }
+      .gps:not(.is-live) .gmc-rig { animation-play-state: paused; }
+      @keyframes gmc-spin { to { rotate: y 360deg; } }
+      .gmc-core { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, var(--gpa-accent) 45%, var(--gpa-accent2)); box-shadow: 0 0 26px var(--gpa-accent); }
+      .gmc-node { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%; background: var(--gpa-accent); box-shadow: 0 0 10px var(--gpa-accent); }
+      .gmc-node.t-profile { background: var(--gpa-accent2); box-shadow: 0 0 10px var(--gpa-accent2); }
+      .gmc-node.t-project { background: var(--gpa-text); box-shadow: 0 0 8px var(--gpa-text); }
+      .gmc-node.t-temporary { opacity: 0.5; }
+      .gmc-node.is-inferred { background: transparent; border: 1.5px solid var(--gpa-accent); box-shadow: none; }
+      .gmc-node.is-pending { animation: gpx-ping 1.4s ease-out infinite; }
+      .gmem-gate .gps-row { margin-top: 4px; }
+      .gmem-body { display: flex; flex-direction: column; gap: 12px; }
+      .gmem-body[hidden] { display: none; }
+      .gmem-search { flex: none; min-width: 0; }
+      .gmem-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+      .gmem-f { min-height: 32px; padding: 0 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 500; background: var(--gpa-field); color: var(--gpa-sub); border: 1px solid var(--gpa-border); }
+      .gmem-f.primary { color: var(--gpa-text); border-color: var(--gpa-accent); background: color-mix(in srgb, var(--gpa-accent) 14%, var(--gpa-field)); }
+      .gmem-list { display: flex; flex-direction: column; gap: 8px; }
+      .gmem-row { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: var(--gps-r2); border: 1px solid var(--gpa-border); background: var(--gpa-field); }
+      .gmem-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11.5px; color: var(--gpa-sub); }
+      .gmem-badge { padding: 2px 8px; border-radius: 999px; font: 600 11px 'Geist Mono', ui-monospace, monospace; border: 1px solid var(--gpa-border); }
+      .gmem-badge.is-explicit { color: var(--gpa-text); border-color: color-mix(in srgb, var(--gpa-accent) 55%, var(--gpa-border)); background: color-mix(in srgb, var(--gpa-accent) 14%, transparent); }
+      .gmem-badge.is-inferred { color: var(--gpa-sub); border-style: dashed; }
+      .gmem-badge.is-pending { color: var(--gpa-text); border-color: var(--gpx-warn); background: color-mix(in srgb, var(--gpx-warn) 14%, transparent); }
+      .gmem-type::before, .gmem-scope::before { content: '·'; margin-right: 6px; }
+      .gmem-text { font-size: 13.5px; line-height: 1.45; color: var(--gpa-text); overflow-wrap: anywhere; }
+      .gmem-meta { font-size: 11.5px; color: var(--gpa-sub); }
+      .gmem-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+      .gmem-actions .gps-btn { min-height: 30px; font-size: 12px; padding: 0 10px; }
+      .gmem-why { padding: 10px; border-radius: var(--gps-r1); background: var(--gpa-card-bg); font-size: 12.5px; }
+      .gmem-why p { margin: 0 0 6px; }
+      .gmem-why dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; }
+      .gmem-why dt { color: var(--gpa-sub); }
+      .gmem-why dd { margin: 0; }
+      .gmem-hist { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; color: var(--gpa-sub); }
+      .gmem-hist b { color: var(--gpa-text); font-weight: 600; }
+      .gpx-mem-note { display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; margin: -2px 0 2px; padding: 4px 10px; border-radius: 999px; font-size: 11.5px; color: var(--gpa-sub); background: var(--gpa-field); border: 1px solid var(--gpa-border); }
+      .gpx-mem-note svg { width: 13px; height: 13px; color: var(--gpa-accent); }
+      .gpx-mem-note.is-warn svg { color: var(--gpx-warn); }
+      .gpx-mem-link { border: none; background: none; color: var(--gpa-accent); font: inherit; font-weight: 600; cursor: pointer; padding: 0 0 0 4px; }
+      .gpx-mem-confirm { align-self: flex-start; max-width: 92%; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--gps-r2); border: 1px solid color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--gpa-accent) 10%, var(--gpa-field)), var(--gpa-field)); animation: gps-pop 280ms cubic-bezier(0.34, 1.4, 0.64, 1) both; }
+      .gpx-mem-q { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+      .gpx-mem-q svg { width: 16px; height: 16px; color: var(--gpa-accent); margin-top: 1px; }
+      .gpx-mem-q b { font-weight: 600; }
+      .gpx-mem-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+      .gpx-askmem { gap: 6px; padding-right: 4px; }
+      .gpx-askmem[hidden] { display: none; }
+      .gpx-askmem svg { width: 13px; height: 13px; color: var(--gpa-accent); }
+      .gpx-askmem select { max-width: 150px; min-height: 22px; border: none; background: transparent; color: var(--gpa-text); font: inherit; cursor: pointer; }
+
       /* ---- Confirm dialog (mounted directly on the panel) ---- */
       .gps-dialog-scrim {
         position: absolute; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px;
@@ -1850,7 +2079,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   panel.innerHTML = `
     <div class="gpa-header" id="gpa-drag">
       <button id="gpa-sidebar-toggle" title="Show/hide the sidebar">&#9776;</button>
-      <button id="gpa-min" title="Collapse Agent Console (↓ ↓)" aria-label="Collapse Agent Console">&minus;</button>
+      <button id="gpa-min" title="Collapse Agent Console (↓ ↓)" aria-label="Collapse Agent Console" aria-controls="gpa-body" aria-expanded="true">&minus;</button>
       <span class="gpa-title">Agent Console</span>
       <span class="gpa-dot"></span>
       <button id="gpa-reload" title="Reload the console — fetches the latest script and restarts it">&#10227;</button>
@@ -1884,8 +2113,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         </div>
         <div class="gpa-login-footer">
           <div class="gpa-login-legal">
-            Your account lives only in this browser — nothing is sent to a server.
-            Pick a PIN you don't use anywhere else.
+            Your PIN is checked on this device. Your profile name and a PIN verifier
+            (never the PIN itself) are stored on the console's server so memory and
+            settings can follow you. Pick a PIN you don't use anywhere else.
           </div>
         </div>
       </div>
@@ -1924,6 +2154,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button class="gpa-dropdown-item" data-tab="grammar"><span class="gpa-nav-ic">${GPS_ICONS.spell}</span><span class="gpa-nav-label">Grammar</span></button>
           <button class="gpa-dropdown-item" data-tab="saved"><span class="gpa-nav-ic">${GPS_ICONS.book}</span><span class="gpa-nav-label">Saved</span></button>
           <button class="gpa-dropdown-item" data-tab="theme"><span class="gpa-nav-ic">${GPS_ICONS.settings}</span><span class="gpa-nav-label">Settings</span></button>
+          <button class="gpa-dropdown-item" data-tab="admin" style="display:none"><span class="gpa-nav-ic">${GPS_ICONS.advanced}</span><span class="gpa-nav-label">Admin</span></button>
         </div>
       </div>
       </nav>
@@ -2122,7 +2353,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         <div class="gpx-room gpx-room-convo">
           ${gpxHero({ room: 'ask', title: 'Ask AI', status: 'Ready',
             desc: 'A conversation that remembers context. Paste or attach images, or speak your question.',
-            meta: '<span class="gpx-chip" id="gpx-ask-base">gpt-4.1-mini</span><span class="gpx-chip gpx-chip-accent" id="gpx-ask-smart">gpt-5 for hard questions</span>',
+            meta: '<span class="gpx-chip" id="gpx-ask-base">gpt-4.1-mini</span><span class="gpx-chip gpx-chip-accent" id="gpx-ask-smart">gpt-5 for hard questions</span>'
+              + `<span class="gpx-chip gpx-askmem" id="gpx-ask-mem" hidden>${GPS_ICONS.book}<span id="gpx-ask-mem-state">Memory</span><select id="gpx-ask-project" aria-label="Project for memory"></select><button class="gpx-mem-link" data-open-memory>Manage</button></span>`,
             actions: `<button id="gpa-ask-new" class="gpa-btn" title="Start a fresh conversation (clears memory)">${gpxLbl('plus', 'New chat')}</button>
               <button id="gpa-ask-settings-btn" class="gpa-btn" title="Study settings">${gpxLbl('settings', 'Study settings')}</button>` })}
           <div id="gpa-ask-settings" class="gpa-card gpx-card" style="display:none;">
@@ -2484,6 +2716,40 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         </div>
       </div>
 
+      <div class="gpa-pane" data-pane="admin">
+        <div class="gps gac" id="gac">
+          <header class="gps-top gac-top">
+            <div class="gps-titleblock">
+              <div class="gps-eyebrow">Administration</div>
+              <h2 class="gps-h">Command Center</h2>
+            </div>
+            <div class="gac-top-actions">
+              <span id="gac-who" class="gps-badge off" role="status">Not connected</span>
+              <button id="gac-palette-btn" class="gps-btn" aria-keyshortcuts="Control+K Meta+K" title="Command palette (Ctrl/⌘ K)">${GPS_ICONS.search}<span>Commands</span><kbd aria-hidden="true">⌘K</kbd></button>
+              <button id="gac-lock" class="gps-btn" title="Forget the admin token for this session">${GPS_ICONS.key}<span>Lock</span></button>
+            </div>
+          </header>
+          <section id="gac-auth" class="gpa-card gpx-card gac-auth">
+            <div class="gpx-card-head">${GPS_ICONS.advanced}<div class="gpa-card-title">Connect to your worker</div></div>
+            <p class="gps-hint">Use the owner or co-admin token (kept in memory for this session only, never saved), or sign in with an account the owner has made a moderator or admin. The worker checks every request; this screen only hides what your role can't use.</p>
+            <div id="gac-auth-fields" class="gac-auth-fields"></div>
+            <div class="gps-row"><button id="gac-connect" class="gps-btn gps-btn-primary">Connect</button></div>
+            <p id="gac-auth-msg" class="gps-hint" role="status" aria-live="polite"></p>
+          </section>
+          <div id="gac-layout" class="gps-layout gac-layout" hidden>
+            <nav id="gac-nav" class="gps-nav gac-nav" role="tablist" aria-label="Admin sections" aria-orientation="vertical"></nav>
+            <div id="gac-content" class="gps-content gac-content"></div>
+          </div>
+          <div id="gac-palette" class="gac-palette" hidden role="dialog" aria-modal="true" aria-label="Command palette">
+            <div class="gac-pal-box">
+              <div class="gps-search">${GPS_ICONS.search}<input type="text" role="combobox" aria-expanded="true" aria-controls="gac-pal-list" aria-autocomplete="list" placeholder="Type a command or a username" aria-label="Command" autocomplete="off" spellcheck="false" /></div>
+              <ul id="gac-pal-list" class="gac-pal-list" role="listbox" aria-label="Commands"></ul>
+              <div class="gac-pal-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>Enter</kbd> run</span><span><kbd>Esc</kbd> close</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="gpa-pane" data-pane="theme">
         <div class="gps" id="gps">
           <header class="gps-top">
@@ -2507,6 +2773,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <button class="gps-tab" role="tab" data-sec="type" aria-selected="false" tabindex="-1">${GPS_ICONS.type}<span>Typography</span></button>
               <button class="gps-tab" role="tab" data-sec="icon" aria-selected="false" tabindex="-1">${GPS_ICONS.icon}<span>Icon</span></button>
               <button class="gps-tab" role="tab" data-sec="ai" aria-selected="false" tabindex="-1">${GPS_ICONS.ai}<span>AI</span></button>
+              <button class="gps-tab" role="tab" data-sec="memory" aria-selected="false" tabindex="-1">${GPS_ICONS.book}<span>Memory</span></button>
               <button class="gps-tab" role="tab" data-sec="controls" aria-selected="false" tabindex="-1">${GPS_ICONS.controls}<span>Controls</span></button>
               <button class="gps-tab" role="tab" data-sec="account" aria-selected="false" tabindex="-1">${GPS_ICONS.account}<span>Account</span></button>
               <button class="gps-tab" role="tab" data-sec="advanced" aria-selected="false" tabindex="-1">${GPS_ICONS.advanced}<span>Advanced</span></button>
@@ -2879,6 +3146,84 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 <p class="gps-hint gps-note">Base and smart models reset to gpt-4.1-mini and gpt-5 on every load and sign-in.</p>
               </section>
 
+              <!-- MEMORY -->
+              <section class="gps-sec" data-sec="memory" role="tabpanel" aria-label="Memory">
+                <div class="gps-sec-head">
+                  <div><h3 class="gps-sec-title">Memory</h3><p class="gps-sec-desc">What the AI remembers about you between conversations. Stored on the console's server for your account only.</p></div>
+                </div>
+                <div class="gps-item gps-item-flush" data-k="memory constellation overview">
+                  <div class="gps-stage gps-stage-compact gps-memstage" data-tilt>
+                    <div class="gps-floor"></div>
+                    <div class="gmc-rig" id="gmc-rig" aria-hidden="true"><span class="gmc-core"></span></div>
+                    <div class="gps-stage-cap" id="gmc-cap"></div>
+                  </div>
+                </div>
+                <div class="gps-item gmem-gate" id="gmem-gate" hidden data-k="memory sign in reconnect pin">
+                  <div class="gps-label" id="gmem-gate-title">Memory</div>
+                  <p class="gps-hint" id="gmem-gate-desc"></p>
+                  <div class="gps-row" id="gmem-pin-row" hidden>
+                    <input id="gmem-pin" class="gpa-input" type="password" autocomplete="current-password" placeholder="Your PIN" aria-label="Your PIN" />
+                    <button id="gmem-pin-go" class="gps-btn gps-btn-primary">Reconnect</button>
+                  </div>
+                </div>
+                <div class="gmem-body" id="gmem-body" hidden>
+                  <div class="gps-list">
+                    <div class="gps-item gps-item-row" data-k="memory enable disable use memory">
+                      <div><div class="gps-label">Use memory</div><p class="gps-hint">When off, nothing is recalled or learned. Saved memories are kept.</p></div>
+                      <button id="gmem-enabled" class="gps-switch" aria-label="Use memory">Use memory</button>
+                    </div>
+                    <div class="gps-item gps-item-row" data-k="memory pause learning stop saving">
+                      <div><div class="gps-label">Pause learning</div><p class="gps-hint">Keeps using what's saved but stops adding anything new.</p></div>
+                      <button id="gmem-paused" class="gps-switch" aria-label="Pause learning">Pause learning</button>
+                    </div>
+                    <div class="gps-item" data-k="memory projects workspace scope">
+                      <label class="gps-label" for="gmem-project">Active project <span class="gps-tag">Project memories only load inside their project</span></label>
+                      <div class="gps-row">
+                        <select id="gmem-project" class="gpa-input" aria-label="Active project"></select>
+                        <button id="gmem-proj-new" class="gps-btn">${GPS_ICONS.plus}<span>New</span></button>
+                        <button id="gmem-proj-rename" class="gps-btn">Rename</button>
+                        <button id="gmem-proj-delete" class="gps-btn gps-btn-danger">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="gps-item" data-k="memory add remember something explicit">
+                    <label class="gps-label" for="gmem-add">Add a memory</label>
+                    <div class="gps-row">
+                      <input id="gmem-add" class="gpa-input" maxlength="200" placeholder="e.g. I prefer step-by-step explanations" />
+                      <button id="gmem-add-go" class="gps-btn gps-btn-primary">Remember</button>
+                    </div>
+                    <p class="gps-hint">You can also just tell Ask AI "remember that…". Passwords, keys and sensitive details are never stored.</p>
+                  </div>
+                  <div class="gps-item" data-k="memory search filter explicit inferred preferences profile projects recent list">
+                    <div class="gps-search gmem-search">${GPS_ICONS.search}<input id="gmem-q" type="search" placeholder="Search memories" aria-label="Search memories" autocomplete="off" /></div>
+                    <div class="gmem-filters" role="group" aria-label="Filter memories">
+                      <button class="gmem-f" data-f="all">All</button><button class="gmem-f" data-f="explicit">Explicit</button>
+                      <button class="gmem-f" data-f="preference">Preferences</button><button class="gmem-f" data-f="profile">Profile</button>
+                      <button class="gmem-f" data-f="projects">Projects</button><button class="gmem-f" data-f="inferred">Inferred</button>
+                      <button class="gmem-f" data-f="recent">Recent</button>
+                    </div>
+                    <div id="gmem-list" class="gmem-list" aria-live="polite"></div>
+                  </div>
+                  <div class="gps-list">
+                    <div class="gps-item gps-item-row" data-k="memory consolidate duplicates merge">
+                      <div><div class="gps-label">Merge duplicates</div><p class="gps-hint">Combines memories that say the same thing.</p></div>
+                      <button id="gmem-consolidate" class="gps-btn">Merge now</button>
+                    </div>
+                    <div class="gps-item gps-item-row" data-k="memory clear delete category forget">
+                      <div><div class="gps-label">Clear memories</div><p class="gps-hint">Deletes a whole category. This can't be undone.</p></div>
+                      <div class="gps-row">
+                        <select id="gmem-clear-cat" class="gpa-input" aria-label="Category to clear">
+                          <option value="inferred">Inferred only</option><option value="preference">Preferences</option><option value="profile">Profile</option>
+                          <option value="project">Projects</option><option value="temporary">Temporary</option><option value="explicit">Explicit</option><option value="all">Everything</option>
+                        </select>
+                        <button id="gmem-clear" class="gps-btn gps-btn-danger">Clear</button>
+                      </div>
+                    </div>
+                  </div>
+                  <p class="gps-hint gps-note">Separate from this: insights you switch on as context in Saved are kept on this device and added to every request.</p>
+                </div>
+              </section>
+
               <!-- CONTROLS -->
               <section class="gps-sec" data-sec="controls" role="tabpanel" aria-label="Controls">
                 <div class="gps-sec-head">
@@ -2917,6 +3262,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                   <div class="gps-who">${GPS_ICONS.account}<span id="gpa-account-who" class="gps-label">Not signed in</span></div>
                   <button id="gpa-logout-btn" class="gps-btn">Sign out</button>
                 </div>
+                <div class="gps-item gps-item-row" data-k="account server session sign in connected memory devices">
+                  <div><div class="gps-label">Server account</div><p class="gps-hint" id="gps-srv-hint"></p></div>
+                  <span class="gps-badge" id="gps-srv-badge">Not connected</span>
+                </div>
                 <div class="gps-item" data-k="account sync code copy load transfer device">
                   <div class="gps-label">Sync code</div>
                   <div class="gps-row">
@@ -2937,6 +3286,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                   </div>
                   <div id="gpa-cloud-msg" class="gps-hint"></div>
                 </div>
+        <div class="gps-item gps-item-row" id="gpa-gac-card" hidden data-k="admin command center moderation users">
+          <div><div class="gps-label">Admin Command Center</div><p class="gps-hint">Users, AI usage, memory, security, moderation, system health and the audit log.</p></div>
+          <button id="gpa-open-gac" class="gps-btn gps-btn-primary">Open</button>
+        </div>
         <!-- Admin console: hidden until unlocked by the secret gesture on the
              "Account & sync" heading (click it 5x) + PIN. Rendered here but
              display:none, and re-hidden on every load. -->
@@ -3235,6 +3588,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   minimized.setAttribute('role', 'button');
   minimized.setAttribute('tabindex', '0');
   minimized.setAttribute('aria-label', 'Open Agent Console');
+  minimized.setAttribute('aria-controls', 'gpa-body');
+  minimized.setAttribute('aria-expanded', 'false');
   minimized.title = 'Open Agent Console (↓ ↓)';
   panel.appendChild(minimized);
 
@@ -4590,20 +4945,27 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   host.addEventListener('gpa-toggle', toggleAgentConsole);
 
   // ---- Global shortcut: ↓ ↓ toggles the console ----------------------------
-  // Two separate ArrowDown presses within the window. It only observes keys:
-  // the first press always behaves normally, and only the press that
-  // completes the shortcut has its default (a one-line scroll) cancelled.
+  // Two separate ArrowDown presses within the window toggle ONLY the console.
+  // A lone ↓ behaves exactly as normal (no delay). When a second ↓ completes
+  // the shortcut, it is consumed entirely — default cancelled, propagation
+  // stopped, and its keyup swallowed too — and the scroll the first press
+  // caused is rolled back (the page and any scrolled container, including
+  // ones inside the console), so the page ends up exactly where it was. The
+  // page's own scripts do see that first ↓: a browser can't know on the first
+  // press whether a second is coming without delaying every ↓.
   // Ignored where ArrowDown already means something: text fields, selects,
-  // editable content, arrow-key widgets (lists, menus, tabs, sliders…), and
-  // a running game while the console is open. Held-down keys (auto-repeat)
-  // never count, and any other key breaks the sequence.
-  // Capture phase on window, so page handlers that stop propagation can't
-  // swallow it. Keys pressed inside iframes (e.g. the Proxy frame) never
-  // reach this page, so the shortcut can't fire from inside them.
+  // editable content, arrow-key widgets (lists, menus, tabs, sliders…), open
+  // dialogs, the admin command palette, and a running game while the console
+  // is open. Held-down keys (auto-repeat) never count; any other key breaks the
+  // sequence. Capture phase on window, so page handlers that stop propagation
+  // can't swallow it. Keys pressed inside iframes never reach this page.
   const AGENT_CONSOLE_DOUBLE_DOWN_WINDOW = 350; // ms allowed between the two presses
-  const ARROW_KEY_WIDGETS = ['listbox', 'menu', 'menubar', 'tree', 'treegrid', 'grid', 'combobox', 'slider', 'spinbutton', 'tablist', 'radiogroup', 'option', 'menuitem', 'treeitem', 'gridcell', 'tab']
+  const ARROW_KEY_WIDGETS = ['listbox', 'menu', 'menubar', 'tree', 'treegrid', 'grid', 'combobox', 'slider', 'spinbutton', 'tablist', 'radiogroup', 'option', 'menuitem', 'treeitem', 'gridcell', 'tab', 'dialog', 'alertdialog']
     .map((r) => `[role="${r}"]`).join(',');
   let lastArrowDownAt = 0;
+  let arrowSnapshot = null;
+  let swallowArrowKeyup = false;
+  const isShown = (el) => !!el && !el.hidden && el.style.display !== 'none' && el.getClientRects().length > 0;
   function arrowDownHasOwnMeaning(e) {
     const t = (e.composedPath && e.composedPath()[0]) || e.target;
     if (t && t.nodeType === 1) {
@@ -4611,22 +4973,76 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable) return true;
       if (t.closest && t.closest(ARROW_KEY_WIDGETS)) return true;
     }
+    // In-console dialogs and the admin palette own the keyboard while open.
+    if (!isMin && ['#gps-dialog', '#gpa-save-modal', '#gpa-langpick', '.gac-palette', '.gpa-ann-backdrop'].some((sel) => isShown(root.querySelector(sel)))) return true;
     const gamesPane = panel.querySelector('.gpa-pane[data-pane="games"]');
     return !isMin && !!gamesPane && gamesPane.classList.contains('active');
+  }
+  // Nearest scrollable ancestor, walking out through shadow roots.
+  function scrollBoxOf(node) {
+    let el = node && node.nodeType === 1 ? node : null;
+    while (el && el !== document.documentElement && el !== document.body) {
+      const cs = getComputedStyle(el);
+      if (/(auto|scroll|overlay)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight) return el;
+      el = el.parentElement || (el.getRootNode && el.getRootNode().host) || null;
+    }
+    return null;
+  }
+  function takeScrollSnapshot(e) {
+    const t = (e.composedPath && e.composedPath()[0]) || e.target;
+    const box = scrollBoxOf(t);
+    return { x: window.scrollX, y: window.scrollY, box, top: box ? box.scrollTop : 0, left: box ? box.scrollLeft : 0 };
+  }
+  function restoreScrollSnapshot(snap) {
+    if (!snap) return;
+    try { window.scrollTo({ left: snap.x, top: snap.y, behavior: 'instant' }); } catch (err) { window.scrollTo(snap.x, snap.y); }
+    if (snap.box && snap.box.isConnected) {
+      try { snap.box.scrollTo({ left: snap.left, top: snap.top, behavior: 'instant' }); } catch (err) { snap.box.scrollTop = snap.top; }
+    }
+  }
+  function pinScrollSnapshot(snap) {
+    if (!snap) return;
+    const moved = () => Math.abs(window.scrollY - snap.y) > 0.5 || Math.abs(window.scrollX - snap.x) > 0.5
+      || (snap.box && snap.box.isConnected && (Math.abs(snap.box.scrollTop - snap.top) > 0.5 || Math.abs(snap.box.scrollLeft - snap.left) > 0.5));
+    const t0 = performance.now();
+    let still = 0;
+    restoreScrollSnapshot(snap);
+    (function frame() {
+      if (moved()) { restoreScrollSnapshot(snap); still = 0; } else still++;
+      const age = performance.now() - t0;
+      if (age < 600 && (age < 250 || still < 4)) requestAnimationFrame(frame);
+    })();
   }
   onWin('keydown', (e) => {
     if (e.key !== 'ArrowDown' || e.repeat || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || arrowDownHasOwnMeaning(e)) {
       lastArrowDownAt = 0;
+      arrowSnapshot = null;
       return;
     }
     const now = performance.now();
     if (lastArrowDownAt && now - lastArrowDownAt <= AGENT_CONSOLE_DOUBLE_DOWN_WINDOW) {
+      const snap = arrowSnapshot;
       lastArrowDownAt = 0;
+      arrowSnapshot = null;
       e.preventDefault();
+      e.stopImmediatePropagation();
+      swallowArrowKeyup = true;
+      // Undo the first press's scroll. Browsers animate keyboard scrolling,
+      // and that animation can keep moving for a few hundred ms after this
+      // keydown, so hold the snapshot until the position has stayed put for
+      // a few frames (bounded, so a real scroll right after is never fought).
+      pinScrollSnapshot(snap);
       toggleAgentConsole();
       return;
     }
     lastArrowDownAt = now;
+    arrowSnapshot = takeScrollSnapshot(e);
+  }, true);
+  onWin('keyup', (e) => {
+    if (!swallowArrowKeyup || e.key !== 'ArrowDown') return;
+    swallowArrowKeyup = false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
   }, true);
   panel.querySelector('#gpa-close').addEventListener('click', () => host.remove());
 
@@ -4730,6 +5146,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (chatPane && chatPane.classList.contains('active') && typeof clearChatUnread === 'function') clearChatUnread();
     }
 
+    // Expanded/collapsed state for assistive tech on both toggle controls.
+    const collapseCtl = panel.querySelector('#gpa-min');
+    if (collapseCtl) collapseCtl.setAttribute('aria-expanded', v ? 'false' : 'true');
+    minimized.setAttribute('aria-expanded', v ? 'false' : 'true');
     // Motion: the panel grows back in from the corner it collapsed to; the
     // minimized button pops in. Classes clear on a timer, so rapid toggling
     // never leaves one stuck.
@@ -5044,9 +5464,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       return;
     }
     try {
-      const headers = {};
+      const headers = authHeaders();
       if (localKey) headers['Authorization'] = `Bearer ${localKey}`;
-      if (currentUser) headers['X-GPA-User'] = currentUser;
       const res = await rawFetch(`${OPENAI_PROXY}/v1/models`, { headers });
       if (res.ok) {
         dotEl.className = 'gpa-status-dot online';
@@ -5109,7 +5528,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const url = picked && typeof picked.url === 'string' ? picked.url.trim() : '';
       if (!url) throw new Error('no verified url');
       const r = await rawFetch(`${OPENAI_PROXY}/read?url=${encodeURIComponent(url)}`, {
-        headers: currentUser ? { 'X-GPA-User': currentUser } : {}
+        headers: authHeaders()
       });
       if (!r.ok) throw new Error('fetch failed');
       const html = await r.text();
@@ -6198,7 +6617,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     throw lastErr || new TypeError('Failed to fetch');
   }
 
-  async function callOpenAI(userText, systemText, imageDataUrls, hard) {
+  async function callOpenAI(userText, systemText, imageDataUrls, hard, opts) {
     const key = getOpenAiKey();
     // Without the proxy there's no server in the middle to supply a key on
     // your behalf, so a local key is mandatory. With the proxy, a missing
@@ -6243,6 +6662,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       // a modified client could omit it, which is why blocking is "soft";
       // see the admin console note.
       if (typeof currentUser !== 'undefined' && currentUser) headers['X-GPA-User'] = currentUser;
+      if (sessionToken()) headers['X-GPA-Session'] = sessionToken();
+      // Memory: conversational calls opt in; the worker retrieves relevant
+      // memories for the verified user and strips this field before OpenAI.
+      if (opts && opts.memory && sessionToken() && workerSupports('memory') && memoryUsable()) {
+        payload._gpa_mem = { project: activeMemoryProject(), conversation: String(opts.conversation || '').slice(0, 60) };
+      }
     }
     const endpoint = OPENAI_PROXY
       ? `${OPENAI_PROXY}/v1/chat/completions`
@@ -6266,6 +6691,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       throw new Error(`OpenAI API error (${res.status}): ${redactSecrets(errText).slice(0, 300)}`);
     }
     const data = await res.json();
+    lastMemoryUsed = data && data._gpa_memory ? (data._gpa_memory.used || 0) : null;
     return data?.choices?.[0]?.message?.content || '(no response)';
   }
 
@@ -6305,7 +6731,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   // Every AI request goes through here to OpenAI.
-  async function callAI(userText, systemText, imageDataUrls, hard) {
+  // opts: { memory: true, conversation } for conversational calls that should
+  // use (and may add to) the user's AI memory.
+  let lastMemoryUsed = null;
+  async function callAI(userText, systemText, imageDataUrls, hard, opts) {
     if (aiBlocked) throw new Error('Access to this tool has been blocked by the owner.');
     // Order matters: admin standing instructions, then saved context, then the
     // caller's own system text LAST — the JSON-only rules several callers rely
@@ -6314,7 +6743,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // Report the real start/finish of this request to the pane's hero.
     const room = typeof gpxAiStart === 'function' ? gpxAiStart(hard) : null;
     try {
-      const out = await callOpenAI(userText, sys, imageDataUrls, hard);
+      const out = await callOpenAI(userText, sys, imageDataUrls, hard, opts);
       if (typeof gpxAiEnd === 'function') gpxAiEnd(room, true);
       return out;
     } catch (e) {
@@ -8159,7 +8588,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const textPart = `${pageText ? `PAGE TEXT:\n${pageText}\n\n` : ''}QUESTION:\n${q}`;
       const images = screenshotDataUrl ? [screenshotDataUrl] : null;
       const hard = isHardQuestion(q) || !!screenshotDataUrl;
-      const out = await callAI(textPart, sys, images, hard);
+      const out = await callAI(textPart, sys, images, hard, { memory: true, conversation: 'page' });
       const grid = tryParseAnswerGrid(out);
       if (grid) {
         const verified = mergeHighlightField(await verifyGridAnswers(textPart, grid, images), grid);
@@ -8775,6 +9204,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   // ---- Ask AI: conversation memory (this session) ----
   let askHistory = [];              // [{ role:'user'|'assistant', content }]
+  let askConversationId = 'c' + Date.now().toString(36);
   const ASK_MEMORY_TURNS = 12;      // how many past messages to send back each time
 
   function addMsg(role, text, images) {
@@ -8799,6 +9229,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   panel.querySelector('#gpa-ask-new').addEventListener('click', () => {
     askHistory = [];
+    askConversationId = 'c' + Date.now().toString(36);
     chatEl.innerHTML = '';
     pendingImages = [];
     renderImageStrip();
@@ -8865,9 +9296,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       + (imgs.length ? '\n\n(' + imgs.length + ' image' + (imgs.length > 1 ? 's' : '') + ' attached below — read them as part of this question.)' : '');
 
     try {
-      const out = await callAI(userText, sys, imgs.length ? imgs : null, isHardQuestion(q));
+      const out = await callAI(userText, sys, imgs.length ? imgs : null, isHardQuestion(q), { memory: true, conversation: askConversationId });
       const { text: cleanText, confidence } = extractConfidenceLine(out);
     askHistory.push({ role: 'user', content: qForModel }, { role: 'assistant', content: cleanText });
+    if (typeof memoryAfterReply === 'function') memoryAfterReply(q, cleanText, askConversationId, thinking);
     if (askHistory.length > 40) askHistory = askHistory.slice(-40);
     renderAskReply(thinking, cleanText, confidence, () => {
       speak(cleanText);
@@ -9099,6 +9531,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const ownerCode = admGet(ADMIN_KEYS.OWNER_CODE);
       const sendHeaders = { 'Content-Type': 'text/plain' };
       if (ownerCode) sendHeaders['X-GPA-Owner'] = ownerCode;
+      if (sessionToken()) sendHeaders['X-GPA-Session'] = sessionToken();
       const res = await fetch(telemetryEndpoint() + '/chat/send', {
         method: 'POST', headers: sendHeaders,
         body: JSON.stringify({ room: chatRoom, user: currentUser, text, code: chatCodeFor(chatRoom) })
@@ -9822,7 +10255,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         out.textContent = `🔎 Reading ${srcs.length + 1}/${urls.length}: ${u.slice(0, 60)}…`;
         try {
           const r = await rawFetch(`${OPENAI_PROXY}/read?url=${encodeURIComponent(u)}`, {
-            headers: currentUser ? { 'X-GPA-User': currentUser } : {}
+            headers: authHeaders()
           });
           if (!r.ok) continue;
           const html = await r.text();
@@ -9924,7 +10357,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           if (!/^https?:\/\//i.test(u)) continue;
           status.textContent = `🌐 Reading: ${u.slice(0, 70)}…`;
           const r = await rawFetch(`${OPENAI_PROXY}/read?url=${encodeURIComponent(u)}`, {
-            headers: currentUser ? { 'X-GPA-User': currentUser } : {}
+            headers: authHeaders()
           });
           if (!r.ok) continue;
           const html = await r.text();
@@ -9993,8 +10426,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const sys = 'You answer questions about a passage the user is studying. For anything about the passage, rely on the PASSAGE, NOTES, RESEARCH and chat history — quote or paraphrase it accurately; if something is not covered there, say so plainly and answer generally if you can. Otherwise you are a helpful, concise assistant. Plain text only — no markdown symbols. End with a final line "CONFIDENCE: NN" (0-100).';
     const userText = `PASSAGE (titled "${notesState.title}"):\n${notesState.passage}\n\nNOTES ALREADY WRITTEN:\n${notesState.notes}\n\nRESEARCH EXCERPTS:\n${researchText || '(none)'}\n\nRECENT CHAT:\n${history || '(none)'}\n\nNEW QUESTION: ${q}`;
     try {
-      const out = await callAI(userText, sys, null, isHardQuestion(q));
+      const out = await callAI(userText, sys, null, isHardQuestion(q), { memory: true, conversation: 'notes' });
       const { text: cleanText, confidence } = extractConfidenceLine(out);
+      if (typeof memoryAfterReply === 'function') memoryAfterReply(q, cleanText, 'notes', null);
       typeText(aiMsg, cleanText, chat, () => {
         appendConfidenceBadge(aiMsg, confidence);
         appendModelBadge(aiMsg);
@@ -10037,7 +10471,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     ADMIN_KEYS.MODEL, ADMIN_KEYS.SMART_MODEL, ADMIN_KEYS.AUTO_UPGRADE,
     ADMIN_KEYS.SYSPREFIX, ADMIN_KEYS.MAXCHARS, ADMIN_KEYS.TEMP,
     ADMIN_KEYS.LOGS, ADMIN_KEYS.TELE_TOKEN, ADMIN_KEYS.TELE_ENDPOINT,
-    ADMIN_KEYS.TELE_NOTICE_SEEN, 'gpa_script_src', 'gpa_chat_rooms', 'gpa_ann_seen'
+    ADMIN_KEYS.TELE_NOTICE_SEEN, 'gpa_script_src', 'gpa_chat_rooms', 'gpa_ann_seen', 'gpa_session_token'
   ];
 
   const loginOverlay = panel.querySelector('#gpa-login');
@@ -10381,6 +10815,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     applyState(profile.data || {});
     showLoginMsg('');
     enterApp(user);
+    linkServerAccount(user, pin);
   }
 
   async function doSignUp() {
@@ -10399,6 +10834,245 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     writeProfile(user, { user, pinHash, data: collectState(), updatedAt: Date.now() });
     showLoginMsg('');
     enterApp(user);
+    linkServerAccount(user, pin);
+  }
+
+  // ---- Server session (worker accounts) ----------------------------------------
+  // The PIN is still verified locally; right after that, the same PIN derives
+  // a server verifier (PBKDF2, salted by the username, identical on every
+  // device) that logs in to — or, the first time, claims — the account on the
+  // worker. The worker answers with a signed session token that proves who
+  // this is for memory, roles and quotas. Nothing here blocks signing in: if
+  // the worker is old or unreachable, the console keeps working without it.
+  // The token is stored per browser (never in profile snapshots or sync codes)
+  // and expires on its own; the worker can revoke it at any time.
+  const SERVER_SESSION_KEY = 'gpa_session_token';
+  let serverSession = null;
+  try { serverSession = JSON.parse(localStorage.getItem(SERVER_SESSION_KEY) || 'null'); } catch (e) { serverSession = null; }
+  let serverSessionStatus = 'none';   // none | pending | ok | expired | failed | offline | unsupported | needs_pin
+  let serverSessionError = '';
+  let workerInfo = null;
+  const sessionListeners = new Set();
+  function onSessionChange(fn) { sessionListeners.add(fn); }
+  function emitSession() { sessionListeners.forEach((fn) => { try { fn(); } catch (e) { /* listener errors stay local */ } }); }
+  function sessionToken() {
+    if (!serverSession || !serverSession.token || !currentUser) return '';
+    return String(serverSession.u).toLowerCase() === String(currentUser).toLowerCase() ? serverSession.token : '';
+  }
+  function sessionRole() { return sessionToken() ? (serverSession.role || 'user') : null; }
+  function authHeaders(extra) {
+    const h = { ...(extra || {}) };
+    if (currentUser) h['X-GPA-User'] = currentUser;
+    const t = sessionToken();
+    if (t) h['X-GPA-Session'] = t;
+    return h;
+  }
+  function storeServerSession(user, data) {
+    serverSession = { u: user, token: data.token, exp: data.exp, role: (data.account && data.account.role) || 'user' };
+    try { localStorage.setItem(SERVER_SESSION_KEY, JSON.stringify(serverSession)); } catch (e) { /* storage blocked */ }
+  }
+  function clearServerSession(remote) {
+    const t = serverSession && serverSession.token;
+    if (remote && t && OPENAI_PROXY) {
+      fetch(OPENAI_PROXY + '/auth/logout', { method: 'POST', headers: { 'X-GPA-Session': t } }).catch(() => {});
+    }
+    serverSession = null;
+    serverSessionStatus = 'none';
+    serverSessionError = '';
+    memoryState = { settings: null, projects: [], counts: null, disabledGlobally: false };
+    try { localStorage.removeItem(SERVER_SESSION_KEY); } catch (e) { /* ignore */ }
+    emitSession();
+  }
+  async function workerHealth(force) {
+    if (workerInfo && !force) return workerInfo;
+    if (!OPENAI_PROXY) return null;
+    try { workerInfo = await (await fetch(OPENAI_PROXY + '/health', { cache: 'no-store' })).json(); } catch (e) { workerInfo = null; }
+    return workerInfo;
+  }
+  function workerSupports(feature) { return !!(workerInfo && Array.isArray(workerInfo.features) && workerInfo.features.includes(feature)); }
+  async function serverVerifier(user, pin) {
+    const u = String(user).toLowerCase();
+    return pbkdf2Hex(`gpa-server|${u}|${pin}`, 'gpa-server-salt|' + u, PIN_ITERATIONS);
+  }
+  // Called with the plaintext PIN, right after a successful local sign-in.
+  async function linkServerAccount(user, pin) {
+    if (!OPENAI_PROXY) return;
+    serverSessionStatus = 'pending';
+    emitSession();
+    try {
+      const info = await workerHealth();
+      if (!info || !info.sessions || !workerSupports('sessions')) { serverSessionStatus = 'unsupported'; emitSession(); return; }
+      const verifier = await serverVerifier(user, pin);
+      const post = (path, extra) => fetch(OPENAI_PROXY + path, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain', ...(extra || {}) }, body: JSON.stringify({ user, verifier })
+      }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => ({})) }));
+      let r = await post('/auth/login');
+      if (r.status === 404 && r.data.missing) {
+        const ownerCode = admGet(ADMIN_KEYS.OWNER_CODE);
+        r = await post('/auth/register', ownerCode ? { 'X-GPA-Owner': ownerCode } : null);
+      }
+      if (r.status === 200 && r.data.token) {
+        storeServerSession(user, r.data);
+        serverSessionStatus = 'ok';
+        serverSessionError = '';
+      } else {
+        serverSessionStatus = 'failed';
+        serverSessionError = r.status === 401 ? 'This name is registered on the server with a different PIN.'
+          : r.status === 403 && /reserved/.test(r.data.error || '') ? "This name is reserved for the console's owner."
+            : r.status === 429 ? 'Too many attempts. Try again in a few minutes.'
+              : (r.data.error || ('HTTP ' + r.status));
+      }
+    } catch (e) {
+      serverSessionStatus = 'offline';
+    }
+    emitSession();
+  }
+  // On a reload there is no PIN to hand, so validate (and renew) the stored
+  // token instead. Without one, server features wait for the PIN.
+  async function refreshServerSession() {
+    if (!OPENAI_PROXY) return;
+    await workerHealth();
+    const t = sessionToken();
+    if (!t) { serverSessionStatus = workerSupports('sessions') ? 'needs_pin' : 'unsupported'; emitSession(); return; }
+    try {
+      const r = await fetch(OPENAI_PROXY + '/auth/me', { headers: { 'X-GPA-Session': t } });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
+        serverSession.role = d.account.role;
+        if (d.token) serverSession.token = d.token;
+        try { localStorage.setItem(SERVER_SESSION_KEY, JSON.stringify(serverSession)); } catch (e) { /* ignore */ }
+        serverSessionStatus = 'ok';
+      } else if (r.status === 401) {
+        serverSession = null;
+        try { localStorage.removeItem(SERVER_SESSION_KEY); } catch (e) { /* ignore */ }
+        serverSessionStatus = 'expired';
+      } else serverSessionStatus = 'offline';
+    } catch (e) { serverSessionStatus = 'offline'; }
+    emitSession();
+  }
+  // Re-link with a PIN typed in later (after a reload or an expired token).
+  async function reconnectWithPin(pin) {
+    const profile = readProfile(currentUser);
+    if (!profile) return { ok: false, error: 'No local profile.' };
+    const { ok } = await verifyPin(currentUser.toLowerCase(), pin, profile.pinHash);
+    if (!ok) return { ok: false, error: 'Wrong PIN.' };
+    await linkServerAccount(currentUser, pin);
+    return serverSessionStatus === 'ok' ? { ok: true } : { ok: false, error: serverSessionError || 'Could not reach the server.' };
+  }
+
+  // ---- AI memory (client side) ------------------------------------------------
+  // The memory itself lives on the worker, keyed by the verified session
+  // user. This file only calls /memory/* and renders what comes back; it never
+  // decides ownership or what is safe to store — the worker does.
+  const MEMORY_PROJECT_KEY = 'gpa_active_project';
+  let memoryState = { settings: null, projects: [], counts: null, disabledGlobally: false };
+  const memoryListeners = new Set();
+  function onMemoryChanged(fn) { memoryListeners.add(fn); }
+  function notifyMemoryChanged() { memoryListeners.forEach((f) => { try { f(); } catch (e) { /* ignore */ } }); }
+  function activeMemoryProject() {
+    let id = 'general';
+    try { id = localStorage.getItem(MEMORY_PROJECT_KEY) || 'general'; } catch (e) { /* ignore */ }
+    return id === 'general' || memoryState.projects.some((p) => p.id === id) || !memoryState.projects.length ? id : 'general';
+  }
+  function setActiveMemoryProject(id) {
+    try { localStorage.setItem(MEMORY_PROJECT_KEY, id || 'general'); } catch (e) { /* ignore */ }
+    notifyMemoryChanged();
+  }
+  function memoryUsable() { return !memoryState.disabledGlobally && (!memoryState.settings || memoryState.settings.enabled !== false); }
+  function memoryReady() { return !!sessionToken() && workerSupports('memory'); }
+  async function memoryApi(route, body) {
+    const t = sessionToken();
+    if (!t || !OPENAI_PROXY) { const e = new Error('Sign in to use memory.'); e.code = 'no_session'; throw e; }
+    const headers = { 'Content-Type': 'application/json', 'X-GPA-Session': t };
+    const localKey = readStoredKey(OPENAI_STORAGE_KEY);
+    if (localKey) headers['X-GPA-Key'] = localKey;   // for embeddings when no key is assigned
+    const res = await rawFetch(OPENAI_PROXY + '/memory/' + route, { method: 'POST', headers, body: JSON.stringify(body || {}) });
+    let data = {};
+    try { data = await res.json(); } catch (e) { data = {}; }
+    if (res.status === 401) {
+      serverSession = null;
+      try { localStorage.removeItem(SERVER_SESSION_KEY); } catch (e) { /* ignore */ }
+      serverSessionStatus = 'expired';
+      emitSession();
+    }
+    if (data.disabledGlobally) memoryState.disabledGlobally = true;
+    if (!res.ok || data.ok === false) {
+      const e = new Error(data.error || ('HTTP ' + res.status));
+      e.code = data.reason || '';
+      e.status = res.status;
+      throw e;
+    }
+    if (data.settings) memoryState.settings = data.settings;
+    if (data.projects) memoryState.projects = data.projects;
+    if (data.counts) memoryState.counts = data.counts;
+    return data;
+  }
+  const MEMORY_REJECT_TEXT = {
+    secret: 'it looked like a password, key or other credential',
+    instruction: 'it read like an instruction to the assistant rather than a fact about you',
+    sensitive: "it's sensitive personal information I don't keep",
+    too_long: 'it was too long',
+    empty: 'it was empty'
+  };
+  // After a conversational reply: show which memories were used, then let the
+  // worker decide whether anything is worth remembering. Never blocks the reply.
+  async function memoryAfterReply(userText, reply, conversationId, bubble) {
+    const used = lastMemoryUsed;
+    if (!memoryReady() || !memoryUsable()) return;
+    const anchor = bubble && bubble.isConnected ? bubble : null;
+    const note = (html, cls) => {
+      if (!anchor) return null;
+      const el = document.createElement('div');
+      el.className = 'gpx-mem-note ' + (cls || '');
+      el.innerHTML = html;
+      anchor.after(el);
+      return el;
+    };
+    if (used > 0) note(`${GPS_ICONS.book}<span>Used ${used} ${used === 1 ? 'memory' : 'memories'}</span><button class="gpx-mem-link" data-open-memory>Manage</button>`, 'is-used');
+    if (memoryState.settings && memoryState.settings.paused) return;
+    let data;
+    try { data = await memoryApi('extract', { user: String(userText || '').slice(0, 4000), assistant: String(reply || '').slice(0, 2000), conversationId, project: activeMemoryProject() }); }
+    catch (e) { return; }
+    if (data.explicit && data.created) note(`${GPS_ICONS.check}<span>Saved to memory</span><button class="gpx-mem-link" data-open-memory>Manage</button>`, 'is-saved');
+    else if (data.explicit && data.rejected && data.rejected.length) note(`${GPS_ICONS.warn}<span>I didn't save that: ${escapeHtml(MEMORY_REJECT_TEXT[data.rejected[0]] || 'it was not safe to store')}.</span>`, 'is-warn');
+    if (data.pending && data.pending.length && anchor) renderMemoryConfirm(anchor, data.pending[0]);
+    if (data.created || (data.actions && data.actions.length)) notifyMemoryChanged();
+  }
+  // "Should I remember that…?" — one chip per inferred memory, asked once.
+  function renderMemoryConfirm(anchor, item) {
+    const el = document.createElement('div');
+    el.className = 'gpx-mem-confirm';
+    el.setAttribute('role', 'group');
+    el.setAttribute('aria-label', 'Memory suggestion');
+    el.innerHTML = `<div class="gpx-mem-q">${GPS_ICONS.book}<span>Should I remember this? <b></b></span></div>`
+      + `<div class="gpx-mem-actions"><button class="gpa-btn primary" data-a="yes">Remember</button><button class="gpa-btn" data-a="edit">Edit</button>`
+      + `<button class="gpa-btn gpx-btn-ghost" data-a="no">Forget it</button><button class="gpx-icon-btn gpa-btn gpx-btn-ghost" data-a="close" aria-label="Decide later">${GPS_ICONS.x}</button></div>`;
+    el.querySelector('b').textContent = item.text;
+    anchor.after(el);
+    const done = (msg) => { el.innerHTML = `<div class="gpx-mem-q">${GPS_ICONS.check}<span></span></div>`; el.querySelector('span').textContent = msg; setTimeout(() => el.remove(), 2600); notifyMemoryChanged(); };
+    el.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-a]');
+      if (!b) return;
+      const a = b.dataset.a;
+      try {
+        if (a === 'yes') { await memoryApi('confirm', { id: item.id }); done('Remembered.'); }
+        else if (a === 'no') { await memoryApi('reject', { id: item.id }); done("Okay, I won't remember that."); }
+        else if (a === 'close') el.remove();
+        else if (a === 'edit') {
+          const row = document.createElement('div');
+          row.className = 'gpa-row gpx-composer';
+          row.innerHTML = '<input class="gpa-input" aria-label="Edit memory" maxlength="200" /><button class="gpa-btn primary">Save</button>';
+          const input = row.querySelector('input');
+          input.value = item.text;
+          el.querySelector('.gpx-mem-actions').replaceWith(row);
+          input.focus();
+          row.querySelector('button').addEventListener('click', async () => {
+            try { await memoryApi('confirm', { id: item.id, text: input.value }); done('Saved your version.'); }
+            catch (err) { showToast("That couldn't be saved: " + (MEMORY_REJECT_TEXT[err.code] || err.message), { type: 'danger' }); }
+          });
+        }
+      } catch (err) { showToast('Memory: ' + err.message, { type: 'danger' }); }
+    });
   }
 
   panel.querySelector('#gpa-login-btn').addEventListener('click', doSignIn);
@@ -10439,6 +11113,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       writeProfile(user, { user, pinHash, data: payload.data, updatedAt: Date.now() });
       showLoginMsg('');
       enterApp(user);
+      linkServerAccount(user, pin);
     } catch (e) {
       showLoginMsg("That doesn't look like a valid sync code.", true);
     }
@@ -13981,6 +14656,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   panel.querySelector('#gpa-logout-btn').addEventListener('click', () => {
     saveProgress();
     closeLanguagePicker();
+    clearServerSession(true);
     currentUser = null;
     localStorage.removeItem(SESSION_KEY);
     refreshAccountUI();
@@ -14119,6 +14795,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // True once the owner unlocks the admin console this session. Gates the
   // "use a better model" suggestion so it only reaches whoever can act on it.
   let ownerMode = false;
+  let openCommandCenter = null; // set by the Admin Command Center module
   let modelHintShown = false;
 
   // ---- "Answered by" attribution -------------------------------------------
@@ -14179,7 +14856,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       // Query strings and fragments are stripped before this leaves the
       // browser — the worker scrubs them again on arrival.
       url: scrubPageUrl(location.href),
-      event: event === 'open' ? 'open' : 'beat'
+      event: event === 'open' ? 'open' : 'beat',
+      // In the body so the beat stays a preflight-free text/plain request.
+      session: sessionToken() || undefined
     });
     try {
       // text/plain = CORS-safelisted = no preflight. keepalive lets a beat
@@ -14228,7 +14907,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   async function pollStatus() {
     if (!telemetryOn() || !currentUser) return;
     try {
-      const res = await fetch(telemetryEndpoint() + '/status?user=' + encodeURIComponent(currentUser));
+      const res = await fetch(telemetryEndpoint() + '/status?user=' + encodeURIComponent(currentUser), sessionToken() ? { headers: { 'X-GPA-Session': sessionToken() } } : undefined);
       if (!res.ok) return;
       applyModeration(await res.json());
     } catch (e) { /* best-effort */ }
@@ -14525,6 +15204,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     hideModOverlay();
     if (typeof closeLanguagePicker === 'function') closeLanguagePicker();
     try { if (typeof saveProgress === 'function') saveProgress(); } catch (e) { /* ignore */ }
+    clearServerSession(false);
     currentUser = null;
     try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
     if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
@@ -14594,7 +15274,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     });
 
     function openAdmin() {
-      adminBox.style.display = 'block';
+      // The older inline console stays hidden; its controls now live in the
+      // Admin Command Center (see adminCommandCenter below).
       ownerMode = true;
       // A tab the owner's own feature flags hid earlier in this session
       // needs to reappear now, not wait for the next status poll.
@@ -14602,12 +15283,789 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       loadPowerToolFields();
       loadTelemetryFields();
       renderUsage();
-      adminBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (openCommandCenter) openCommandCenter();
     }
     panel.querySelector('#gpa-admin-lock').addEventListener('click', () => {
       adminUnlocked = false;
       adminBox.style.display = 'none';
     });
+
+  // ---- Admin Command Center ----------------------------------------------------
+  // A full admin surface in its own pane. Every number shown comes from the
+  // worker's /admin/* routes; every action is authorized there (this UI only
+  // hides what the caller's role can't use — see /admin/whoami). Credentials:
+  // the owner / co-admin token (session-only, never stored) or a signed-in
+  // account whose server role is moderator or higher.
+  //
+  // The older admin console's controls are moved (not copied) into the
+  // matching sections, so their existing handlers keep working unchanged.
+  (function adminCommandCenter() {
+    const gac = panel.querySelector('#gac');
+    const pane = panel.querySelector('.gpa-pane[data-pane="admin"]');
+    const navItem = panel.querySelector('.gpa-dropdown-item[data-tab="admin"]');
+    if (!gac || !pane || !navItem) return;
+    const $a = (sel) => gac.querySelector(sel);
+    const esc = (v) => escapeHtml(v == null ? '' : String(v));
+    const num = (n) => (n == null ? '—' : Number(n).toLocaleString());
+    const ago = (t) => {
+      if (!t) return 'never';
+      const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+      if (s < 60) return s + 's ago';
+      if (s < 3600) return Math.round(s / 60) + 'm ago';
+      if (s < 86400) return Math.round(s / 3600) + 'h ago';
+      return Math.round(s / 86400) + 'd ago';
+    };
+    const when = (t) => (t ? new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+    const state = { who: null, section: 'overview', cache: {}, users: [], inspecting: null, pollTimer: 0 };
+    const can = (perm) => !!state.who && (state.who.perms.includes('*') || state.who.perms.includes(perm));
+    const isOwner = () => !!state.who && state.who.role === 'owner';
+
+    // ---- Transport ----
+    const base = () => ((admGet(ADMIN_KEYS.TELE_ENDPOINT) || '').trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
+    const creds = () => {
+      const token = (admGet(ADMIN_KEYS.TELE_TOKEN) || '').trim();
+      if (token) return { Authorization: 'Bearer ' + token };
+      const s = sessionToken();
+      return s ? { 'X-GPA-Session': s } : null;
+    };
+    async function api(path, opts) {
+      opts = opts || {};
+      const c = creds();
+      if (!c || !base()) { const e = new Error('Not connected'); e.status = 401; throw e; }
+      const res = await fetch(base() + path, {
+        method: opts.method || 'GET',
+        headers: { ...c, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        cache: 'no-store'
+      });
+      let data = {};
+      try { data = await res.json(); } catch (e) { data = {}; }
+      if (!res.ok || data.ok === false) {
+        const e = new Error((data && (data.error && data.error.message ? data.error.message : data.error)) || ('HTTP ' + res.status));
+        e.status = res.status;
+        throw e;
+      }
+      return data;
+    }
+
+    // ---- Sections ----
+    const SECTIONS = [
+      { id: 'overview', label: 'Overview', icon: 'overview', perm: 'system.view', desc: 'Live state of the whole console, from the worker.' },
+      { id: 'users', label: 'Users', icon: 'users', perm: 'users.view', desc: 'Every account and every name seen, with usage, quotas and moderation.' },
+      { id: 'ai', label: 'AI & Usage', icon: 'ai', perm: 'ai.view', desc: 'Requests, failures, latency, tokens and models. OpenAI only: gpt-4.1-mini and gpt-5.' },
+      { id: 'memory', label: 'Memory', icon: 'book', perm: 'memory.view', desc: 'Health of the AI memory system. Aggregates only unless the owner opens a specific user, which is audited.' },
+      { id: 'security', label: 'Security', icon: 'advanced', perm: 'security.view', desc: 'Sign-in failures, lockouts, spoofing attempts, rate limits and session policy.' },
+      { id: 'moderation', label: 'Moderation', icon: 'eye', perm: 'moderation.view', desc: 'Reported chat messages, live users and chat policy.' },
+      { id: 'content', label: 'Content & Data', icon: 'folder', perm: 'moderation.view', desc: 'Broadcasts, announcements, backups and this browser\'s stored data.' },
+      { id: 'system', label: 'System', icon: 'panel', perm: 'system.view', desc: 'Worker health, configuration, feature switches and client updates.' },
+      { id: 'automation', label: 'Automation', icon: 'timer', perm: 'automation.run', desc: 'Scheduled jobs: last run, next run, and manual runs.' },
+      { id: 'developer', label: 'Developer', icon: 'lab', perm: 'system.view', desc: 'Diagnostics that never reveal secret values, plus raw worker details.' },
+      { id: 'audit', label: 'Audit log', icon: 'note', perm: 'audit.view', desc: 'Every admin action: who, what, target, result and request id.' },
+      { id: 'danger', label: 'Danger zone', icon: 'warn', perm: 'danger.execute', desc: 'Irreversible or system-wide actions. Each needs a typed confirmation and is audited.' }
+    ];
+    const SCENES = {
+      overview: '<div class="gv gv-deck"><i></i><i></i><i></i><b></b><b></b><b></b></div>',
+      users: '<div class="gv gv-ids"><i><s></s></i><i><s></s></i><i><s></s></i></div>',
+      ai: GPX_SCENES.ask,
+      memory: '<div class="gv gv-mem"><div class="gv-mem-rig"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><span></span></div>',
+      security: '<div class="gv gv-shield"><i></i><b></b></div>',
+      moderation: '<div class="gv gv-lens"><i></i><i></i><b></b></div>',
+      content: GPX_SCENES.saved,
+      system: '<div class="gv gv-stack"><i><s></s><s></s></i><i><s></s><s></s></i><i><s></s><s></s></i></div>',
+      automation: '<div class="gv gv-flow"><i></i><i></i><i></i><i></i><b></b><b></b><b></b></div>',
+      developer: '<div class="gv gv-term"><i><s></s><s></s><s></s><em></em></i></div>',
+      audit: '<div class="gv gv-time"><i></i><i></i><i></i><i></i><b></b></div>',
+      danger: '<div class="gv gv-hazard"><i></i><b>!</b></div>'
+    };
+    const nav = $a('#gac-nav');
+    let adminUnlockedFlag = false;
+    const content = $a('#gac-content');
+    nav.innerHTML = SECTIONS.map((s) => `<button class="gps-tab" role="tab" data-asec="${s.id}" aria-selected="false" tabindex="-1">${GPS_ICONS[s.icon] || ''}<span>${s.label}</span></button>`).join('');
+    content.innerHTML = SECTIONS.map((s) => `<section class="gps-sec gac-sec" data-asec="${s.id}" role="tabpanel" aria-label="${s.label}">`
+      + gpxHero({ room: 'a-' + s.id, title: s.label, desc: s.desc, status: 'Loading', scene: SCENES[s.id],
+        actions: s.id === 'danger' ? '' : `<button class="gpa-btn" data-refresh="${s.id}">${gpxLbl('refresh', 'Refresh')}</button>` })
+      + `<div class="gac-body" id="gac-body-${s.id}"></div></section>`).join('');
+    const heroOf = (id) => content.querySelector(`.gpx-hero[data-room="a-${id}"]`);
+    const setHero = (id, text, st) => {
+      const h = heroOf(id);
+      if (!h) return;
+      h.dataset.state = st || 'idle';
+      const t = h.querySelector('.gpx-status-t');
+      if (t) t.textContent = text;
+    };
+    const body = (id) => $a('#gac-body-' + id);
+    const setOut = (id, text) => { const o = $a('#' + id); if (o) o.textContent = text; };
+
+    // ---- Tiny rendering helpers (all data is escaped) ----
+    const kpi = (label, value, detail, tone) => `<div class="gac-kpi ${tone || ''}"><div class="gac-kpi-k">${esc(label)}</div><div class="gac-kpi-v">${esc(value)}</div>${detail ? `<div class="gac-kpi-d">${esc(detail)}</div>` : ''}</div>`;
+    const card = (title, inner, icon) => `<section class="gpa-card gpx-card gac-card"><div class="gpx-card-head">${icon ? GPS_ICONS[icon] || '' : ''}<div class="gpa-card-title">${esc(title)}</div></div>${inner}</section>`;
+    const empty = (title, desc) => gpxEmpty({ icon: 'overview', title, desc, cls: 'gac-empty' });
+    function bars(series, key, opts) {
+      opts = opts || {};
+      if (!series.length || !series.some((d) => d[key])) return `<p class="gps-hint">${esc(opts.emptyText || 'No data in this period yet.')}</p>`;
+      const max = Math.max(1, ...series.map((d) => d[key] || 0));
+      const w = 100 / series.length;
+      const label = (opts.label || key) + ': ' + series.map((d) => `${d.day.slice(5)} ${d[key] || 0}`).join(', ');
+      return `<svg class="gac-bars ${opts.cls || ''}" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="${esc(label)}">`
+        + series.map((d, i) => { const hgt = ((d[key] || 0) / max) * 36; return `<rect x="${(i * w + w * 0.18).toFixed(2)}" y="${(40 - hgt).toFixed(2)}" width="${(w * 0.64).toFixed(2)}" height="${Math.max(0.6, hgt).toFixed(2)}" rx="0.8"><title>${esc(d.day)}: ${esc(d[key] || 0)}</title></rect>`; }).join('')
+        + `</svg><div class="gac-axis"><span>${esc(series[0].day.slice(5))}</span><span>${esc(series[series.length - 1].day.slice(5))}</span></div>`;
+    }
+    const ratio = (a, b, la, lb) => {
+      const t = (a || 0) + (b || 0);
+      if (!t) return '<p class="gps-hint">No data yet.</p>';
+      const pa = Math.round(((a || 0) / t) * 100);
+      return `<div class="gac-ratio" role="img" aria-label="${esc(la)} ${pa}%, ${esc(lb)} ${100 - pa}%"><i style="width:${pa}%"></i></div><div class="gac-ratio-l"><span>${esc(la)} ${num(a)} (${pa}%)</span><span>${esc(lb)} ${num(b)}</span></div>`;
+    };
+    const stateBadge = (u) => {
+      const b = [];
+      if (u.role && u.role !== 'user') b.push(`<span class="gac-badge role-${esc(u.role)}">${esc(u.role)}</span>`);
+      if (u.state && u.state !== 'active') b.push(`<span class="gac-badge bad">${esc(u.state)}</span>`);
+      if (u.muted) b.push('<span class="gac-badge warn">muted</span>');
+      if (u.pending) b.push('<span class="gac-badge warn">pending</span>');
+      if (u.aiFrozen) b.push('<span class="gac-badge warn">AI frozen</span>');
+      if (u.disabled) b.push('<span class="gac-badge bad">disabled</span>');
+      if (!u.hasAccount) b.push('<span class="gac-badge off">no account</span>');
+      return b.join('');
+    };
+    const errorBox = (id, e) => {
+      const b = body(id);
+      if (b) b.innerHTML = `<div class="gpa-error" role="alert"><span class="gpa-error-icon">${GPS_ICONS.warn}</span><div class="gpa-error-body"><div class="gpa-error-title">Couldn't load this section</div><div>${esc(e.status === 403 ? 'Your role does not include this.' : e.message)}</div></div></div>`;
+      setHero(id, e.status === 403 ? 'No access' : 'Error', 'error');
+    };
+    const typedConfirm = (phrase) => new Promise((resolve) => {
+      const v = prompt(`Type ${phrase} to confirm.`);
+      resolve(v === phrase ? v : null);
+    });
+
+    // ---- Renderers ----
+    const RENDER = {
+      async overview() {
+        const d = await api('/admin/overview');
+        setHero('overview', `Worker ${d.version} · ${d.users.activeNow} active now`, d.health.maintenance ? 'error' : 'done');
+        const h = d.health;
+        const healthRow = (label, ok, note) => `<li class="${ok ? 'ok' : 'bad'}"><i></i><span>${esc(label)}</span><em>${esc(note || (ok ? 'OK' : 'Not set'))}</em></li>`;
+        body('overview').innerHTML = `<div class="gac-kpis">`
+          + kpi('Users', num(d.users.total), `${num(d.users.accounts)} with accounts · ${num(d.users.newAccountsThisWeek)} new this week`)
+          + kpi('Active now', num(d.users.activeNow), 'distinct people')
+          + kpi('AI requests today', num(d.ai.today.requests), `${num(d.ai.today.failures)} failed · ${num(d.ai.today.rateLimited)} rate-limited`, d.ai.today.failures ? 'warn' : '')
+          + kpi('Avg latency', d.ai.today.avgLatencyMs == null ? '—' : d.ai.today.avgLatencyMs + ' ms', `${num((d.ai.today.tokensIn || 0) + (d.ai.today.tokensOut || 0))} tokens today`)
+          + kpi('Memory records', num(d.memory.records), `${num(d.memory.users)} users · ${num(d.memory.pending)} awaiting confirmation`)
+          + kpi('Moderation', num(d.moderation.openReports), `open reports · ${num(d.moderation.blocked)} blocked · ${num(d.moderation.muted)} muted`, d.moderation.openReports ? 'warn' : '')
+          + kpi('Security events', num(Object.values(d.security.today || {}).reduce((a, b) => a + b, 0)), `today · ${num(d.security.last7Total)} in 7 days`)
+          + kpi('Storage read', h.kvReadMs + ' ms', 'KV round trip')
+          + `</div>`
+          + `<div class="gpx-split">`
+          + `<div class="gpx-main">${card('AI requests, last 7 days', bars(d.ai.series7, 'requests', { label: 'Requests' }) + `<div class="gac-sub">Failures</div>` + bars(d.ai.series7, 'failures', { label: 'Failures', cls: 'is-bad', emptyText: 'No failures in the last 7 days.' }), 'ai')}`
+          + card('Recent admin activity', d.recentAudit.length ? `<ol class="gac-timeline">${d.recentAudit.map((e) => `<li><time>${esc(ago(e.ts))}</time><b>${esc(e.action)}</b> <span>${esc(e.target || '')}</span><em>${esc(e.actor || e.admin || '')}</em></li>`).join('')}</ol>` : '<p class="gps-hint">Nothing recorded yet, or your role cannot read the audit log.</p>', 'note') + `</div>`
+          + `<aside class="gpx-side">${card('System health', `<ul class="gac-health">`
+            + healthRow('Storage (KV)', h.kvBound, h.kvReadMs + ' ms') + healthRow('Admin token', h.adminToken) + healthRow('Co-admin token', h.coadminToken, h.coadminToken ? 'Set' : 'Off')
+            + healthRow('Owner code', h.ownerCode) + healthRow('Server accounts', h.sessions) + healthRow('Verified sessions required', h.requireSessions, h.requireSessions ? 'On' : 'Off (legacy allowed)')
+            + healthRow('Memory', h.memoryEnabled, h.memoryEnabled ? 'On' : 'Off') + healthRow('Maintenance mode', !h.maintenance, h.maintenance ? 'ON' : 'Off')
+            + `</ul>`, 'advanced')}</aside></div>`
+          + `<p class="gps-hint gps-note">Counts that are not tied to a quota are buffered per worker instance to protect the storage write budget, so they can trail by up to a minute.</p>`;
+      },
+      async users() {
+        const d = await api('/admin/users');
+        state.users = d.users;
+        setHero('users', `${d.users.length} people · ${d.users.filter((u) => u.hasAccount).length} accounts`, 'done');
+        const b = body('users');
+        if (!b.querySelector('.gac-users-tools')) {
+          b.innerHTML = `<div class="gac-users-tools"><div class="gps-search">${GPS_ICONS.search}<input id="gac-user-q" type="search" placeholder="Search users" aria-label="Search users" /></div>`
+            + `<div class="gps-seg gpx-seg-inline" role="group" aria-label="Filter users">${['all', 'active', 'accounts', 'flagged'].map((f) => `<button class="gps-seg-btn gac-uf" data-uf="${f}">${{ all: 'All', active: 'Seen today', accounts: 'Accounts', flagged: 'Flagged' }[f]}</button>`).join('')}</div>`
+            + `<select id="gac-user-sort" class="gpa-input" aria-label="Sort users"><option value="lastSeen">Last seen</option><option value="requestsToday">Requests today</option><option value="memoryItems">Memory</option><option value="user">Name</option></select></div>`
+            + `<div id="gac-user-list" class="gac-user-list"></div><div id="gac-inspector" class="gac-inspector" hidden></div><div id="gac-legacy-users"></div>`;
+          b.querySelector('#gac-user-q').addEventListener('input', renderUserList);
+          b.querySelector('#gac-user-sort').addEventListener('change', renderUserList);
+          b.addEventListener('click', (e) => { const f = e.target.closest('.gac-uf'); if (f) { state.userFilter = f.dataset.uf; renderUserList(); } });
+          placeLegacy('users');
+        }
+        renderUserList();
+      },
+      async ai() {
+        const days = state.aiDays || 7;
+        const d = await api('/admin/ai?days=' + days);
+        setHero('ai', `${num(d.totals.requests)} requests in ${days} days`, 'done');
+        const models = Object.entries(d.models).sort((a, b) => b[1] - a[1]);
+        const mTotal = models.reduce((n, [, c]) => n + c, 0);
+        const limits = d.limits;
+        const b = body('ai');
+        b.innerHTML = `<div class="gps-seg gpx-seg-inline" role="group" aria-label="Period">${[7, 30].map((n) => `<button class="gps-seg-btn gac-days ${n === days ? 'primary' : ''}" data-days="${n}" aria-pressed="${n === days}">${n} days</button>`).join('')}</div>`
+          + `<div class="gac-kpis">` + kpi('Requests', num(d.totals.requests)) + kpi('Failures', num(d.totals.failures), d.totals.requests ? Math.round((d.totals.failures / d.totals.requests) * 100) + '% of requests' : '', d.totals.failures ? 'warn' : '')
+          + kpi('Rate-limited', num(d.totals.rateLimited)) + kpi('Avg latency', d.totals.avgLatencyMs == null ? '—' : d.totals.avgLatencyMs + ' ms') + kpi('Tokens in / out', `${num(d.totals.tokensIn)} / ${num(d.totals.tokensOut)}`) + `</div>`
+          + `<div class="gpx-split"><div class="gpx-main">`
+          + card('Requests per day', bars(d.series, 'requests', { label: 'Requests' }) + '<div class="gac-sub">Failures</div>' + bars(d.series, 'failures', { label: 'Failures', cls: 'is-bad', emptyText: 'No failures in this period.' }) + '<div class="gac-sub">Average latency (ms)</div>' + bars(d.series, 'avgLatencyMs', { label: 'Latency', cls: 'is-alt' }), 'ai')
+          + card('Model distribution', mTotal ? `<ul class="gac-dist">${models.map(([m, c]) => `<li><span>${esc(m)}</span><i style="--w:${Math.round((c / mTotal) * 100)}%"></i><b>${num(c)}</b></li>`).join('')}</ul>` : '<p class="gps-hint">No requests yet.</p>', 'cards')
+          + card('Top users today', d.topUsersToday.length ? `<ul class="gac-rank">${d.topUsersToday.map((u) => `<li><button class="gac-link" data-open-user="${esc(u.user)}">${esc(u.user)}</button><span>${num(u.requests)} requests · ${num(u.failures)} failed</span></li>`).join('')}</ul>` : '<p class="gps-hint">No requests today.</p>', 'users')
+          + `</div><aside class="gpx-side">`
+          + card('Models', `<ul class="gac-health"><li class="ok"><i></i><span>Base AI</span><em>${esc(d.models_default.base)}</em></li><li class="ok"><i></i><span>Smart AI</span><em>${esc(d.models_default.smart)}</em></li><li class="ok"><i></i><span>Provider</span><em>OpenAI only</em></li></ul><p class="gps-hint">Every client resets to these models on load and sign-in.</p>`, 'ai')
+          + card('Quotas & limits', `<div class="gac-form" id="gac-limits">`
+            + `<label>Daily requests per user<input class="gpa-input" type="number" min="0" name="dailyQuota" value="${esc(limits.dailyQuota)}"></label>`
+            + `<label>Monthly requests per user<input class="gpa-input" type="number" min="0" name="monthlyQuota" value="${esc(limits.monthlyQuota)}"></label>`
+            + `<label>Requests per minute (approximate, per edge instance)<input class="gpa-input" type="number" min="0" name="rpm" value="${esc(limits.rpm)}"></label>`
+            + `<label>Max tokens per request<input class="gpa-input" type="number" min="0" name="maxTokens" value="${esc(limits.maxTokens)}"></label>`
+            + `<label>Allowed models (comma-separated, blank = any)<input class="gpa-input" name="allowedModels" value="${esc(limits.allowedModels.join(', '))}"></label>`
+            + `<button class="gps-btn gps-btn-primary" id="gac-limits-save" ${isOwner() ? '' : 'disabled'}>Save limits</button>${isOwner() ? '' : '<p class="gps-hint">Only the owner can change system limits.</p>'}`
+            + `<p class="gps-hint">0 means unlimited. Per-user overrides are in each user's inspector. Every change is recorded in the audit log with before and after values.</p></div>`, 'controls')
+          + `<div id="gac-keys-card"></div></aside></div><div id="gac-legacy-ai"></div>`;
+        b.querySelectorAll('.gac-days').forEach((x) => x.addEventListener('click', () => { state.aiDays = +x.dataset.days; RENDER.ai().catch((e) => errorBox('ai', e)); }));
+        const save = b.querySelector('#gac-limits-save');
+        if (save) save.addEventListener('click', async () => {
+          const f = b.querySelector('#gac-limits');
+          const val = (n) => f.querySelector(`[name="${n}"]`).value;
+          try {
+            await api('/admin/config', { method: 'POST', body: { dailyQuota: val('dailyQuota'), monthlyQuota: val('monthlyQuota'), rpm: val('rpm'), maxTokens: val('maxTokens'), allowedModels: val('allowedModels').split(',').map((x) => x.trim()).filter(Boolean) } });
+            showToast('Limits saved. They apply on the next request.');
+          } catch (e) { showToast('Not saved: ' + e.message, { type: 'danger' }); }
+        });
+        if (can('keys.manage')) {
+          try {
+            const k = await api('/admin/keys');
+            b.querySelector('#gac-keys-card').innerHTML = card('Assigned OpenAI keys', k.keys.length ? `<ul class="gac-keys">${k.keys.map((x) => `<li><div><b>${esc(x.target === '*' ? 'Everyone' : x.target)}</b><code>${esc(x.masked)}</code></div><div class="gac-keys-meta">Assigned ${esc(ago(x.assignedAt))}${x.assignedBy ? ' by ' + esc(x.assignedBy) : ''} · ${x.ageDays != null && x.ageDays > 90 ? '<span class="gac-badge warn">rotate soon</span>' : 'fresh'} · ${num(x.requestsToday)} requests today</div><button class="gps-btn" data-keytest="${esc(x.target)}">Test</button><span class="gac-keytest" data-keyres="${esc(x.target)}"></span></li>`).join('')}</ul>` : '<p class="gps-hint">No keys assigned. Users bring their own.</p>', 'key') + '<div id="gac-legacy-keys"></div>';
+            b.querySelectorAll('[data-keytest]').forEach((btn) => btn.addEventListener('click', async () => {
+              const out = b.querySelector(`[data-keyres="${CSS.escape(btn.dataset.keytest)}"]`);
+              out.textContent = 'Testing…';
+              try { const r = await api('/admin/keys/test', { method: 'POST', body: { target: btn.dataset.keytest } }); out.textContent = r.result.ok ? `Healthy · ${r.result.ms} ms` : `Failed (HTTP ${r.result.status})`; out.className = 'gac-keytest ' + (r.result.ok ? 'ok' : 'bad'); }
+              catch (e) { out.textContent = e.message; out.className = 'gac-keytest bad'; }
+            }));
+          } catch (e) { /* keys card is owner-only */ }
+        }
+        placeLegacy('ai');
+      },
+      async memory() {
+        const d = await api('/admin/memory/stats');
+        setHero('memory', `${num(d.totals.records)} ${d.totals.records === 1 ? 'memory' : 'memories'} · ${num(d.totals.users)} ${d.totals.users === 1 ? 'user' : 'users'}`, 'done');
+        const b = body('memory');
+        const lt = d.lifetime || {};
+        b.innerHTML = `<div class="gac-kpis">` + kpi('Memory records', num(d.totals.records), `${num(d.totals.docs)} user stores · ${Math.round(d.totals.bytes / 1024)} KB`)
+          + kpi('Created', num(d.created7), `last 7 days · ${num(d.created30)} in 30`) + kpi('Updated', num(d.updated7), 'last 7 days')
+          + kpi('Awaiting confirmation', num(d.pending)) + kpi('Stale inferences', num(d.stale), 'unused 90+ days', d.stale ? 'warn' : '')
+          + kpi('Retrievals', num(lt.retrieved), 'requests that used memory') + kpi('Rejected by safety filters', num(lt.rejected)) + kpi('Failed operations', num(lt.failed), '', lt.failed ? 'warn' : '') + `</div>`
+          + `<div class="gpx-split"><div class="gpx-main">`
+          + card('Explicit vs inferred', ratio(d.explicit, d.inferred, 'Explicit or confirmed', 'Inferred'), 'book')
+          + card('By type', `<ul class="gac-dist">${Object.entries(d.byType).map(([t, c]) => `<li><span>${esc(t)}</span><i style="--w:${d.totals.records ? Math.round((c / d.totals.records) * 100) : 0}%"></i><b>${num(c)}</b></li>`).join('')}</ul>`, 'cards')
+          + card('Largest memory stores', d.perUser.length ? `<ul class="gac-rank">${d.perUser.map((u) => `<li><button class="gac-link" data-open-user="${esc(u.user)}">${esc(u.user)}</button><span>${num(u.items)} memories · ${Math.round(u.bytes / 1024)} KB</span></li>`).join('')}</ul>` : '<p class="gps-hint">No one has memories yet.</p>', 'users')
+          + `</div><aside class="gpx-side">`
+          + card('Memory system', `<ul class="gac-health"><li class="${state.cfg && state.cfg.memoryEnabled === false ? 'bad' : 'ok'}"><i></i><span>Global switch</span><em>${state.cfg && state.cfg.memoryEnabled === false ? 'Off' : 'On'}</em></li><li class="ok"><i></i><span>Users who turned it off</span><em>${num(d.disabledUsers)}</em></li><li class="ok"><i></i><span>Users who paused learning</span><em>${num(d.pausedUsers)}</em></li></ul><p class="gps-hint">Turning memory off for everyone is in the Danger zone.</p>`, 'controls')
+          + (isOwner() ? card('Inspect one user\'s memories', `<p class="gps-hint">Owner only. Every view is recorded in the audit log with your reason.</p><div class="gac-form"><label>Username<input class="gpa-input" id="gac-mem-u"></label><label>Reason<input class="gpa-input" id="gac-mem-reason" placeholder="e.g. user asked for help"></label><button class="gps-btn" id="gac-mem-view">View memories</button></div><div id="gac-mem-out"></div>`, 'eye') : '')
+          + `</aside></div>`;
+        const view = b.querySelector('#gac-mem-view');
+        if (view) view.addEventListener('click', async () => {
+          const u = b.querySelector('#gac-mem-u').value.trim();
+          const reason = b.querySelector('#gac-mem-reason').value.trim();
+          if (!u || !reason) { showToast('Enter a username and a reason.', { type: 'danger' }); return; }
+          try {
+            const r = await api('/admin/memory/user', { method: 'POST', body: { u, reason } });
+            b.querySelector('#gac-mem-out').innerHTML = r.items.length ? `<ul class="gac-memlist">${r.items.map((it) => `<li><span class="gmem-badge ${it.inferred && !it.userConfirmed ? 'is-inferred' : 'is-explicit'}">${it.inferred && !it.userConfirmed ? 'Inferred' : 'Explicit'}</span> ${esc(it.text)}</li>`).join('')}</ul>` : '<p class="gps-hint">No memories.</p>';
+          } catch (e) { showToast(e.message, { type: 'danger' }); }
+        });
+      },
+      async security() {
+        const d = await api('/admin/security');
+        const today = d.days[d.days.length - 1];
+        setHero('security', `${num(today.total)} events today`, 'done');
+        const types = {};
+        d.days.forEach((x) => Object.entries(x.counts).forEach(([t, n]) => { types[t] = (types[t] || 0) + n; }));
+        const b = body('security');
+        const LABEL = { login_failed: 'Failed sign-ins', login_lockout: 'Sign-in lockouts', admin_auth_failed: 'Bad admin credentials', admin_lockout: 'Admin lockouts', forbidden: 'Forbidden requests', identity_mismatch: 'Spoofed usernames', rate_limited: 'Rate-limited', legacy_identity_refused: 'Legacy identity refused', bad_session: 'Bad sessions', owner_claim_refused: 'Owner-name claims refused', account_created: 'Accounts created', login_disabled: 'Disabled-account sign-ins' };
+        b.innerHTML = `<div class="gac-kpis">` + Object.entries(types).sort((a, b2) => b2[1] - a[1]).slice(0, 8).map(([t, n]) => kpi(LABEL[t] || t, num(n), 'last 7 days', /fail|forbid|mismatch|lockout|refused/.test(t) ? 'warn' : '')).join('')
+          + (Object.keys(types).length ? '' : kpi('Security events', '0', 'last 7 days')) + `</div>`
+          + `<div class="gpx-split"><div class="gpx-main">`
+          + card('Events per day', bars(d.days, 'total', { label: 'Security events', cls: 'is-bad', emptyText: 'No security events in the last 7 days.' }), 'advanced')
+          + card('Recent events', d.recent.length ? `<div class="gac-table" role="table" aria-label="Recent security events"><div role="row" class="gac-tr gac-th"><span role="columnheader">When</span><span role="columnheader">Event</span><span role="columnheader">User</span><span role="columnheader">Route</span><span role="columnheader">Source</span></div>${d.recent.slice(0, 60).map((e) => `<div role="row" class="gac-tr"><span role="cell">${esc(when(e.ts))}</span><span role="cell">${esc(LABEL[e.type] || e.type)}${e.note ? ' <em>' + esc(e.note) + '</em>' : ''}</span><span role="cell">${esc(e.user || '—')}</span><span role="cell"><code>${esc(e.path || '')}</code></span><span role="cell"><code>${esc(e.ip || '')}</code></span></div>`).join('')}</div>` : empty('No security events', 'Failed sign-ins, lockouts, spoofed names and rate limits show up here.'), 'note')
+          + `</div><aside class="gpx-side">`
+          + card('Sessions', `<ul class="gac-health"><li class="ok"><i></i><span>Accounts</span><em>${num(d.sessions.accounts)}</em></li><li class="ok"><i></i><span>Signed-in sessions</span><em>${num(d.sessions.active)}</em></li><li class="${d.sessions.disabled ? 'bad' : 'ok'}"><i></i><span>Disabled accounts</span><em>${num(d.sessions.disabled)}</em></li><li class="ok"><i></i><span>Active lockouts</span><em>${num(Object.values(d.lockouts).reduce((a, x) => a + x, 0))}</em></li></ul>`, 'users')
+          + card('Policy', `<ul class="gac-health">`
+            + `<li class="${d.config.requireSessions ? 'ok' : 'bad'}"><i></i><span>Require verified sessions</span><em>${d.config.requireSessions ? 'On' : 'Off'}</em></li>`
+            + `<li class="${d.config.ownerCode ? 'ok' : 'bad'}"><i></i><span>Owner code</span><em>${d.config.ownerCode ? 'Set' : 'Not set'}</em></li>`
+            + `<li class="${d.config.legacyQueryToken ? 'bad' : 'ok'}"><i></i><span>Legacy ?token= URLs</span><em>${d.config.legacyQueryToken ? 'Allowed' : 'Refused'}</em></li>`
+            + `<li class="ok"><i></i><span>Approval queue</span><em>${d.config.approvalMode ? 'On' : 'Off'}</em></li><li class="ok"><i></i><span>Private mode</span><em>${d.config.privateMode ? 'On' : 'Off'}</em></li></ul>`
+            + (isOwner() ? `<button class="gps-btn" id="gac-reqsess">${d.config.requireSessions ? 'Allow legacy identity again' : 'Require verified sessions'}</button><p class="gps-hint">When required, AI and chat refuse clients that only assert a username. Turn it on once everyone runs the updated console.</p>` : ''), 'controls')
+          + `<div id="gac-legacy-security"></div></aside></div>`;
+        const rq = b.querySelector('#gac-reqsess');
+        if (rq) rq.addEventListener('click', async () => {
+          try { await api('/admin/config', { method: 'POST', body: { requireSessions: !d.config.requireSessions } }); RENDER.security().catch((e) => errorBox('security', e)); }
+          catch (e) { showToast(e.message, { type: 'danger' }); }
+        });
+        placeLegacy('security');
+      },
+      async moderation() {
+        const d = await api('/admin/reports');
+        const open = d.reports.filter((r) => r.status === 'open');
+        setHero('moderation', `${open.length} open report${open.length === 1 ? '' : 's'}`, 'done');
+        const b = body('moderation');
+        const filt = state.repFilter || 'open';
+        const list = d.reports.filter((r) => filt === 'all' || r.status === filt);
+        b.innerHTML = `<div class="gps-seg gpx-seg-inline" role="group" aria-label="Report status">${['open', 'resolved', 'dismissed', 'all'].map((f) => `<button class="gps-seg-btn gac-rf ${f === filt ? 'primary' : ''}" data-rf="${f}" aria-pressed="${f === filt}">${f[0].toUpperCase() + f.slice(1)}</button>`).join('')}</div>`
+          + (list.length ? `<div class="gac-reports">${list.map((r) => `<article class="gac-report"><header><b>${esc(r.msgUser)}</b> in <code>#${esc(r.room)}</code><time>${esc(when(r.msgTs))}</time><span class="gac-badge ${r.status === 'open' ? 'warn' : 'off'}">${esc(r.status)}</span></header>`
+            + `<blockquote></blockquote><p class="gps-hint">Reported by ${esc(r.reporter)}${r.reason ? ': ' + esc(r.reason) : ''}${r.resolution ? ' · ' + esc(r.resolution) + (r.resolvedBy ? ' by ' + esc(r.resolvedBy) : '') : ''}</p>`
+            + (r.status === 'open' && can('moderation.manage') ? `<div class="gps-row"><button class="gps-btn gps-btn-danger" data-rep="${esc(r.id)}" data-ra="delete_message">Delete message</button><button class="gps-btn" data-rep="${esc(r.id)}" data-ra="resolve">Resolve</button><button class="gps-btn" data-rep="${esc(r.id)}" data-ra="dismiss">Dismiss</button><button class="gps-btn" data-open-user="${esc(r.msgUser)}">Open user</button></div>` : '')
+            + `</article>`).join('')}</div>` : empty(filt === 'open' ? 'No open reports' : 'Nothing here', 'Signed-in users can report chat messages. Reports land here for review.'))
+          + `<div id="gac-legacy-moderation"></div>`;
+        b.querySelectorAll('.gac-report blockquote').forEach((q, i) => { q.textContent = list[i].msgText; });
+        b.querySelectorAll('.gac-rf').forEach((x) => x.addEventListener('click', () => { state.repFilter = x.dataset.rf; RENDER.moderation().catch((e) => errorBox('moderation', e)); }));
+        b.querySelectorAll('[data-rep]').forEach((x) => x.addEventListener('click', async () => {
+          try { await api('/admin/reports/action', { method: 'POST', body: { id: x.dataset.rep, action: x.dataset.ra } }); RENDER.moderation().catch((e) => errorBox('moderation', e)); }
+          catch (e) { showToast(e.message, { type: 'danger' }); }
+        }));
+        placeLegacy('moderation');
+      },
+      async content() {
+        setHero('content', 'Messaging, backups and local data', 'idle');
+        const b = body('content');
+        if (!b.querySelector('#gac-legacy-content')) b.innerHTML = '<div id="gac-legacy-content"></div>';
+        placeLegacy('content');
+      },
+      async system() {
+        const d = await api('/admin/diagnostics', { method: 'POST', body: {} });
+        const cfgView = await api('/admin/config/view').catch(() => null);
+        if (cfgView) state.cfg = cfgView.config;
+        const failing = d.checks.filter((c) => !c.ok && !c.skipped);
+        setHero('system', failing.length ? `${failing.length} check${failing.length === 1 ? '' : 's'} need attention` : `All checks passing · ${d.version}`, failing.length ? 'error' : 'done');
+        const b = body('system');
+        const LABEL = { kv_read: 'Storage read', kv_write: 'Storage write', openai: 'OpenAI connectivity', admin_token: 'Admin token', coadmin_token: 'Co-admin token', owner_code: 'Owner code', sessions: 'Server accounts', cron: 'Scheduled jobs' };
+        b.innerHTML = `<div class="gpx-split"><div class="gpx-main">`
+          + card('Health checks', `<ul class="gac-health">${d.checks.map((c) => `<li class="${c.ok ? 'ok' : c.skipped ? 'off' : 'bad'}"><i></i><span>${esc(LABEL[c.id] || c.id)}</span><em>${esc(c.note || (c.ms != null ? c.ms + ' ms' : c.ok ? 'OK' : 'Not configured'))}${c.status ? ' · HTTP ' + esc(c.status) : ''}</em></li>`).join('')}</ul>`, 'advanced')
+          + card('Configuration', state.cfg ? `<dl class="gac-dl">${Object.entries(state.cfg).map(([k, v]) => `<dt>${esc(k)}</dt><dd><code>${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</code></dd>`).join('')}</dl><p class="gps-hint">Configuration holds no secrets. Secrets are only reported as set or not set.</p>` : '<p class="gps-hint">Your role cannot read the configuration.</p>', 'settings')
+          + `</div><aside class="gpx-side">`
+          + card('Worker', `<ul class="gac-health"><li class="ok"><i></i><span>Version</span><em>${esc(d.version)}</em></li><li class="ok"><i></i><span>Edge location</span><em>${esc(d.colo || '—')}</em></li><li class="${d.config.maintenance && d.config.maintenance.on ? 'bad' : 'ok'}"><i></i><span>Maintenance</span><em>${d.config.maintenance && d.config.maintenance.on ? 'On' : 'Off'}</em></li><li class="ok"><i></i><span>Features</span><em>${esc(d.features.join(', '))}</em></li></ul>`, 'panel')
+          + `<div id="gac-legacy-system"></div></aside></div>`;
+        placeLegacy('system');
+      },
+      async automation() {
+        const d = await api('/admin/jobs');
+        const bad = d.jobs.filter((j) => j.last && !j.last.ok);
+        setHero('automation', bad.length ? `${bad.length} job failed last time` : `${d.jobs.length} jobs`, bad.length ? 'error' : 'done');
+        const b = body('automation');
+        b.innerHTML = (d.note ? `<p class="gps-hint">${esc(d.note)}</p>` : '') + `<div class="gac-jobs">${d.jobs.map((j) => `<article class="gac-job"><div class="gac-job-dot ${j.last ? (j.last.ok ? 'ok' : 'bad') : 'off'}"></div><div class="gac-job-body"><h4>${esc(j.name)}</h4><p class="gps-hint">${esc(j.desc)}</p>`
+          + `<dl class="gac-dl"><dt>Schedule</dt><dd><code>${esc(j.schedule || 'set in the Cloudflare dashboard')}</code></dd><dt>Next run</dt><dd>${j.nextRun ? esc(when(j.nextRun)) : '—'}</dd>`
+          + `<dt>Last run</dt><dd>${j.last ? `${esc(when(j.last.ts))} · ${j.last.ok ? 'succeeded' : 'failed'} · ${esc(j.last.trigger)} · ${esc(j.last.durationMs)} ms` : 'never'}</dd>${j.last ? `<dt>Result</dt><dd>${esc(j.last.detail)}</dd>` : ''}</dl></div>`
+          + `<button class="gps-btn" data-runjob="${esc(j.id)}">${gpxLbl('play', 'Run now')}</button></article>`).join('')}</div>`;
+        b.querySelectorAll('[data-runjob]').forEach((x) => x.addEventListener('click', async () => {
+          x.disabled = true;
+          try { const r = await api('/admin/jobs/run', { method: 'POST', body: { id: x.dataset.runjob } }); showToast(r.run.ok ? 'Done: ' + r.run.detail : 'Failed: ' + r.run.detail, r.run.ok ? {} : { type: 'danger' }); RENDER.automation().catch((e) => errorBox('automation', e)); }
+          catch (e) { showToast(e.message, { type: 'danger' }); x.disabled = false; }
+        }));
+      },
+      async developer() {
+        setHero('developer', 'Ready', 'idle');
+        const b = body('developer');
+        if (!b.querySelector('#gac-dev-run')) {
+          b.innerHTML = card('Worker diagnostics', `<div class="gps-row"><label class="gac-check"><input type="checkbox" id="gac-dev-write"> Include a storage write test (uses one write)</label><button class="gps-btn gps-btn-primary" id="gac-dev-run">Run diagnostics</button><button class="gps-btn" id="gac-dev-copy">Copy report</button></div><pre class="gac-pre" id="gac-dev-out">Run diagnostics to see the worker's report. Secret values are never included.</pre>`, 'lab')
+            + card('Who am I', `<pre class="gac-pre">${esc(JSON.stringify(state.who, null, 2))}</pre>`, 'account') + '<div id="gac-legacy-developer"></div>';
+          b.querySelector('#gac-dev-run').addEventListener('click', async () => {
+            const out = b.querySelector('#gac-dev-out');
+            out.textContent = 'Running…';
+            setHero('developer', 'Running diagnostics', 'working');
+            try { const d = await api('/admin/diagnostics', { method: 'POST', body: { write: b.querySelector('#gac-dev-write').checked } }); out.textContent = JSON.stringify(d, null, 2); setHero('developer', 'Diagnostics complete', 'done'); }
+            catch (e) { out.textContent = e.message; setHero('developer', 'Diagnostics failed', 'error'); }
+          });
+          b.querySelector('#gac-dev-copy').addEventListener('click', () => { try { navigator.clipboard.writeText(b.querySelector('#gac-dev-out').textContent); showToast('Copied.'); } catch (e) { /* ignore */ } });
+          placeLegacy('developer');
+        }
+      },
+      async audit() {
+        const d = await api('/admin/audit');
+        setHero('audit', `${d.entries.length} most recent actions`, 'done');
+        const q = (state.auditQ || '').toLowerCase();
+        const rows = d.entries.filter((e) => !q || JSON.stringify(e).toLowerCase().includes(q));
+        const b = body('audit');
+        b.innerHTML = `<div class="gps-search">${GPS_ICONS.search}<input id="gac-audit-q" type="search" placeholder="Filter by action, actor or target" aria-label="Filter audit log" value="${esc(state.auditQ || '')}" /></div>`
+          + (rows.length ? `<div class="gac-table gac-audit" role="table" aria-label="Audit log"><div role="row" class="gac-tr gac-th"><span role="columnheader">When</span><span role="columnheader">Actor</span><span role="columnheader">Action</span><span role="columnheader">Target</span><span role="columnheader">Result</span></div>`
+            + rows.map((e, i) => `<div role="row" class="gac-tr"><span role="cell">${esc(when(e.ts))}</span><span role="cell">${esc(e.actor || e.admin || '—')}${e.role ? ' <em>' + esc(e.role) + '</em>' : ''}</span><span role="cell"><b>${esc(e.action)}</b> <code>${esc(e.route || '')}</code></span><span role="cell">${esc(e.target || '—')}</span><span role="cell"><span class="gac-badge ${e.result === 'ok' || !e.result ? 'ok' : 'bad'}">${esc(e.result || 'ok')}</span>${e.meta || e.ray ? ` <button class="gac-link" data-meta="${i}" aria-expanded="false">Details</button>` : ''}</span></div>`
+              + (e.meta || e.ray ? `<pre class="gac-pre gac-meta" data-meta-body="${i}" hidden>${esc(JSON.stringify({ meta: e.meta, ray: e.ray }, null, 2))}</pre>` : '')).join('') + `</div>`
+            : empty('No matching entries', 'Admin actions are recorded here for 90 days.'));
+        b.querySelector('#gac-audit-q').addEventListener('input', (e) => { state.auditQ = e.target.value; clearTimeout(state.auditT); state.auditT = setTimeout(() => RENDER.audit().catch((er) => errorBox('audit', er)), 250); });
+        b.querySelectorAll('[data-meta]').forEach((x) => x.addEventListener('click', () => { const pre = b.querySelector(`[data-meta-body="${x.dataset.meta}"]`); pre.hidden = !pre.hidden; x.setAttribute('aria-expanded', pre.hidden ? 'false' : 'true'); }));
+      },
+      async danger() {
+        const cfgView = await api('/admin/config/view').catch(() => null);
+        const cfg = (cfgView && cfgView.config) || {};
+        setHero('danger', cfg.maintenance && cfg.maintenance.on ? 'Maintenance mode is ON' : 'Nothing active', cfg.maintenance && cfg.maintenance.on ? 'error' : 'idle');
+        const ACTIONS = [
+          { a: 'revoke_all_sessions', t: 'Revoke every session', d: 'Signs every account out of the server. Local profiles stay; people reconnect with their PIN.', phrase: 'REVOKE ALL SESSIONS' },
+          cfg.maintenance && cfg.maintenance.on
+            ? { a: 'maintenance_off', t: 'End maintenance mode', d: 'AI and chat resume for everyone.', phrase: null }
+            : { a: 'maintenance_on', t: 'Start maintenance mode', d: 'Non-staff AI requests get a maintenance message and chat pauses.', phrase: 'MAINTENANCE', message: true },
+          cfg.memoryEnabled === false
+            ? { a: 'enable_memory', t: 'Turn memory back on', d: 'Recall and learning resume for everyone. Stored memories were kept.', phrase: null }
+            : { a: 'disable_memory', t: 'Turn memory off for everyone', d: 'Stops all recall and learning. Stored memories are kept.', phrase: 'DISABLE MEMORY' },
+          { a: 'purge_memory', t: 'Delete memories', d: 'Deletes one user\'s memories, or everyone\'s when the username is blank. Cannot be undone.', phrase: 'DELETE MEMORY', user: true },
+          { a: 'clear_telemetry', t: 'Clear presence and usage rollups', d: 'Deletes live sessions and the per-user "seen" rollups. Accounts, memory and audit are kept.', phrase: 'CLEAR TELEMETRY' }
+        ];
+        const b = body('danger');
+        b.innerHTML = `<div class="gac-danger">${ACTIONS.map((x) => `<article class="gac-dz"><div><h4>${esc(x.t)}</h4><p class="gps-hint">${esc(x.d)}</p></div><div class="gac-form">`
+          + (x.user ? '<label>Username (blank = everyone)<input class="gpa-input" data-dz-user></label>' : '')
+          + (x.message ? '<label>Message people will see<input class="gpa-input" data-dz-msg value="Down for maintenance — back soon."></label>' : '')
+          + (x.phrase ? `<label><span>Type <code>${esc(x.phrase)}</code> to confirm</span><input class="gpa-input" data-dz-phrase autocomplete="off" spellcheck="false" aria-label="Type ${esc(x.phrase)} to confirm"></label>` : '')
+          + `<button class="gps-btn ${x.phrase ? 'gps-btn-danger' : ''}" data-dz="${x.a}" ${x.phrase ? 'disabled' : ''}>${esc(x.t)}</button></div></article>`).join('')}</div>`
+          + `<p class="gps-hint gps-note">Each action is checked by the worker (owner only), needs the exact phrase, and is written to the audit log. Local-only data tools (wipe this browser) are in Content & Data.</p>`;
+        b.querySelectorAll('.gac-dz').forEach((art, i) => {
+          const x = ACTIONS[i];
+          const btn = art.querySelector('[data-dz]');
+          const ph = art.querySelector('[data-dz-phrase]');
+          if (ph) ph.addEventListener('input', () => { btn.disabled = ph.value !== x.phrase; });
+          btn.addEventListener('click', async () => {
+            const payload = { action: x.a, confirm: ph ? ph.value : undefined };
+            const u = art.querySelector('[data-dz-user]');
+            const m = art.querySelector('[data-dz-msg]');
+            if (u) payload.u = u.value.trim();
+            if (m) payload.message = m.value.trim();
+            try { await api('/admin/danger', { method: 'POST', body: payload }); showToast(x.t + ': done.'); RENDER.danger().catch((e) => errorBox('danger', e)); }
+            catch (e) { showToast(e.message, { type: 'danger' }); }
+          });
+        });
+      }
+    };
+
+    // ---- Users: list + inspector ----
+    function renderUserList() {
+      const box = $a('#gac-user-list');
+      if (!box) return;
+      const q = ($a('#gac-user-q') || {}).value ? $a('#gac-user-q').value.trim().toLowerCase() : '';
+      const f = state.userFilter || 'all';
+      const sort = ($a('#gac-user-sort') || {}).value || 'lastSeen';
+      gac.querySelectorAll('.gac-uf').forEach((b) => { const on = b.dataset.uf === f; b.classList.toggle('primary', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+      let list = state.users.filter((u) => !q || u.user.toLowerCase().includes(q));
+      if (f === 'active') list = list.filter((u) => Date.now() - u.lastSeen < 864e5);
+      if (f === 'accounts') list = list.filter((u) => u.hasAccount);
+      if (f === 'flagged') list = list.filter((u) => u.state !== 'active' || u.muted || u.pending || u.aiFrozen || u.disabled || u.strikes);
+      list.sort((a, b) => (sort === 'user' ? a.user.localeCompare(b.user) : (b[sort] || 0) - (a[sort] || 0)));
+      box.innerHTML = list.length ? `<div class="gac-table gac-users" role="table" aria-label="Users"><div role="row" class="gac-tr gac-th"><span role="columnheader">User</span><span role="columnheader">Last seen</span><span role="columnheader">AI today</span><span role="columnheader">Quota</span><span role="columnheader">Memory</span></div>`
+        + list.slice(0, 300).map((u) => `<div role="row" class="gac-tr gac-user" tabindex="0" data-open-user="${esc(u.key)}"><span role="cell"><b>${esc(u.user)}</b> ${stateBadge(u)}</span><span role="cell">${esc(ago(u.lastSeen))}${u.country && u.country !== '??' ? ' · ' + esc(u.country) : ''}</span><span role="cell">${num(u.requestsToday)}${u.failuresToday ? ' <em>' + num(u.failuresToday) + ' failed</em>' : ''}</span><span role="cell">${u.quotaDaily ? `<span class="gac-meter"><i style="width:${u.quotaUsedPct}%"></i></span> ${u.quotaUsedPct}%` : '—'}</span><span role="cell">${num(u.memoryItems)}</span></div>`).join('') + `</div>`
+        : empty('No users match', 'Try a different search or filter.');
+    }
+    async function openUser(key) {
+      await showAdminSection('users');
+      const box = $a('#gac-inspector');
+      if (!box) return;
+      state.inspecting = key;
+      box.hidden = false;
+      box.innerHTML = SKELETON_HTML;
+      box.scrollIntoView({ block: 'nearest' });
+      let d;
+      try { d = await api('/admin/user?u=' + encodeURIComponent(key)); }
+      catch (e) { box.innerHTML = `<p class="gps-hint">${esc(e.message)}</p>`; return; }
+      const m = d.moderation || {};
+      const st = m.effective || {};
+      box.innerHTML = `<header class="gac-insp-head"><div class="gac-avatar" aria-hidden="true">${esc(d.user.slice(0, 1).toUpperCase())}</div><div><h3>${esc(d.user)}</h3><p class="gps-hint">${esc(d.role)} · ${d.account ? 'account since ' + esc(when(d.account.createdAt)) : 'no server account'} · ${esc(st.state || 'active')}</p></div><button class="gps-btn" id="gac-insp-close" aria-label="Close inspector">${GPS_ICONS.x}</button></header>`
+        + `<div class="gpx-split"><div class="gpx-main">`
+        + card('Usage, last 14 days', bars(d.usage, 'requests', { label: 'Requests' }) + `<p class="gps-hint">${num(d.usage.reduce((n, x) => n + x.requests, 0))} requests · ${num(d.usage.reduce((n, x) => n + x.failures, 0))} failed · ${num(d.usage.reduce((n, x) => n + x.tokensIn + x.tokensOut, 0))} tokens</p>`, 'ai')
+        + card('Sessions', d.account && d.account.sessions.length ? `<ul class="gac-rank">${d.account.sessions.map((s) => `<li><span>Signed in ${esc(when(s.createdAt))}</span><span>${s.country && s.country !== '??' ? esc(s.country) + ' · ' : ''}${esc((s.ua || '').slice(0, 40))}</span></li>`).join('')}</ul>` : '<p class="gps-hint">No server sessions.</p>', 'account')
+        + card('Security events', d.security.length ? `<ul class="gac-rank">${d.security.map((e) => `<li><span>${esc(e.type)}</span><span>${esc(when(e.ts))}</span></li>`).join('')}</ul>` : '<p class="gps-hint">None in the last 7 days.</p>', 'advanced')
+        + card('Audit history', d.audit.length ? `<ol class="gac-timeline">${d.audit.map((e) => `<li><time>${esc(ago(e.ts))}</time><b>${esc(e.action)}</b><em>${esc(e.actor || e.admin || '')}</em></li>`).join('')}</ol>` : '<p class="gps-hint">No admin actions on this user.</p>', 'note')
+        + `</div><aside class="gpx-side">`
+        + card('Permissions', `<p class="gps-hint">${d.perms.length ? esc(d.perms.includes('*') ? 'Everything (owner)' : d.perms.join(', ')) : 'Standard user'}</p>`
+          + (isOwner() && d.account && d.role !== 'owner' ? `<label class="gac-inline">Role <select class="gpa-input" id="gac-role">${['user', 'moderator', 'admin'].map((r) => `<option ${r === d.role ? 'selected' : ''}>${r}</option>`).join('')}</select></label><button class="gps-btn" data-ua="setrole">Change role</button>` : ''), 'advanced')
+        + card('Memory', d.memory ? `<p class="gps-hint">${num(d.memory.total)} memories (${num(d.memory.inferred)} inferred) · ${d.memory.enabled ? 'on' : 'off'}${d.memory.paused ? ', paused' : ''} · ${num(d.memory.projects)} projects</p>` : '<p class="gps-hint">No memories.</p>', 'book')
+        + card('Quota overrides', `<div class="gac-form"><label>Daily (0 = default)<input class="gpa-input" type="number" min="0" data-q="quotaDaily" value="${esc(m.quotaDaily || 0)}"></label><label>Monthly<input class="gpa-input" type="number" min="0" data-q="quotaMonthly" value="${esc(m.quotaMonthly || 0)}"></label><label>Per minute<input class="gpa-input" type="number" min="0" data-q="rpm" value="${esc(m.rpm || 0)}"></label><label>Allowed models<input class="gpa-input" data-q="allowedModels" value="${esc((m.allowedModels || []).join(', '))}"></label><button class="gps-btn" data-ua="quota" ${can('ai.manage') ? '' : 'disabled'}>Save quota</button></div>`, 'controls')
+        + card('Actions', `<div class="gac-actions">`
+          + (can('moderation.manage') ? `<button class="gps-btn" data-mod="${st.state === 'blocked' ? 'unblock' : 'block'}">${st.state === 'blocked' ? 'Unblock' : 'Block'}</button><button class="gps-btn" data-mod="mute" data-hours="1">Mute 1 hour</button><button class="gps-btn" data-mod="warn">Warn</button><button class="gps-btn" data-mod="${m.aiFrozen ? 'unfreezeai' : 'freezeai'}">${m.aiFrozen ? 'Unfreeze AI' : 'Freeze AI'}</button>${m.pending ? '<button class="gps-btn" data-mod="approve">Approve</button>' : ''}<button class="gps-btn" data-mod="kick">Sign out now</button>` : '')
+          + (d.account && can('users.manage') ? '<button class="gps-btn" data-ua="revokesessions">Revoke sessions</button>' : '')
+          + (d.account && can('users.suspend') ? `<button class="gps-btn" data-ua="${d.account.disabled ? 'enable' : 'disable'}">${d.account.disabled ? 'Enable account' : 'Disable account'}</button>` : '')
+          + (can('users.delete') ? '<button class="gps-btn gps-btn-danger" data-ua="delete">Delete user…</button>' : '')
+          + `</div>`, 'users')
+        + `</aside></div>`;
+      box.querySelector('#gac-insp-close').addEventListener('click', () => { box.hidden = true; state.inspecting = null; });
+      box.querySelectorAll('[data-ua]').forEach((b) => b.addEventListener('click', async () => {
+        const action = b.dataset.ua;
+        const payload = { u: key, action };
+        if (action === 'setrole') payload.role = box.querySelector('#gac-role').value;
+        if (action === 'quota') box.querySelectorAll('[data-q]').forEach((i) => { payload[i.dataset.q] = i.dataset.q === 'allowedModels' ? i.value.split(',').map((x) => x.trim()).filter(Boolean) : i.value; });
+        if (action === 'delete') { const c = await typedConfirm(key); if (!c) return; payload.confirm = c; }
+        try { await api('/admin/user/action', { method: 'POST', body: payload }); showToast('Done.'); if (action === 'delete') { box.hidden = true; RENDER.users(); } else openUser(key); }
+        catch (e) { showToast(e.message, { type: 'danger' }); }
+      }));
+      box.querySelectorAll('[data-mod]').forEach((b) => b.addEventListener('click', async () => {
+        try { await api('/admin/moderate', { method: 'POST', body: { user: key, action: b.dataset.mod, hours: b.dataset.hours } }); showToast('Done.'); openUser(key); }
+        catch (e) { showToast(e.message, { type: 'danger' }); }
+      }));
+    }
+    gac.addEventListener('click', (e) => {
+      const u = e.target.closest('[data-open-user]');
+      if (u) { openUser(u.dataset.openUser.toLowerCase()); return; }
+      const r = e.target.closest('[data-refresh]');
+      if (r) loadSection(r.dataset.refresh);
+    });
+    gac.addEventListener('keydown', (e) => {
+      const u = e.target.closest && e.target.closest('.gac-user[data-open-user]');
+      if (u && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openUser(u.dataset.openUser); }
+    });
+
+    // ---- Legacy admin controls, regrouped by their headings ----
+    // The older console is a run of sibling blocks, each starting with a
+    // small .gpa-sub heading. Group them, then move each group (with its
+    // handlers intact) into the section it belongs to.
+    const legacyBox = panel.querySelector('#gpa-admin');
+    const legacyGroups = {};
+    if (legacyBox) {
+      const route = (heading) => {
+        const h = heading.toLowerCase();
+        if (/broadcast|announcement/.test(h)) return 'content';
+        if (/backup/.test(h)) return 'content';
+        if (/private chat rooms/.test(h)) return 'moderation';
+        if (/force everyone|feature switches|branding/.test(h)) return 'system';
+        if (/chat &amp; access|chat & access/.test(h)) return 'security';
+        if (/assign an api key/.test(h)) return 'keys';
+        if (/audit log/.test(h)) return 'hidden';
+        if (/live — everyone/.test(h)) return 'moderation';
+        if (/everyone seen on this browser|recent activity/.test(h)) return 'users-local';
+        return 'content';
+      };
+      // Groups wait in a hidden holder (still inside the panel, so the older
+      // code's panel.querySelector lookups keep finding its controls) until
+      // their section is first shown.
+      const hold = document.createElement('div');
+      hold.id = 'gac-legacy-hold';
+      hold.hidden = true;
+      gac.appendChild(hold);
+      const addTo = (key, node) => { (legacyGroups[key] = legacyGroups[key] || []).push(node); hold.appendChild(node); };
+      legacyBox.querySelectorAll('.gpa-admin-pane').forEach((p) => {
+        const kind = p.dataset.apane;
+        if (kind === 'tools') { addTo('ai-device', p); return; }
+        if (kind === 'data') { addTo('content-data', p); return; }
+        if (kind === 'diag') { addTo('developer', p); return; }
+        let cur = kind === 'usage' ? 'users-local' : 'content';
+        const buckets = {};
+        [...p.children].forEach((ch) => {
+          if (ch.classList.contains('gpa-sub') && /[^\s]/.test(ch.textContent) && /^\W/.test(ch.textContent.trim())) cur = route(ch.innerHTML);
+          (buckets[cur] = buckets[cur] || []).push(ch);
+        });
+        Object.entries(buckets).forEach(([k, nodes]) => {
+          const wrap = document.createElement('div');
+          wrap.className = 'gac-legacy-group';
+          nodes.forEach((n) => wrap.appendChild(n));
+          addTo(k, wrap);
+        });
+      });
+      // The token and worker URL fields become the Command Center sign-in.
+      const tok = panel.querySelector('#gpa-tele-token');
+      const ep = panel.querySelector('#gpa-tele-endpoint');
+      const fields = $a('#gac-auth-fields');
+      if (tok && fields) { tok.closest('.gpa-row') && fields.appendChild(tok.closest('.gpa-row')); }
+      if (ep && fields) { ep.closest('.gpa-row') && fields.appendChild(ep.closest('.gpa-row')); }
+    }
+    const LEGACY_TARGET = {
+      users: [['users-local', 'This browser (local sign-ins)']],
+      ai: [['ai-device', 'This device: model overrides, system prompt and raw playground']],
+      keys: [['keys', 'Assign a key']],
+      security: [['security', 'Chat & access controls']],
+      moderation: [['moderation', 'Live users and chat rooms']],
+      content: [['content', 'Messaging and backups'], ['content-data', "This browser's stored data"]],
+      system: [['system', 'Branding, feature switches and client updates']],
+      developer: [['developer', 'Local panel diagnostics']]
+    };
+    const placedLegacy = new Set();
+    function placeLegacy(section) {
+      const targets = section === 'ai' ? [...LEGACY_TARGET.ai, ...LEGACY_TARGET.keys] : (LEGACY_TARGET[section] || []);
+      targets.forEach(([key, title]) => {
+        const nodes = legacyGroups[key];
+        if (!nodes || !nodes.length) return;
+        const hostId = key === 'keys' ? '#gac-legacy-keys' : `#gac-legacy-${section}`;
+        const host = $a(hostId);
+        if (!host) return;
+        let det = host.querySelector(`details[data-legacy="${key}"]`);
+        if (!det) {
+          det = document.createElement('details');
+          det.className = 'gpx-details gac-legacy';
+          det.dataset.legacy = key;
+          det.innerHTML = `<summary>${gpxLbl('settings', esc(title))}</summary>`;
+          host.appendChild(det);
+        }
+        nodes.forEach((n) => { if (n.parentNode !== det) det.appendChild(n); n.hidden = false; n.style.display = ''; if (n.classList.contains('gpa-admin-pane')) n.classList.add('active'); });
+        placedLegacy.add(key);
+      });
+    }
+
+    // ---- Navigation ----
+    const tabs = () => [...nav.querySelectorAll('.gps-tab')].filter((t) => !t.hidden);
+    function applyPerms() {
+      SECTIONS.forEach((s) => {
+        const t = nav.querySelector(`[data-asec="${s.id}"]`);
+        const allowed = s.id === 'content' ? !!state.who : can(s.perm);
+        t.hidden = !allowed;
+      });
+    }
+    async function loadSection(id) {
+      if (!RENDER[id]) return;
+      setHero(id, 'Loading', 'working');
+      try { await RENDER[id](); }
+      catch (e) { if (e.status === 401) { disconnect('Your admin access expired. Connect again.'); return; } errorBox(id, e); }
+    }
+    async function showAdminSection(id, opts) {
+      const t = nav.querySelector(`[data-asec="${id}"]`);
+      if (!t || t.hidden) id = (tabs()[0] || {}).dataset ? tabs()[0].dataset.asec : 'overview';
+      state.section = id;
+      nav.querySelectorAll('.gps-tab').forEach((x) => { const on = x.dataset.asec === id; x.setAttribute('aria-selected', on ? 'true' : 'false'); x.tabIndex = on ? 0 : -1; if (on && opts && opts.focus) x.focus(); });
+      content.querySelectorAll('.gac-sec').forEach((s) => s.classList.toggle('active', s.dataset.asec === id));
+      await loadSection(id);
+    }
+    nav.addEventListener('click', (e) => { const t = e.target.closest('.gps-tab'); if (t) showAdminSection(t.dataset.asec); });
+    nav.addEventListener('keydown', (e) => {
+      const list = tabs();
+      const i = list.indexOf(e.target.closest('.gps-tab'));
+      if (i < 0) return;
+      const j = { ArrowDown: i + 1, ArrowRight: i + 1, ArrowUp: i - 1, ArrowLeft: i - 1, Home: 0, End: list.length - 1 }[e.key];
+      if (j == null) return;
+      e.preventDefault();
+      showAdminSection(list[(j + list.length) % list.length].dataset.asec, { focus: true });
+    });
+
+    // ---- Connect / disconnect ----
+    function renderWho() {
+      const who = $a('#gac-who');
+      if (!state.who) { who.textContent = 'Not connected'; who.className = 'gps-badge off'; return; }
+      who.textContent = `${state.who.role} · ${state.who.actor}`;
+      who.className = 'gps-badge ok';
+    }
+    function disconnect(msg) {
+      state.who = null;
+      $a('#gac-layout').hidden = true;
+      $a('#gac-auth').hidden = false;
+      setOut('gac-auth-msg', msg || '');
+      renderWho();
+      refreshNav();
+    }
+    async function connect(quiet) {
+      if (!creds() || (quiet && !admGet(ADMIN_KEYS.TELE_TOKEN) && sessionRole() === 'user')) { disconnect(quiet ? '' : 'Enter the admin token, or sign in with an account that has an admin role.'); return false; }
+      try {
+        state.who = await api('/admin/whoami');
+      } catch (e) {
+        state.who = null;
+        disconnect(quiet ? '' : (e.status === 404 ? 'This worker is too old for the Command Center. Deploy the latest worker.js.' : e.status === 401 || e.status === 403 ? 'Those credentials are not an admin.' : e.message));
+        return false;
+      }
+      $a('#gac-auth').hidden = true;
+      $a('#gac-layout').hidden = false;
+      renderWho();
+      applyPerms();
+      refreshNav();
+      try { const cv = await api('/admin/config/view'); state.cfg = cv.config; } catch (e) { /* not every role can read config */ }
+      if (pane.classList.contains('active')) showAdminSection(state.section);
+      return true;
+    }
+    function refreshNav() {
+      const show = !!state.who || adminUnlockedFlag || !!(sessionRole() && sessionRole() !== 'user');
+      navItem.style.display = show ? '' : 'none';
+      const accCard = panel.querySelector('#gpa-gac-card');
+      if (accCard) accCard.hidden = !show;
+      if (!show && pane.classList.contains('active')) {
+        const home = panel.querySelector('.gpa-dropdown-item[data-tab="welcome"]');
+        if (home) home.click();
+      }
+    }
+    $a('#gac-connect').addEventListener('click', () => {
+      const tok = panel.querySelector('#gpa-tele-token');
+      const ep = panel.querySelector('#gpa-tele-endpoint');
+      if (tok) admSetSecret(ADMIN_KEYS.TELE_TOKEN, tok.value.trim());
+      if (ep) { try { localStorage.setItem(ADMIN_KEYS.TELE_ENDPOINT, ep.value.trim()); } catch (e) { /* ignore */ } }
+      connect(false);
+    });
+    $a('#gac-lock').addEventListener('click', () => {
+      admSetSecret(ADMIN_KEYS.TELE_TOKEN, '');
+      const tok = panel.querySelector('#gpa-tele-token');
+      if (tok) tok.value = '';
+      adminUnlockedFlag = false;
+      adminUnlocked = false;   // the 5-click + PIN gesture works again
+      ownerMode = false;
+      disconnect('Locked.');
+      refreshNav();
+    });
+    const tokInput = panel.querySelector('#gpa-tele-token');
+    if (tokInput) tokInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $a('#gac-connect').click(); } });
+    const accBtn = panel.querySelector('#gpa-open-gac');
+    if (accBtn) accBtn.addEventListener('click', () => { navItem.click(); if (!state.who && (!!admGet(ADMIN_KEYS.TELE_TOKEN) || (!!sessionRole() && sessionRole() !== 'user'))) connect(true); });
+    // The legacy unlock gesture (5 clicks + PIN) now opens the Command Center.
+    // Only ask the worker when there is something to check: an admin token,
+    // or a session whose role could be staff. A plain user's session would
+    // just be refused and logged as a forbidden request.
+    const hasStaffCreds = () => !!admGet(ADMIN_KEYS.TELE_TOKEN) || (!!sessionRole() && sessionRole() !== 'user');
+    openCommandCenter = () => {
+      adminUnlockedFlag = true;
+      refreshNav();
+      navItem.click();
+      if (hasStaffCreds()) connect(true); else disconnect('');
+    };
+    onSessionChange(() => { if (sessionRole() && sessionRole() !== 'user') connect(true); else if (!admGet(ADMIN_KEYS.TELE_TOKEN)) { state.who = null; refreshNav(); } });
+
+    // Section polling only while the Admin pane is on screen.
+    const paneObs = new MutationObserver(() => {
+      const on = pane.classList.contains('active');
+      gac.classList.toggle('is-live', on);
+      clearInterval(state.pollTimer);
+      state.pollTimer = 0;
+      if (on && state.who) {
+        showAdminSection(state.section);
+        state.pollTimer = setInterval(() => { if (pane.classList.contains('active') && document.visibilityState === 'visible' && ['overview', 'security', 'moderation'].includes(state.section)) loadSection(state.section); }, 60000);
+      }
+      if (!on) closePalette();
+    });
+    paneObs.observe(pane, { attributes: true, attributeFilter: ['class'] });
+    gpaCleanups.push(() => paneObs.disconnect());
+
+    // ---- Command palette (⌘K / Ctrl+K inside the Admin pane) ----
+    const pal = $a('#gac-palette');
+    const palInput = pal.querySelector('input');
+    const palList = pal.querySelector('.gac-pal-list');
+    let palItems = [], palIndex = 0, palReturn = null;
+    function commands() {
+      const cmds = [];
+      SECTIONS.forEach((s) => { if (!nav.querySelector(`[data-asec="${s.id}"]`).hidden) cmds.push({ label: 'Open ' + s.label, hint: s.desc, run: () => showAdminSection(s.id) }); });
+      if (can('system.view')) cmds.push({ label: 'Run diagnostics', hint: 'Worker checks, without a storage write', run: async () => { await showAdminSection('developer'); const b = gac.querySelector('#gac-dev-run'); if (b) b.click(); } });
+      if (can('automation.run')) ['chat-cleanup', 'memory-maintenance'].forEach((j) => cmds.push({ label: 'Run job: ' + j, hint: 'Manual run, audited', run: async () => { await showAdminSection('automation'); const b = gac.querySelector(`[data-runjob="${j}"]`); if (b) b.click(); } }));
+      if (can('danger.execute')) cmds.push({ label: 'Maintenance mode…', hint: 'Danger zone', run: () => showAdminSection('danger') });
+      if (can('users.view')) state.users.slice(0, 200).forEach((u) => cmds.push({ label: 'Find user: ' + u.user, hint: `${u.role || 'user'} · last seen ${ago(u.lastSeen)}`, run: () => openUser(u.key) }));
+      return cmds;
+    }
+    function renderPalette() {
+      const q = palInput.value.trim().toLowerCase();
+      palItems = commands().filter((c) => !q || c.label.toLowerCase().includes(q) || (c.hint || '').toLowerCase().includes(q)).slice(0, 40);
+      palIndex = Math.min(palIndex, Math.max(0, palItems.length - 1));
+      palList.innerHTML = palItems.length ? palItems.map((c, i) => `<li role="option" id="gac-opt-${i}" aria-selected="${i === palIndex}" class="${i === palIndex ? 'on' : ''}" data-i="${i}"><b>${esc(c.label)}</b><span>${esc(c.hint || '')}</span></li>`).join('') : '<li class="gac-pal-empty">No matching commands</li>';
+      palInput.setAttribute('aria-activedescendant', palItems.length ? 'gac-opt-' + palIndex : '');
+    }
+    async function openPalette() {
+      if (!state.who) return;
+      palReturn = root.activeElement;
+      pal.hidden = false;
+      palInput.value = '';
+      palIndex = 0;
+      if (can('users.view') && !state.users.length) { try { state.users = (await api('/admin/users')).users; } catch (e) { /* ignore */ } }
+      renderPalette();
+      palInput.focus();
+    }
+    function closePalette() {
+      if (pal.hidden) return;
+      pal.hidden = true;
+      if (palReturn && palReturn.focus) palReturn.focus();
+    }
+    function runPalette(i) { const c = palItems[i]; if (!c) return; closePalette(); c.run(); }
+    palInput.addEventListener('input', () => { palIndex = 0; renderPalette(); });
+    palInput.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); palIndex = Math.min(palItems.length - 1, palIndex + 1); renderPalette(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); palIndex = Math.max(0, palIndex - 1); renderPalette(); }
+      else if (e.key === 'Enter') { e.preventDefault(); runPalette(palIndex); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePalette(); }
+    });
+    palList.addEventListener('click', (e) => { const li = e.target.closest('[data-i]'); if (li) runPalette(+li.dataset.i); });
+    pal.addEventListener('click', (e) => { if (e.target === pal) closePalette(); });
+    $a('#gac-palette-btn').addEventListener('click', openPalette);
+    // Ctrl/⌘K only while the Admin pane is on screen, and only when focus is
+    // in the console or nowhere in particular (the page body) — never while
+    // the person is typing in the host page.
+    onDoc('keydown', (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || String(e.key).toLowerCase() !== 'k') return;
+      if (!pane.classList.contains('active') || !state.who || !pane.getClientRects().length) return;   // panel minimized or hidden
+      const ae = document.activeElement;
+      if (!(ae === host || ae === document.body || ae === document.documentElement || !ae)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (pal.hidden) openPalette(); else closePalette();
+    }, true);
+
+    refreshNav();
+    if (admGet(ADMIN_KEYS.TELE_TOKEN) || (sessionRole() && sessionRole() !== 'user')) connect(true);
+  })();
+
 
     // ---- Admin tab switching ----
     adminBox.querySelectorAll('.gpa-admin-tab').forEach((tab) => {
@@ -15711,6 +17169,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       else if (sec === 'icon') refreshIconPreview();
       else if (sec === 'colors') renderColorRows();
       else if (sec === 'type') renderTypeSample(false);
+      else if (sec === 'memory') loadMemory();
     }
     const nav = $('.gps-nav');
     nav.addEventListener('click', (e) => {
@@ -16433,6 +17892,271 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       showToast(copy[0].replace('?', '') + ' done.');
     });
 
+
+    // ---- Memory (Settings → Memory, Ask AI project chip, Account status) ----
+    // Everything shown here comes from /memory/* for the verified session
+    // user. The constellation draws one node per real memory (no text), so an
+    // empty memory looks empty.
+    const mem = { filter: 'all', q: '', items: [], loading: false, qTimer: 0 };
+    const memEl = (id) => panel.querySelector('#' + id);
+    const TYPE_LABEL = { explicit: 'Fact', preference: 'Preference', profile: 'Profile', project: 'Project', temporary: 'Temporary' };
+    const fmtDay = (t) => (t ? new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
+    const projName = (scope) => (scope === 'user' ? 'Everywhere' : ((memoryState.projects.find((p) => p.id === scope) || {}).name || 'A deleted project'));
+    function memGateState() {
+      if (!OPENAI_PROXY) return { title: 'Memory needs the console server', desc: 'This copy of the console is set to call OpenAI directly, so there is nowhere to keep memories.' };
+      if (!currentUser) return { title: 'Sign in to use memory', desc: '' };
+      if (serverSessionStatus === 'pending') return { title: 'Connecting to your account…', desc: '' };
+      if (!workerSupports('memory') && serverSessionStatus !== 'none') return { title: 'Your console server needs an update', desc: 'Memory arrives with the latest worker.js. Paste it into the Cloudflare dashboard, then reload the console.' };
+      if (memoryState.disabledGlobally) return { title: 'Memory is turned off', desc: "The console's owner has turned memory off for everyone." };
+      if (sessionToken()) return null;
+      if (serverSessionStatus === 'failed') return { title: "Couldn't connect your account", desc: serverSessionError + ' Enter your PIN to try again.', pin: true };
+      if (serverSessionStatus === 'offline') return { title: "Can't reach the console server", desc: 'Check your connection, then enter your PIN to reconnect.', pin: true };
+      if (serverSessionStatus === 'unsupported') return { title: 'Your console server needs an update', desc: 'Memory arrives with the latest worker.js. Paste it into the Cloudflare dashboard, then reload the console.' };
+      return { title: 'Reconnect your account', desc: serverSessionStatus === 'expired' ? 'Your session expired. Enter your PIN to reconnect memory.' : 'Enter your PIN once to connect memory on this browser.', pin: true };
+    }
+    function renderConstellation() {
+      const rig = memEl('gmc-rig');
+      if (!rig) return;
+      rig.querySelectorAll('i').forEach((n) => n.remove());
+      const items = mem.items.slice(0, 36);
+      items.forEach((it) => {
+        let h = 0;
+        for (const ch of it.id) h = (h * 33 + ch.charCodeAt(0)) >>> 0;
+        const theta = (h % 360) * Math.PI / 180, phi = ((h >>> 9) % 140 + 20) * Math.PI / 180, r = 44 + ((h >>> 5) % 40);
+        const n = document.createElement('i');
+        n.className = 'gmc-node t-' + it.type + (it.inferred && !it.userConfirmed ? ' is-inferred' : '') + (it.status === 'pending_confirm' ? ' is-pending' : '');
+        n.style.transform = `translate3d(${(r * Math.sin(phi) * Math.cos(theta)).toFixed(1)}px, ${(r * Math.cos(phi) * 0.8).toFixed(1)}px, ${(r * Math.sin(phi) * Math.sin(theta)).toFixed(1)}px)`;
+        rig.appendChild(n);
+      });
+      const c = memoryState.counts;
+      setOut('gmc-cap', c ? (c.total ? `${c.total} ${c.total === 1 ? 'memory' : 'memories'} · ${c.inferred} inferred${c.pending ? ' · ' + c.pending + ' to confirm' : ''}` : 'No memories yet') : '');
+    }
+    function renderMemList() {
+      const box = memEl('gmem-list');
+      if (!box) return;
+      $$('.gmem-f').forEach((b) => { const on = b.dataset.f === mem.filter; b.classList.toggle('primary', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+      if (mem.loading && !mem.items.length) { box.innerHTML = SKELETON_HTML; return; }
+      if (!mem.items.length) {
+        box.innerHTML = gpxEmpty({ icon: 'book', title: mem.q ? 'Nothing matches that search' : 'Nothing remembered yet',
+          desc: mem.q ? 'Try different words.' : 'Tell Ask AI "remember that…", or add one above. Things it picks up on its own are marked Inferred, and important ones are checked with you first.' });
+        return;
+      }
+      box.innerHTML = '';
+      mem.items.forEach((it) => {
+        const row = document.createElement('div');
+        row.className = 'gmem-row';
+        row.dataset.id = it.id;
+        const pending = it.status === 'pending_confirm';
+        const inferred = it.inferred && !it.userConfirmed;
+        const badge = pending ? '<span class="gmem-badge is-pending">Needs your OK</span>' : inferred ? '<span class="gmem-badge is-inferred">Inferred</span>' : '<span class="gmem-badge is-explicit">Explicit</span>';
+        row.innerHTML = `<div class="gmem-top">${badge}<span class="gmem-type">${escapeHtml(TYPE_LABEL[it.type] || it.type)}</span><span class="gmem-scope">${escapeHtml(projName(it.scope))}</span></div>`
+          + `<div class="gmem-text"></div>`
+          + `<div class="gmem-meta">Updated ${fmtDay(it.updatedAt)}${it.accessCount ? ' · used ' + it.accessCount + '×' : ''}${it.expiresAt ? ' · expires ' + fmtDay(it.expiresAt) : ''}</div>`
+          + `<div class="gmem-actions">${pending ? '<button class="gps-btn gps-btn-primary" data-m="confirm">Remember</button><button class="gps-btn" data-m="reject">Forget it</button>' : ''}`
+          + `<button class="gps-btn" data-m="why" aria-expanded="false">Why do you remember this?</button><button class="gps-btn" data-m="edit">Edit</button><button class="gps-btn gps-btn-danger" data-m="delete">Delete</button></div>`
+          + `<div class="gmem-why" hidden></div>`;
+        row.querySelector('.gmem-text').textContent = it.text;
+        const why = row.querySelector('.gmem-why');
+        const src = { user_explicit: 'You asked me to remember it.', user_edit: 'You wrote or edited it.', user_confirmed: 'I asked and you confirmed it.', inferred: 'Inferred from our conversations — not confirmed by you.' }[it.source] || '';
+        why.innerHTML = `<p></p><dl><dt>Source</dt><dd>${escapeHtml(src)}</dd><dt>Confidence</dt><dd>${Math.round((it.confidence || 0) * 100)}%</dd>`
+          + `<dt>Created</dt><dd>${fmtDay(it.createdAt)}</dd><dt>Last used</dt><dd>${it.lastUsedAt ? fmtDay(it.lastUsedAt) + ' (approximate)' : 'Not yet'}</dd></dl>`
+          + (it.history && it.history.length ? '<div class="gmem-hist"><b>Earlier versions</b></div>' : '');
+        why.querySelector('p').textContent = it.reason || '';
+        const hist = why.querySelector('.gmem-hist');
+        (it.history || []).forEach((h) => { const d = document.createElement('div'); d.textContent = `${fmtDay(h.at)} — "${h.text}" (${h.reason})`; hist.appendChild(d); });
+        box.appendChild(row);
+      });
+    }
+    async function loadMemory() {
+      if (!memoryReady()) { renderMemoryAll(); return; }
+      mem.loading = true;
+      renderMemList();
+      try {
+        const data = await memoryApi(mem.q ? 'search' : 'list', { filter: mem.filter, q: mem.q });
+        mem.items = data.items || [];
+      } catch (e) {
+        if (e.status === 403) memoryState.disabledGlobally = true;
+        mem.items = [];
+      }
+      mem.loading = false;
+      renderMemoryAll();
+    }
+    function renderProjects() {
+      const opts = '<option value="general">General</option>' + memoryState.projects.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
+      const active = activeMemoryProject();
+      ['gmem-project', 'gpx-ask-project'].forEach((id) => { const sel = memEl(id); if (sel) { sel.innerHTML = opts; sel.value = active; } });
+      const custom = active !== 'general';
+      ['gmem-proj-rename', 'gmem-proj-delete'].forEach((id) => { const b = memEl(id); if (b) b.disabled = !custom; });
+    }
+    function renderMemoryAll() {
+      const gate = memGateState();
+      const gateEl = memEl('gmem-gate'), body = memEl('gmem-body');
+      if (gateEl && body) {
+        gateEl.hidden = !gate;
+        body.hidden = !!gate;
+        if (gate) {
+          setOut('gmem-gate-title', gate.title);
+          setOut('gmem-gate-desc', gate.desc);
+          memEl('gmem-pin-row').hidden = !gate.pin;
+        }
+      }
+      if (memoryState.settings) {
+        const en = memEl('gmem-enabled'), pa = memEl('gmem-paused');
+        en.classList.toggle('primary', memoryState.settings.enabled !== false);
+        pa.classList.toggle('primary', !!memoryState.settings.paused);
+        en.setAttribute('aria-pressed', memoryState.settings.enabled !== false ? 'true' : 'false');
+        pa.setAttribute('aria-pressed', memoryState.settings.paused ? 'true' : 'false');
+      }
+      renderProjects();
+      renderConstellation();
+      renderMemList();
+      renderAskMemoryChip();
+      renderAccountServer();
+    }
+    // Ask AI hero: project picker + memory status.
+    function renderAskMemoryChip() {
+      const wrap = panel.querySelector('#gpx-ask-mem');
+      if (!wrap) return;
+      const ready = memoryReady() && !memoryState.disabledGlobally;
+      wrap.hidden = !ready;
+      if (!ready) return;
+      const st = memoryState.settings;
+      setOut('gpx-ask-mem-state', !st ? 'Memory' : st.enabled === false ? 'Memory off' : st.paused ? 'Memory paused' : 'Memory on');
+    }
+    function renderAccountServer() {
+      const badge = memEl('gps-srv-badge'), hint = memEl('gps-srv-hint');
+      if (!badge || !hint) return;
+      const map = {
+        ok: ['Connected', 'ok', `Signed in on the server${sessionRole() && sessionRole() !== 'user' ? ' as ' + sessionRole() : ''}. Memory and account settings follow you across devices.`],
+        pending: ['Connecting', 'off', 'Connecting to your account on the console server…'],
+        needs_pin: ['Not connected', 'warn', 'Open Settings → Memory and enter your PIN once to connect this browser.'],
+        expired: ['Expired', 'warn', 'Your server session expired. Enter your PIN in Settings → Memory to reconnect.'],
+        failed: ['Not connected', 'warn', serverSessionError || 'Could not connect your account.'],
+        offline: ['Offline', 'off', "Can't reach the console server right now."],
+        unsupported: ['Unavailable', 'off', 'The console server is an older version without accounts.'],
+        none: ['Not connected', 'off', 'Sign in to connect your account.']
+      };
+      const [label, cls, text] = map[serverSessionStatus] || map.none;
+      badge.textContent = label;
+      badge.className = 'gps-badge ' + cls;
+      hint.textContent = text;
+    }
+
+    gps.addEventListener('click', async (e) => {
+      const f = e.target.closest('.gmem-f');
+      if (f) { mem.filter = f.dataset.f; loadMemory(); return; }
+      const act = e.target.closest('[data-m]');
+      if (!act) return;
+      const row = act.closest('.gmem-row');
+      const id = row && row.dataset.id;
+      const it = mem.items.find((x) => x.id === id);
+      if (!it) return;
+      const m = act.dataset.m;
+      try {
+        if (m === 'why') {
+          const w = row.querySelector('.gmem-why');
+          w.hidden = !w.hidden;
+          act.setAttribute('aria-expanded', w.hidden ? 'false' : 'true');
+        } else if (m === 'confirm') { await memoryApi('confirm', { id }); showToast('Remembered.'); loadMemory(); }
+        else if (m === 'reject') { await memoryApi('reject', { id }); showToast("Okay, I won't remember that."); loadMemory(); }
+        else if (m === 'delete') {
+          if (!(await confirmReset('Delete this memory?', it.text, 'Delete'))) return;
+          await memoryApi('delete', { id });
+          loadMemory();
+        } else if (m === 'edit') {
+          const textEl = row.querySelector('.gmem-text');
+          textEl.innerHTML = '<div class="gps-row"><input class="gpa-input" maxlength="200" aria-label="Edit memory" /><button class="gps-btn gps-btn-primary" data-e="save">Save</button><button class="gps-btn" data-e="cancel">Cancel</button></div>';
+          const input = textEl.querySelector('input');
+          input.value = it.text;
+          input.focus();
+          textEl.addEventListener('click', async (ev) => {
+            const b = ev.target.closest('[data-e]');
+            if (!b) return;
+            if (b.dataset.e === 'cancel') { textEl.textContent = it.text; return; }
+            try { await memoryApi('update', { id, text: input.value }); loadMemory(); }
+            catch (err) { showToast("Not saved: " + (MEMORY_REJECT_TEXT[err.code] || err.message), { type: 'danger' }); }
+          });
+        }
+      } catch (err) { showToast('Memory: ' + err.message, { type: 'danger' }); }
+    });
+    memEl('gmem-q').addEventListener('input', (e) => {
+      clearTimeout(mem.qTimer);
+      mem.qTimer = setTimeout(() => { mem.q = e.target.value.trim(); loadMemory(); }, 280);
+    });
+    memEl('gmem-add-go').addEventListener('click', async () => {
+      const input = memEl('gmem-add');
+      const text = input.value.trim();
+      if (!text) return;
+      try {
+        const r = await memoryApi('create', { text: /^user\b/i.test(text) ? text : 'User: ' + text, project: activeMemoryProject() });
+        input.value = '';
+        showToast(r.action === 'created' ? 'Remembered.' : r.action === 'superseded' ? 'Updated an earlier memory.' : 'Already remembered — reinforced it.');
+        loadMemory();
+      } catch (err) { showToast("Not saved: " + (MEMORY_REJECT_TEXT[err.code] || err.message), { type: 'danger' }); }
+    });
+    memEl('gmem-add').addEventListener('keydown', (e) => { if (e.key === 'Enter') memEl('gmem-add-go').click(); });
+    const memToggle = (key) => async () => {
+      const cur = memoryState.settings || { enabled: true, paused: false };
+      const next = key === 'enabled' ? { enabled: cur.enabled === false } : { paused: !cur.paused };
+      try { await memoryApi('settings', next); renderMemoryAll(); } catch (err) { showToast('Memory: ' + err.message, { type: 'danger' }); }
+    };
+    memEl('gmem-enabled').addEventListener('click', memToggle('enabled'));
+    memEl('gmem-paused').addEventListener('click', memToggle('paused'));
+    const onProjectPick = (e) => { setActiveMemoryProject(e.target.value); renderProjects(); };
+    memEl('gmem-project').addEventListener('change', onProjectPick);
+    const askProj = panel.querySelector('#gpx-ask-project');
+    if (askProj) askProj.addEventListener('change', onProjectPick);
+    memEl('gmem-proj-new').addEventListener('click', async () => {
+      const name = (prompt('Name the new project (for example "AP Chemistry"):') || '').trim();
+      if (!name) return;
+      try { const r = await memoryApi('projects', { action: 'create', name }); setActiveMemoryProject(r.project.id); renderProjects(); } catch (err) { showToast('Memory: ' + err.message, { type: 'danger' }); }
+    });
+    memEl('gmem-proj-rename').addEventListener('click', async () => {
+      const id = activeMemoryProject();
+      const cur = memoryState.projects.find((p) => p.id === id);
+      if (!cur) return;
+      const name = (prompt('Rename project:', cur.name) || '').trim();
+      if (!name) return;
+      try { await memoryApi('projects', { action: 'rename', id, name }); renderProjects(); } catch (err) { showToast('Memory: ' + err.message, { type: 'danger' }); }
+    });
+    memEl('gmem-proj-delete').addEventListener('click', async () => {
+      const id = activeMemoryProject();
+      const cur = memoryState.projects.find((p) => p.id === id);
+      if (!cur) return;
+      if (!(await confirmReset('Delete project "' + cur.name + '"?', 'Its project memories are deleted too. Memories that apply everywhere are kept.', 'Delete project'))) return;
+      try { await memoryApi('projects', { action: 'delete', id }); setActiveMemoryProject('general'); loadMemory(); } catch (err) { showToast('Memory: ' + err.message, { type: 'danger' }); }
+    });
+    memEl('gmem-consolidate').addEventListener('click', async () => {
+      try { const r = await memoryApi('consolidate', {}); showToast(r.merged ? `Merged ${r.merged} duplicate${r.merged === 1 ? '' : 's'}.` : 'No duplicates found.'); loadMemory(); } catch (err) { showToast('Memory: ' + err.message, { type: 'danger' }); }
+    });
+    memEl('gmem-clear').addEventListener('click', async () => {
+      const sel = memEl('gmem-clear-cat');
+      const label = sel.options[sel.selectedIndex].textContent;
+      if (!(await confirmReset('Clear ' + label.toLowerCase() + '?', 'These memories are deleted for good.', 'Clear'))) return;
+      try { const r = await memoryApi('clear', { category: sel.value }); showToast(`Removed ${r.removed}.`); loadMemory(); } catch (err) { showToast('Memory: ' + err.message, { type: 'danger' }); }
+    });
+    memEl('gmem-pin-go').addEventListener('click', async () => {
+      const pin = memEl('gmem-pin').value;
+      if (!pin) return;
+      memEl('gmem-pin-go').disabled = true;
+      const r = await reconnectWithPin(pin);
+      memEl('gmem-pin-go').disabled = false;
+      memEl('gmem-pin').value = '';
+      if (!r.ok) showToast(r.error, { type: 'danger' });
+      else loadMemory();
+    });
+    memEl('gmem-pin').addEventListener('keydown', (e) => { if (e.key === 'Enter') memEl('gmem-pin-go').click(); });
+    // "Manage" links in Ask AI / Notes and the Ask chip open this section.
+    panel.addEventListener('click', (e) => {
+      if (!e.target.closest('[data-open-memory]')) return;
+      const nav = panel.querySelector('.gpa-dropdown-item[data-tab="theme"]');
+      if (nav) nav.click();
+      if (searching) clearSearch();
+      showSection('memory', { scroll: true });
+    });
+    onSessionChange(() => { renderMemoryAll(); if (memoryReady()) loadMemory(); });
+    onMemoryChanged(() => { if (activeSec === 'memory' && paneLive()) loadMemory(); else renderMemoryAll(); });
+
     // ---- Theme hook: called by applyTheme() after the tokens change ----
     onThemeApplied = function () {
       markTiles();
@@ -16769,6 +18493,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const savedUser = localStorage.getItem(SESSION_KEY);
     if (savedUser && readProfile(savedUser)) {
       enterApp(savedUser);
+      refreshServerSession();
     } else {
       localStorage.removeItem(SESSION_KEY);
       loginOverlay.style.display = 'flex';

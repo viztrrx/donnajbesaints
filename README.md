@@ -38,13 +38,12 @@ A DevTools **Snippet** (Sources → Snippets) works too, and survives navigation
 
 | Feature | Key | Where to get it |
 | --- | --- | --- |
-| AI (Google) | Gemini API key | [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | AI (OpenAI) | OpenAI key, starts with `sk-` | [https://platform.openai.com/api\-keys](https://platform.openai.com/api-keys) |
 | Music search | YouTube Data API v3 key | [https://console.cloud.google.com](https://console.cloud.google.com) → enable *YouTube Data API v3* → Credentials |
 
-Pick your provider under **Settings → AI provider**. Each key is stored separately, so you can switch back and forth without re\-entering anything.
+The console runs on OpenAI only. The base model is `gpt-4.1-mini` and the smart model for hard tasks is `gpt-5`; both are reset on every load and sign\-in.
 
-Because browsers scope `localStorage` per origin, a key entered on `example.com` isn't visible on `wikipedia.org` — you'll be asked again on each new domain. If that gets tedious, host your own copy of `script.js` and paste your Gemini key into `API_KEY_DEFAULT` near the top of the file. Only do that for a private copy; anything in a public repo is public.
+Because browsers scope `localStorage` per origin, a key entered on `example.com` isn't visible on `wikipedia.org` — you'll be asked again on each new domain. If that gets tedious, have the owner assign you a key server\-side (Admin → AI & Usage), which the Worker attaches without ever sending it to the browser.
 
 The YouTube free tier covers roughly 100 searches per day.
 
@@ -96,15 +95,26 @@ Insights you save get organized into folders and a calendar view, alongside an a
 
 **Context memory.** Each saved insight has a 🧠 toggle. Switch it on and that insight travels with every later AI request as background the assistant already knows — so a worked explanation you saved on question 7 informs the answer to question 9, or notes from one page carry into a different one. It's opt\-in per insight and off by default, on purpose: a blanket "remember everything" turns every unrelated note into a source of confusion and costs tokens on every request. Selected insights go in newest\-first up to a character budget, and the prompt tells the model that when saved context conflicts with the page currently open, the page wins.
 
-### Admin console {#admin-console}
+### Admin Command Center {#admin-command-center}
 
-A hidden owner dashboard in Settings. To open it: click the **Account & sync** heading five times quickly, then enter the PIN (`1029`). It re\-locks every time the script is re\-injected, so the PIN is asked for each session. It has three tabs:
+A full admin surface in its own sidebar pane, **Admin**. It appears after the old gesture (click the **Account & sync** heading five times, then enter the PIN `1029`), or automatically for a signed\-in account the owner has made a moderator or admin. Connect with the `ADMIN_TOKEN` (owner) or `COADMIN_TOKEN` (moderator); the token is kept in memory for the session only.
 
-Usage — a log of every time the tool was opened on this browser, with the profile name, timestamp, page, and host. Stat cards for total opens, unique users, opens today; a per\-user list with counts and last\-seen; and recent activity. Export the log to JSON or clear it.
+Every number comes from the Worker and every action is authorized there. The UI only hides what your role can't use, based on `/admin/whoami`. Sections:
 
-Power tools — override the AI model for either provider, prepend a standing system\-prompt to every request, change how much page text is sent, set the OpenAI temperature, and a raw prompt playground that talks straight to the model.
+- **Overview**: users, active now, AI requests, latency, tokens, memory, moderation and security counts, a 7\-day chart, recent admin activity and system health.
+- **Users**: search, filter and sort; an inspector with usage history, sessions, security events, audit history, role, per\-user quotas and moderation actions.
+- **AI & Usage**: requests, failures, rate limits, latency, tokens and model mix over 7 or 30 days; global quotas; masked assigned keys with a health test; this device's model overrides and playground.
+- **Memory**: aggregate memory health. The owner can open one user's memories only with a stated reason, and that view is audited.
+- **Security**, **Moderation** (reported chat messages, live users, rooms), **Content & Data** (broadcasts, backups, local data), **System**, **Automation** (scheduled jobs with manual runs), **Developer** (diagnostics that never include secret values), **Audit log** and **Danger zone** (each action needs a typed phrase such as `MAINTENANCE`).
+- **Command palette**: Ctrl/⌘ K inside the Admin pane, filtered by your permissions.
 
-Data — an inline editor for every `gpa_*` value in this browser, export\-everything, and a wipe\-all.
+Roles are `owner`, `admin`, `moderator` and `user`. Permissions live in one map, `ROLE_PERMS`, in `worker.js`.
+
+### Memory {#memory}
+
+Ask AI, Notes Q&A and page questions can remember durable facts between conversations: explicit requests ("remember that…"), preferences, profile facts and project context. Memory is stored per account on the Worker (`mem:u:<user>` in KV), is only ever read with that account's signed session, and never crosses users. Passwords, keys, tokens, sensitive categories and instructions aimed at the AI are refused. Inferred facts that matter are confirmed with you first. Manage everything in **Settings → Memory**: search, filter, edit, delete, "why do you remember this", projects, pause and clear.
+
+Memory needs a server account. Signing in or signing up links your local profile to one automatically; the PIN still never leaves the browser, only a derived verifier does.
 
 **Two honest limits, because they matter:**
 
@@ -116,7 +126,7 @@ Data — an inline editor for every `gpa_*` value in this browser, export\-every
 
 **Moderating users.** Every row in the Live view has Block, Lock, and Kick buttons (Block and Lock flip to Unblock/Unlock once set). Each writes a moderation state to your Worker's KV against that username. Block gives the user a full\-screen "Blocked by the owner" page with your optional message and cuts off their AI features until you unblock. Lock is a lighter overlay that freezes their panel for a temporary pause. Kick forces a one\-time sign\-out; they can sign back in unless also blocked. Every client polls its own status every 15 seconds (and gets it on each heartbeat), so an action lands within about that long.
 
-Be clear\-eyed about enforcement: this is JavaScript running in someone else's browser, so the block page, lock, and kick are client\-side — a technically capable user could edit them out of their own copy. The part that genuinely bites is server\-side: your Worker refuses to proxy AI requests for a blocked user (it checks the `X-GPA-User` the client sends and returns 403), so a blocked user loses the AI features for real. Both providers now go through the Worker — OpenAI via `/v1/*`, Gemini via `/gemini/*` — so blocking, the approval queue, per\-user freezes, daily quotas and the model allowlist apply to both. The gaps that remain, plainly: someone in direct mode with their own key bypasses the Worker entirely (that's their key to spend), and a username is self\-asserted, so a spoofed name sidesteps a per\-user check unless you set `OWNER_CODE` to reserve your own. For a personal tool shared with friends this is plenty; it is not a hardened access\-control system, and nothing client\-side ever can be.
+Be clear\-eyed about enforcement: this is JavaScript running in someone else's browser, so the block page, lock, and kick are client\-side — a technically capable user could edit them out of their own copy. The part that genuinely bites is server\-side: your Worker refuses to proxy AI requests for a blocked user (it checks the `X-GPA-User` the client sends and returns 403), so a blocked user loses the AI features for real. AI requests go through the Worker's `/v1/*` proxy, so blocking, the approval queue, per\-user freezes, quotas and the model allowlist all apply there. The gaps that remain, plainly: someone in direct mode with their own key bypasses the Worker entirely (that's their key to spend), and clients still on the old build only assert a username. Once everyone runs the current build, turn on **Require verified sessions** in Admin → Security so the Worker ignores asserted names entirely. For a personal tool shared with friends this is plenty; it is not a hardened access\-control system, and nothing client\-side ever can be.
 
 ### Browser {#browser}
 
@@ -169,6 +179,8 @@ The Worker either uses a key you assigned to that user server\-side (admin conso
 
 If you deploy the Worker publicly, anyone who knows the URL can route their own OpenAI requests through it using their own key.
 
+> **Deploy `worker.js` first, or together with `script.js`.** The Command Center, server accounts and memory need the new Worker routes; with an older Worker the console keeps working and those features say the Worker needs updating. No new bindings or secrets are required: sessions are signed with a key derived from `ADMIN_TOKEN`, and everything is stored in the existing `TELEMETRY` KV namespace.
+>
 > **`script.js` and `worker.js` have to be deployed together.** The Worker isn't pulled from this repo at runtime — you paste it into the Cloudflare dashboard by hand. If you update one and not the other, the key channel they agree on can drift apart and every request comes back `401`.
 
 * * *
@@ -187,7 +199,7 @@ If you deploy the Worker publicly, anyone who knows the URL can route their own 
 
 ## Notes and limits {#notes-and-limits}
 
-This is injected JavaScript, not an extension, so it disappears on reload or navigation — re\-run the snippet, or use the bookmarklet. Page text is truncated and screenshots downscaled to keep requests fast and within token limits. Gemini calls go through your Worker's `/gemini/*` route when one is configured, so the same moderation and quota rules apply and an owner\-assigned key never reaches the browser. Without a Worker they go straight to the public Generative Language REST API, with the key in the `x-goog-api-key` header rather than the query string.
+This is injected JavaScript, not an extension, so it disappears on reload or navigation — re\-run the snippet, or use the bookmarklet. Page text is truncated and screenshots downscaled to keep requests fast and within token limits. AI calls go through your Worker's `/v1/*` route when one is configured, so the same moderation and quota rules apply and an owner\-assigned key never reaches the browser.
 
 The panel renders inside a Shadow DOM, so the host page's CSS can't bleed into it and vice versa.
 

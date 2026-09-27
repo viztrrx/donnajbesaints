@@ -1,13 +1,12 @@
 {
   "name": "donnajbesaints",
   "version": "1.0.0",
-  "description": "Agent Console — an injectable floating AI assistant panel for any web page: reads the page, answers questions, explains quizzes, takes notes, plays music, and bundles seventeen games. No extension, no build step.",
+  "description": "Agent Console \u2014 an injectable floating AI assistant panel for any web page: reads the page, answers questions, explains quizzes, takes notes, plays music, and bundles seventeen games. No extension, no build step.",
   "keywords": [
     "ai",
     "assistant",
     "bookmarklet",
     "browser",
-    "gemini",
     "openai",
     "cloudflare-worker",
     "userscript",
@@ -35,7 +34,8 @@
   "browser": "script.js",
   "private": false,
   "scripts": {
-    "start": "echo \"Paste the snippet from README.md into your browser console.\" && exit 0"
+    "start": "echo \"Paste the snippet from README.md into your browser console.\" && exit 0",
+    "test": "node --test tests/*.test.mjs"
   },
   "engines": {
     "node": ">=18"
