@@ -55,6 +55,16 @@ javascript:fetch('https://raw.githubusercontent.com/viztrrx/donnajbesaints/main/
 
 A DevTools **Snippet** (Sources → Snippets) works too, and survives navigation better than retyping the fetch.
 
+### On iPhone and iPad (Eruda) {#on-iphone-and-ipad}
+
+iOS **Smart Punctuation** turns the `'` you type into a curly `‘`, which JavaScript can't read. The console then shows `SyntaxError: Invalid character '\u2018'` before `script.js` is even downloaded. Use this version, whose backticks iOS leaves alone:
+
+```js
+fetch(`https://raw.githubusercontent.com/viztrrx/donnajbesaints/main/script.js`).then(r=>r.text()).then(eval)
+```
+
+Pasting the command also works; the problem only happens when it's typed. You can also turn off **Settings → General → Keyboard → Smart Punctuation**.
+
 * * *
 
 ## API keys {#api-keys}
@@ -411,6 +421,8 @@ If you deploy the Worker publicly, anyone who knows the URL can route their own 
 **`401` with "Incorrect API key provided"** — that one really is the key. Check it at [https://platform.openai.com/api\-keys](https://platform.openai.com/api-keys).
 
 **Everything fails only on one site** — some pages wrap `fetch` and `XMLHttpRequest`, and strict CSP can block the blob\-worker transport the script uses to get a clean one. The console log names each transport as it's tried, so it's visible which ones the page is interfering with.
+
+**`SyntaxError: Invalid character '\u2018'` on iPhone or iPad** — the loader command was typed with iOS Smart Punctuation on, which turned its `'` quotes into curly ones. `script.js` itself parses fine in Safari. Use the backtick version under [On iPhone and iPad](#on-iphone-and-ipad).
 
 **Keys are per\-origin.** A key entered on one domain isn't visible on another; that's browser security, not a bug.
 
