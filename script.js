@@ -453,9 +453,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return ':host{' + Object.keys(vars).map((k) => `${k}:${vars[k]};`).join('') + 'color-scheme:' + vars['--gpa-scheme'] + ';}';
   }
 
+  // Theme state. `selectedTheme` is the user's real, persisted choice;
+  // `previewThemeName` is a temporary hover/focus preview from Settings and is
+  // never written to storage. `theme` is what's rendered right now
+  // (previewThemeName || selectedTheme); the rest of the file reads it.
   let theme = localStorage.getItem(THEME_KEY) || 'matte';
   const savedCustomAccent = THEMES.custom.accent;
   if (!THEMES[theme]) theme = 'matte';
+  let selectedTheme = theme;
+  let previewThemeName = null;
+  function effectiveTheme() { return previewThemeName || selectedTheme; }
 
 
   // ---- Settings control center: static building blocks --------------------
@@ -1715,6 +1722,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-panel.gpa-theming, .gpa-panel.gpa-theming * {
         transition: background-color 0.45s ease, border-color 0.45s ease, color 0.45s ease, fill 0.45s ease, stroke 0.45s ease, box-shadow 0.45s ease !important;
       }
+      .gpa-panel.gpa-theming.gpa-theming-fast, .gpa-panel.gpa-theming.gpa-theming-fast * {
+        transition-duration: 0.18s !important;
+      }
+      /* The card whose theme is currently previewed across the app. */
+      .gps .gps-tile.is-previewing { transform: translateY(-3px) scale(1.02); box-shadow: 0 0 0 1px color-mix(in srgb, var(--gpa-accent) 60%, transparent), 0 16px 30px -14px var(--gpa-glow), 0 12px 24px -14px rgba(0,0,0,0.6); }
 
       /* ---- Responsive (container queries on the settings root) ---- */
       @container gps (max-width: 720px) {
@@ -3281,25 +3293,52 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   applyMiniColorMode();
 
-  // Applies a theme by writing its tokens as CSS custom properties. The main
+  // Renders a theme by writing its tokens as CSS custom properties. The main
   // stylesheet is built once below and never rewritten, so switching themes
-  // doesn't restart animations or flash. opts.instant skips the crossfade
-  // (used while dragging a color picker); opts.preview leaves storage alone.
+  // doesn't restart animations or flash. This is the single rendering path
+  // for both real selections and previews. opts.instant skips the crossfade
+  // (used while dragging a color picker); opts.fast uses a short one (hover
+  // previews, so sweeping across themes stays responsive).
   let themeFadeTimer = null;
-  function applyTheme(name, opts) {
+  function renderTheme(name, opts) {
     opts = opts || {};
     theme = THEMES[name] ? name : 'matte';
-    if (!opts.preview) localStorage.setItem(THEME_KEY, theme);
     if (typeof updateWelcome3dColor === 'function') updateWelcome3dColor();
     const tk = resolveTheme(theme);
     if (!opts.instant && tokenStyle.textContent) {
       panel.classList.add('gpa-theming');
+      panel.classList.toggle('gpa-theming-fast', !!opts.fast);
       clearTimeout(themeFadeTimer);
-      themeFadeTimer = setTimeout(() => panel.classList.remove('gpa-theming'), 520);
+      themeFadeTimer = setTimeout(() => panel.classList.remove('gpa-theming', 'gpa-theming-fast'), opts.fast ? 240 : 520);
     }
     tokenStyle.textContent = tokenCss(tk, appearance);
     if (typeof applyMiniColorMode === 'function') applyMiniColorMode();
     if (typeof onThemeApplied === 'function') onThemeApplied();
+  }
+  // Selects (and persists) a theme. Any preview in progress ends.
+  // opts.preview is kept for older callers: it previews instead of selecting.
+  function applyTheme(name, opts) {
+    opts = opts || {};
+    if (opts.preview) { previewTheme(name); return; }
+    selectedTheme = THEMES[name] ? name : 'matte';
+    previewThemeName = null;
+    try { localStorage.setItem(THEME_KEY, selectedTheme); } catch (e) { /* storage blocked */ }
+    renderTheme(selectedTheme, opts);
+  }
+  // Temporarily renders another theme without touching the saved choice.
+  // Idempotent, so repeated pointer events over the same card cost nothing.
+  function previewTheme(name) {
+    if (!THEMES[name]) return;
+    const next = name === selectedTheme ? null : name;
+    if (next === previewThemeName) return;
+    previewThemeName = next;
+    renderTheme(effectiveTheme(), { fast: true });
+  }
+  // Ends a preview and returns to the selected theme.
+  function clearThemePreview() {
+    if (previewThemeName === null) return;
+    previewThemeName = null;
+    renderTheme(selectedTheme, { fast: true });
   }
   // Re-writes the tokens after an appearance (Panel section) change.
   function applyAppearance(next, opts) {
@@ -15572,6 +15611,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       return pane.classList.contains('active') && !isMin && document.visibilityState !== 'hidden';
     }
     function updateLive() {
+      endPreviewIfHidden();
       const live = paneLive();
       gps.classList.toggle('is-live', live && !reduced());
       const fxShown = live && fxStage && fxStage.offsetParent !== null;
@@ -15642,8 +15682,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       });
       markTiles();
     }
+    // Pressed = the saved selection (never the preview); is-previewing = the
+    // card whose theme is rendered right now.
     function markTiles() {
-      $$('.gps-tile').forEach((tile) => tile.setAttribute('aria-pressed', tile.dataset.theme === theme ? 'true' : 'false'));
+      $$('.gps-tile').forEach((tile) => {
+        tile.setAttribute('aria-pressed', tile.dataset.theme === selectedTheme ? 'true' : 'false');
+        tile.classList.toggle('is-previewing', tile.dataset.theme === previewThemeName);
+      });
     }
     function refreshCustomTile() {
       const tile = gps.querySelector('.gps-tile[data-theme="custom"]');
@@ -15653,37 +15698,52 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const dots = tile.querySelectorAll('.gps-tile-dots i');
       if (dots.length === 3) { dots[0].style.background = t.accent; dots[1].style.background = t.accent2; dots[2].style.background = t.text; }
     }
-    const themeStage = $('#gps-theme-stage');
+    // Hover / focus previews the theme across the whole app; leaving returns
+    // to the selected theme; click (or Enter/Space) selects it. Previews go
+    // through previewTheme()/clearThemePreview(), the same token pipeline as
+    // a real selection, and are never persisted.
     const themeCap = $('#gps-theme-cap');
-    let previewing = null;
-    function previewTheme(name) {
-      if (name === previewing) return;
-      previewing = name;
-      setScopedTheme(themeStage, name && name !== theme ? name : null);
-      themeCap.textContent = name && name !== theme ? 'Previewing ' + themeName(name) : themeName(theme);
+    function renderThemeCap() {
+      themeCap.textContent = previewThemeName
+        ? 'Previewing ' + themeName(previewThemeName) + ' · click to apply'
+        : themeName(selectedTheme);
     }
     const galleryWrap = $('.gps-sec[data-sec="theme"]');
-    galleryWrap.addEventListener('mouseover', (e) => {
+    // Crossing the gap between two cards shouldn't flash back to the selected
+    // theme, so leaving a card waits one short beat before reverting. Entering
+    // another card inside that beat cancels the revert.
+    let revertTimer = 0;
+    const REVERT_GRACE_MS = 90;
+    function cancelRevert() { if (revertTimer) { clearTimeout(revertTimer); revertTimer = 0; } }
+    function scheduleRevert() {
+      cancelRevert();
+      revertTimer = setTimeout(() => { revertTimer = 0; clearThemePreview(); }, REVERT_GRACE_MS);
+    }
+    function revertNow() { cancelRevert(); clearThemePreview(); }
+    galleryWrap.addEventListener('pointerover', (e) => {
+      // Touch has no hover: a tap simply selects (see click below).
+      if (e.pointerType === 'touch') return;
       const tile = e.target.closest('.gps-tile');
-      if (tile) previewTheme(tile.dataset.theme);
+      if (tile) { cancelRevert(); previewTheme(tile.dataset.theme); } else scheduleRevert();
     });
-    galleryWrap.addEventListener('mouseleave', () => previewTheme(null));
+    galleryWrap.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch') revertNow(); });
     galleryWrap.addEventListener('focusin', (e) => {
       const tile = e.target.closest('.gps-tile');
-      if (tile) previewTheme(tile.dataset.theme);
+      if (tile) { cancelRevert(); previewTheme(tile.dataset.theme); }
     });
     galleryWrap.addEventListener('focusout', (e) => {
-      if (!(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.gps-tile'))) previewTheme(null);
+      const next = e.relatedTarget;
+      if (!(next && next.closest && next.closest('.gps-tile'))) scheduleRevert();
     });
     galleryWrap.addEventListener('click', (e) => {
       const tile = e.target.closest('.gps-tile');
       if (!tile) return;
+      cancelRevert();
       safeSet(THEME_USER_SET_KEY, '1');
-      previewing = null;
-      setScopedTheme(themeStage, null);
-      applyTheme(tile.dataset.theme);
-      themeCap.textContent = themeName(theme);
+      applyTheme(tile.dataset.theme); // selects + persists; ends the preview
     });
+    // Leaving Settings (tab switch, minimize, hidden page) always ends a preview.
+    function endPreviewIfHidden() { if (previewThemeName && !paneLive()) revertNow(); }
 
     // ---- Custom theme builder ----
     const COLOR_ROWS = [
@@ -15726,11 +15786,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       // The preview always shows the custom palette being edited, even while
       // another theme is active.
       setScopedTheme(builderStage, 'custom');
-      const onCustom = theme === 'custom';
+      const onCustom = selectedTheme === 'custom';
       useCustomBtn.hidden = onCustom;
       setOut('gps-builder-status', onCustom
         ? 'Custom theme is active. Changes apply everywhere as you make them.'
-        : 'You are using ' + themeName(theme) + '. Editing a color switches to your custom theme.');
+        : 'You are using ' + themeName(selectedTheme) + '. Editing a color switches to your custom theme.');
       colorsBox.querySelectorAll('.gps-color').forEach((row) => {
         const k = row.dataset.color;
         const v = t[k];
@@ -16176,7 +16236,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         [CUSTOM_THEME_KEY, CUSTOM_COLOR_KEY].forEach(safeDel);
         THEMES.custom = loadCustomTheme();
         refreshCustomTile();
-        if (theme === 'custom') applyTheme('custom');
+        if (selectedTheme === 'custom') applyTheme('custom');
       },
       panel() {
         safeDel(APPEARANCE_KEY);
@@ -16242,7 +16302,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // ---- Theme hook: called by applyTheme() after the tokens change ----
     onThemeApplied = function () {
       markTiles();
-      if (!previewing) themeCap.textContent = themeName(theme);
+      renderThemeCap();
       if (activeSec === 'overview') refreshOverview();
       if (activeSec === 'icon') refreshIconPreview();
       if (activeSec === 'colors') renderContrast();
@@ -16262,7 +16322,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       refreshOverview();
       refreshAi();
       syncPressed();
-      themeCap.textContent = themeName(theme);
+      renderThemeCap();
       if (searching) runSearch();
     }
     gpsRefreshAll = refreshAll;
