@@ -1725,6 +1725,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-panel.gpa-theming.gpa-theming-fast, .gpa-panel.gpa-theming.gpa-theming-fast * {
         transition-duration: 0.18s !important;
       }
+      /* Collapse / expand motion for the whole console */
+      .gpa-panel.gpa-expanding > .gpa-header, .gpa-panel.gpa-expanding > .gpa-body {
+        animation: gpa-console-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: 100% 100%;
+      }
+      @keyframes gpa-console-in { from { opacity: 0; transform: translateY(12px) scale(0.965); } to { opacity: 1; transform: none; } }
+      .gpa-mini.gpa-mini-pop { animation: gpa-mini-pop 340ms cubic-bezier(0.34, 1.56, 0.64, 1) both !important; }
+      @keyframes gpa-mini-pop { from { opacity: 0; transform: scale(0.4) rotate(-20deg); } to { opacity: 1; transform: none; } }
+      .gpa-mini { transition: transform 160ms ease; }
+      .gpa-mini:hover { transform: scale(1.08); }
+      .gpa-mini:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 6px; }
+      @media (pointer: coarse) { .gpa-mini { width: 48px !important; height: 48px !important; } }
+      .gpx-kbd { display: inline-flex; gap: 4px; flex-shrink: 0; }
+      .gpx-kbd kbd {
+        display: grid; place-items: center; min-width: 30px; height: 30px; padding: 0 6px; border-radius: 8px;
+        font: 600 14px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-text);
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); box-shadow: 0 2px 0 var(--gpa-border);
+      }
       /* The card whose theme is currently previewed across the app. */
       .gps .gps-tile.is-previewing { transform: translateY(-3px) scale(1.02); box-shadow: 0 0 0 1px color-mix(in srgb, var(--gpa-accent) 60%, transparent), 0 16px 30px -14px var(--gpa-glow), 0 12px 24px -14px rgba(0,0,0,0.6); }
 
@@ -1833,7 +1850,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   panel.innerHTML = `
     <div class="gpa-header" id="gpa-drag">
       <button id="gpa-sidebar-toggle" title="Show/hide the sidebar">&#9776;</button>
-      <button id="gpa-min" title="Minimize">&minus;</button>
+      <button id="gpa-min" title="Collapse Agent Console (↓ ↓)" aria-label="Collapse Agent Console">&minus;</button>
       <span class="gpa-title">Agent Console</span>
       <span class="gpa-dot"></span>
       <button id="gpa-reload" title="Reload the console — fetches the latest script and restarts it">&#10227;</button>
@@ -1850,7 +1867,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div class="gpa-login-dept">Sign in to continue</div>
           </div>
           <div class="gpa-login-winbtns">
-            <button id="gpa-login-min" class="gpa-login-winbtn" title="Minimize">&minus;</button>
+            <button id="gpa-login-min" class="gpa-login-winbtn" title="Collapse Agent Console (↓ ↓)" aria-label="Collapse Agent Console">&minus;</button>
             <button id="gpa-login-close" class="gpa-login-winbtn" title="Close">&times;</button>
           </div>
         </div>
@@ -2884,6 +2901,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                   <div><div class="gps-label">Auto-run page clicks</div><p class="gps-hint">When on, harmless "Do it" clicks run without asking. Submit, send, delete and pay always ask.</p></div>
                   <button id="gpa-autoconfirm-toggle" class="gps-switch autoconfirm-btn">Confirm page clicks: ON</button>
                 </div>
+                <div class="gps-item gps-item-row" data-k="controls keyboard shortcut toggle collapse minimize hide show open arrow down console">
+                  <div><div class="gps-label">Show or hide the console</div><p class="gps-hint">Press the Down arrow twice quickly anywhere on the page. It's ignored while you type, in lists and menus, and while a game is running.</p></div>
+                  <span class="gpx-kbd" role="img" aria-label="Down arrow, twice"><kbd aria-hidden="true">↓</kbd><kbd aria-hidden="true">↓</kbd></span>
+                </div>
                 </div>
               </section>
 
@@ -3209,6 +3230,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const minimized = document.createElement('div');
   minimized.className = 'gpa-mini';
   minimized.style.display = 'none';
+  // It's the reopen control whenever the console is collapsed, so it has to
+  // be a real, keyboard-reachable button, not just a clickable div.
+  minimized.setAttribute('role', 'button');
+  minimized.setAttribute('tabindex', '0');
+  minimized.setAttribute('aria-label', 'Open Agent Console');
+  minimized.title = 'Open Agent Console (↓ ↓)';
   panel.appendChild(minimized);
 
   // ---- Toasts ---------------------------------------------------------
@@ -4460,8 +4487,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   applyTheme(theme, { instant: true });
 
   // ---- Drag logic -----------------------------------------------------
+  // Tap vs. drag on the minimized button. Touch drags call preventDefault on
+  // touchstart, which also stops the browser from synthesizing a click — so a
+  // tap is recognized here and reopens the console directly. A real drag
+  // (mouse or touch) only moves it and must not also reopen it.
+  let miniClickGuardUntil = 0;
   (function makeDraggable() {
     let dragging = null, offX = 0, offY = 0;
+    let startX = 0, startY = 0, moved = false, onMini = false;
+    const DRAG_THRESHOLD = 6; // px of movement before a press counts as a drag
 
     function start(e) {
       // Full-page mode fills the viewport by design — there's nowhere
@@ -4473,11 +4507,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const p = 'touches' in e ? e.touches[0] : e;
       offX = p.clientX - rect.left;
       offY = p.clientY - rect.top;
+      startX = p.clientX; startY = p.clientY;
+      moved = false;
+      onMini = !!e.target.closest('.gpa-mini');
       e.preventDefault();
     }
     function move(e) {
       if (!dragging) return;
       const p = 'touches' in e ? e.touches[0] : e;
+      if (!moved && Math.hypot(p.clientX - startX, p.clientY - startY) < DRAG_THRESHOLD) return;
+      moved = true;
       let x = p.clientX - offX, y = p.clientY - offY;
       // Clamp against the panel's ACTUAL current size (mini dot, settled
       // panel, or whichever size preset is active) so it can never be
@@ -4488,7 +4527,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       host.style.left = x + 'px';
       host.style.top = y + 'px';
     }
-    function end() { dragging = null; }
+    function end(e) {
+      if (dragging && onMini) {
+        if (moved) {
+          // A drag: swallow the click the mouse fires right after mouseup
+          // (it arrives immediately, so a short window is enough and a real
+          // click moments later still works).
+          miniClickGuardUntil = performance.now() + 60;
+        } else if (e && e.type === 'touchend') {
+          // A tap: no click is coming (touchstart was prevented), so act now,
+          // and ignore a click if some browser synthesizes one anyway.
+          miniClickGuardUntil = performance.now() + 600;
+          toggleAgentConsole();
+        }
+      }
+      dragging = null;
+      onMini = false;
+    }
 
     root.addEventListener('mousedown', (e) => {
       if (e.target.closest('#gpa-drag') || e.target.closest('.gpa-mini') || (e.target.closest('.gpa-login-brand') && !e.target.closest('.gpa-login-logo') && !e.target.closest('.gpa-login-winbtns'))) start(e);
@@ -4505,9 +4560,74 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // ---- Minimize / restore ---------------------------------------------
   const body = panel.querySelector('#gpa-body');
   const headerEl = panel.querySelector('.gpa-header');
-  panel.querySelector('#gpa-min').addEventListener('click', () => setMinimized(true));
-  minimized.addEventListener('click', () => setMinimized(false));
-  host.addEventListener('gpa-toggle', () => setMinimized(!isMin));
+  // The one open/collapse toggle. setMinimized()/isMin stay the single source
+  // of truth; this adds focus handling so a keyboard user is never left
+  // focused on something that just disappeared. Used by the header button,
+  // the minimized button, the double-↓ shortcut and re-running the script.
+  // Collapsing only hides the UI: every pane's DOM, conversation and state
+  // stay exactly as they were.
+  function toggleAgentConsole() {
+    const active = root.activeElement;
+    const focusWasInPanel = !!active && active !== minimized && panel.contains(active);
+    const focusWasOnMini = active === minimized;
+    setMinimized(!isMin);
+    if (isMin && focusWasInPanel) minimized.focus({ preventScroll: true });
+    else if (!isMin && focusWasOnMini) {
+      const collapseBtn = panel.querySelector('#gpa-min');
+      if (collapseBtn) collapseBtn.focus({ preventScroll: true });
+    }
+  }
+  panel.querySelector('#gpa-min').addEventListener('click', toggleAgentConsole);
+  minimized.addEventListener('click', () => {
+    if (performance.now() < miniClickGuardUntil) return; // just dragged, or a tap already handled
+    toggleAgentConsole();
+  });
+  minimized.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    toggleAgentConsole();
+  });
+  host.addEventListener('gpa-toggle', toggleAgentConsole);
+
+  // ---- Global shortcut: ↓ ↓ toggles the console ----------------------------
+  // Two separate ArrowDown presses within the window. It only observes keys:
+  // the first press always behaves normally, and only the press that
+  // completes the shortcut has its default (a one-line scroll) cancelled.
+  // Ignored where ArrowDown already means something: text fields, selects,
+  // editable content, arrow-key widgets (lists, menus, tabs, sliders…), and
+  // a running game while the console is open. Held-down keys (auto-repeat)
+  // never count, and any other key breaks the sequence.
+  // Capture phase on window, so page handlers that stop propagation can't
+  // swallow it. Keys pressed inside iframes (e.g. the Proxy frame) never
+  // reach this page, so the shortcut can't fire from inside them.
+  const AGENT_CONSOLE_DOUBLE_DOWN_WINDOW = 350; // ms allowed between the two presses
+  const ARROW_KEY_WIDGETS = ['listbox', 'menu', 'menubar', 'tree', 'treegrid', 'grid', 'combobox', 'slider', 'spinbutton', 'tablist', 'radiogroup', 'option', 'menuitem', 'treeitem', 'gridcell', 'tab']
+    .map((r) => `[role="${r}"]`).join(',');
+  let lastArrowDownAt = 0;
+  function arrowDownHasOwnMeaning(e) {
+    const t = (e.composedPath && e.composedPath()[0]) || e.target;
+    if (t && t.nodeType === 1) {
+      const tag = t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable) return true;
+      if (t.closest && t.closest(ARROW_KEY_WIDGETS)) return true;
+    }
+    const gamesPane = panel.querySelector('.gpa-pane[data-pane="games"]');
+    return !isMin && !!gamesPane && gamesPane.classList.contains('active');
+  }
+  onWin('keydown', (e) => {
+    if (e.key !== 'ArrowDown' || e.repeat || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || arrowDownHasOwnMeaning(e)) {
+      lastArrowDownAt = 0;
+      return;
+    }
+    const now = performance.now();
+    if (lastArrowDownAt && now - lastArrowDownAt <= AGENT_CONSOLE_DOUBLE_DOWN_WINDOW) {
+      lastArrowDownAt = 0;
+      e.preventDefault();
+      toggleAgentConsole();
+      return;
+    }
+    lastArrowDownAt = now;
+  }, true);
   panel.querySelector('#gpa-close').addEventListener('click', () => host.remove());
 
   // ---- Fullscreen the whole console (header, sidebar, everything) --------
@@ -4609,7 +4729,21 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const chatPane = panel.querySelector('.gpa-pane[data-pane="chat"]');
       if (chatPane && chatPane.classList.contains('active') && typeof clearChatUnread === 'function') clearChatUnread();
     }
+
+    // Motion: the panel grows back in from the corner it collapsed to; the
+    // minimized button pops in. Classes clear on a timer, so rapid toggling
+    // never leaves one stuck.
+    panel.classList.remove('gpa-expanding');
+    minimized.classList.remove('gpa-mini-pop');
+    void panel.offsetWidth; // restart the animation if toggled mid-flight
+    if (v) minimized.classList.add('gpa-mini-pop'); else panel.classList.add('gpa-expanding');
+    clearTimeout(minAnimTimer);
+    minAnimTimer = setTimeout(() => {
+      panel.classList.remove('gpa-expanding');
+      minimized.classList.remove('gpa-mini-pop');
+    }, 380);
   }
+  let minAnimTimer = 0;
 
   // ---- Sidebar collapse ------------------------------------------------
   // Hides the tool list entirely so only the active tool's own content
@@ -10224,7 +10358,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   // Login-screen window controls (the panel header is covered while locked).
-  panel.querySelector('#gpa-login-min').addEventListener('click', () => setMinimized(true));
+  panel.querySelector('#gpa-login-min').addEventListener('click', toggleAgentConsole);
   panel.querySelector('#gpa-login-close').addEventListener('click', () => host.remove());
 
   async function doSignIn() {
