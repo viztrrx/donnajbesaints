@@ -213,6 +213,55 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function onWin(type, fn, opts) { window.addEventListener(type, fn, withSig(opts)); }
   function onDoc(type, fn, opts) { document.addEventListener(type, fn, withSig(opts)); }
 
+  // ---- Runtime environment: OS + browser ------------------------------------
+  // Detected in the user's own browser. userAgentData (Chromium, secure pages)
+  // is preferred; the user-agent string is a fallback. When a family can't be
+  // told apart with confidence it stays 'unknown' / 'chromium' rather than
+  // guessing. Keyboard commands use `primaryMod`: ⌘ on Apple devices, Ctrl
+  // everywhere else.
+  const ENV = (function detectEnvironment() {
+    const nav = navigator;
+    const ua = nav.userAgent || '';
+    const uad = nav.userAgentData || null;
+    const plat = String((uad && uad.platform) || nav.platform || '');
+    const brands = uad && Array.isArray(uad.brands) ? uad.brands.map((b) => b.brand) : [];
+    let os = 'unknown';
+    if (/Android/i.test(plat) || /Android/.test(ua)) os = 'android';
+    else if (/Chrome ?OS|CrOS/i.test(plat) || /\bCrOS\b/.test(ua)) os = 'chromeos';
+    else if (/iPhone|iPad|iPod/.test(plat) || /iPhone|iPad|iPod/.test(ua) || (/Mac/i.test(plat) && (nav.maxTouchPoints || 0) > 1)) os = 'ios';
+    else if (/Mac/i.test(plat) || /Mac OS X|Macintosh/.test(ua)) os = 'macos';
+    else if (/Win/i.test(plat) || /Windows/.test(ua)) os = 'windows';
+    else if (/Linux|X11|BSD/i.test(plat) || /Linux|X11/.test(ua)) os = 'linux';
+    let browser = 'unknown';
+    const has = (re) => brands.some((b) => re.test(b));
+    if (nav.brave && typeof nav.brave.isBrave === 'function') browser = 'brave';
+    else if (has(/Microsoft Edge/) || /\bEdg(e|A|iOS)?\//.test(ua)) browser = 'edge';
+    else if (has(/Opera/) || /\bOPR\/|\bOPiOS\//.test(ua)) browser = 'opera';
+    else if (/\bFirefox\/|\bFxiOS\//.test(ua)) browser = 'firefox';
+    else if (has(/^Google Chrome$/) || /\bCriOS\//.test(ua)) browser = 'chrome';
+    else if (brands.length && has(/^Chromium$/)) browser = 'chromium';
+    else if (/\bVersion\/[\d.]+.*\bSafari\//.test(ua) && /Apple/.test(nav.vendor || '') && !/\bChrome\//.test(ua)) browser = 'safari';
+    else if (/\bChrome\//.test(ua)) browser = 'chromium';   // a Chromium browser that doesn't say which
+    const apple = os === 'macos' || os === 'ios';
+    const OS_LABEL = { macos: 'macOS', windows: 'Windows', linux: 'Linux', chromeos: 'ChromeOS', ios: 'iOS / iPadOS', android: 'Android', unknown: 'Unknown' };
+    const BR_LABEL = { chrome: 'Chrome', edge: 'Edge', firefox: 'Firefox', safari: 'Safari', brave: 'Brave', chromium: 'Chromium-based', opera: 'Opera', unknown: 'Unknown' };
+    return { os, browser, apple, primaryMod: apple ? 'meta' : 'ctrl', osLabel: OS_LABEL[os], browserLabel: BR_LABEL[browser] };
+  })();
+  // True when exactly the platform's primary modifier is held (⌘ on Apple,
+  // Ctrl elsewhere) — never the other one, so Ctrl+K on a Mac and the
+  // Windows key on a PC stay with the system.
+  const primaryModOnly = (e) => (ENV.primaryMod === 'meta' ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
+  // Letter check that follows the user's keyboard layout (e.key), with the
+  // physical key as a fallback for non-Latin layouts.
+  const keyIsLetter = (e, letter) => { const k = String(e.key || '').toLowerCase(); return /^[a-z]$/.test(k) ? k === letter : e.code === 'Key' + letter.toUpperCase(); };
+  // Once a console command has handled a keydown, the matching keyup never
+  // reaches the page either (one shared listener for every command).
+  const swallowKeyups = new Set();
+  function swallowKeyup(code) { if (code) swallowKeyups.add(code); }
+  function consoleHandled(e) { e.preventDefault(); e.stopImmediatePropagation(); swallowKeyup(e.code); }
+  onWin('keydown', (e) => { if (!e.repeat) swallowKeyups.delete(e.code); }, true);   // a fresh press clears any keyup that never arrived
+  onWin('keyup', (e) => { if (swallowKeyups.delete(e.code)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+
   // Deliberately shadows the globals for this whole file so every repeating
   // timer is tracked without touching the call sites. Ids stay real, so
   // clearInterval elsewhere keeps working.
@@ -584,7 +633,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       'theme#*': ['feature'], 'admin#*': ['feature'] } },
     { at: '2026-09-27T05:25:23-04:00', commit: '', title: 'Selection assistant rebuilt: personal toolbar, grouped tools, shortcuts, iframes and a phone tray', parts: {
       selection: ['redesign', 'Personal toolbar, More menu, shortcuts, smart ordering, iframes, phone tray'], 'theme#controls': ['feature', 'Selection assistant settings and a keyboard shortcut list'],
-      admin: ['feature', 'Owner switch for the selection assistant'], study: ['feature', 'Flashcards from a selection'] } }
+      admin: ['feature', 'Owner switch for the selection assistant'], study: ['feature', 'Flashcards from a selection'] } },
+    { at: '2026-09-27T06:35:38-04:00', commit: '', title: 'Shortcuts adapt to your OS and browser and never leak into the page', parts: {
+      console: ['fix', 'OS and browser detection; ⌘ on Apple, Ctrl elsewhere; handled keys stay in the console'],
+      selection: ['fix', 'ChromeOS-safe defaults; handled shortcuts no longer reach the page'], admin: ['fix', 'Palette uses ⌘K on Apple devices and Ctrl+K elsewhere'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -5355,6 +5407,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   minimized.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault();
+    e.stopPropagation();   // the page never sees Enter/Space meant for this button
+    swallowKeyup(e.code);
     toggleAgentConsole();
   });
   host.addEventListener('gpa-toggle', toggleAgentConsole);
@@ -5379,7 +5433,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     .map((r) => `[role="${r}"]`).join(',');
   let lastArrowDownAt = 0;
   let arrowSnapshot = null;
-  let swallowArrowKeyup = false;
   const isShown = (el) => !!el && !el.hidden && el.style.display !== 'none' && el.getClientRects().length > 0;
   function arrowDownHasOwnMeaning(e) {
     const t = (e.composedPath && e.composedPath()[0]) || e.target;
@@ -5441,7 +5494,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       arrowSnapshot = null;
       e.preventDefault();
       e.stopImmediatePropagation();
-      swallowArrowKeyup = true;
+      swallowKeyup(e.code);
       // Undo the first press's scroll. Browsers animate keyboard scrolling,
       // and that animation can keep moving for a few hundred ms after this
       // keydown, so hold the snapshot until the position has stayed put for
@@ -5452,12 +5505,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     lastArrowDownAt = now;
     arrowSnapshot = takeScrollSnapshot(e);
-  }, true);
-  onWin('keyup', (e) => {
-    if (!swallowArrowKeyup || e.key !== 'ArrowDown') return;
-    swallowArrowKeyup = false;
-    e.preventDefault();
-    e.stopImmediatePropagation();
   }, true);
   panel.querySelector('#gpa-close').addEventListener('click', () => host.remove());
 
@@ -10119,7 +10166,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // those preferences: a tool the owner turned off can't be turned back on.
   const SA_KEY = 'gpa_selection_assistant';
   let selectionAssistantApi = null;   // { hide, render } once the toolbar exists
-  const SA_IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+  const SA_IS_MAC = ENV.apple;   // ⌘ ⌥ ⇧ keycaps and Apple modifier rules
   const SA_ICON_MORE = gpsSvg('<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>');
   const SA_ICON_SPARK = GPS_ICONS.effects;
   const SA_GROUPS = [['ai', 'AI'], ['learning', 'Learning'], ['research', 'Research'], ['productivity', 'Productivity']];
@@ -10158,7 +10205,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // of macOS), and they only act while text is selected outside a text field.
   const SA_DEFAULT_KEYS = {
     ask: 'alt+shift+Slash', answer: 'alt+shift+Enter', solve: 'alt+shift+KeyQ', explain: 'alt+shift+KeyE',
-    summarize: 'alt+shift+KeyM', search: 'alt+shift+KeyF', save: 'alt+shift+KeyS', repeat: 'alt+shift+KeyR', focus: 'alt+shift+KeyK'
+    summarize: 'alt+shift+KeyM', search: 'alt+shift+KeyF', save: 'alt+shift+KeyS', repeat: 'alt+shift+KeyR', focus: 'alt+shift+KeyK',
+    // ChromeOS keeps Alt+Shift+M (Files) and Alt+Shift+S (status area) for itself.
+    ...(ENV.os === 'chromeos' ? { summarize: 'alt+shift+KeyU', save: 'alt+shift+KeyD' } : {})
   };
   // Shortcuts the rest of the console already uses (shown in the cheat sheet
   // and never assignable to a selection tool).
@@ -10268,6 +10317,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!SA_IS_MAC && k.ctrl && k.alt) return 'Ctrl+Alt types characters on many keyboards (AltGr). Choose another shortcut.';
     if (!SA_IS_MAC && k.alt && !k.shift && ['KeyF', 'KeyE', 'KeyD', 'Home', 'ArrowLeft', 'ArrowRight', 'F4', 'Space', 'Tab'].includes(k.code)) return 'The browser or system uses this shortcut. Choose another shortcut.';
     if (k.alt && k.shift && ['KeyT', 'KeyB', 'KeyA', 'KeyI'].includes(k.code)) return 'The browser uses this shortcut. Choose another shortcut.';
+    if (ENV.os === 'chromeos' && k.alt && k.shift && !k.ctrl && ['KeyM', 'KeyN', 'KeyS', 'KeyL', 'KeyP'].includes(k.code)) return 'ChromeOS uses this shortcut. Choose another shortcut.';
+    if (!SA_IS_MAC && ENV.browser === 'firefox' && k.alt && !k.shift && !k.ctrl && ['KeyV', 'KeyS', 'KeyB', 'KeyT', 'KeyH'].includes(k.code)) return 'Firefox opens its menus with this shortcut. Choose another shortcut.';
     if (k.code === 'ArrowDown' || k.code === 'Escape' || k.code === 'Tab') return 'The console uses this key. Choose another shortcut.';
     return null;
   }
@@ -10715,7 +10766,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         if ((!sel || sel.isCollapsed) && saRead().dismissOnClear && !bar.contains(document.activeElement)) hide();
         else if (coarse()) consider(win, 'touch');
       }, opts);
-      doc.addEventListener('keydown', onShortcut, opts);
+      win.addEventListener('keydown', onShortcut, opts);
+      if (win !== window) win.addEventListener('keyup', (e) => { if (frameSwallow.delete(e.code)) { e.preventDefault(); e.stopImmediatePropagation(); } }, opts);
       if (win !== window) win.addEventListener('scroll', schedule, { capture: true, passive: true, signal: gpaAbort.signal });
       win.addEventListener('blur', () => setTimeout(() => attachFocusedFrame(win), 0), { signal: gpaAbort.signal });
     }
@@ -10723,6 +10775,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // one (which happens on the mousedown that starts a selection there) —
     // no scanning of the page for frames.
     const attached = new WeakSet();
+    const frameSwallow = new Set();   // keyups to hide inside frames (top window uses swallowKeyup)
     function attachFocusedFrame(parentWin) {
       if (!saRead().iframes) return;
       try {
@@ -10741,7 +10794,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     attach(document, window);
     onWin('scroll', schedule, { capture: true, passive: true });
     onWin('resize', () => { barSig = ''; if (!bar.hidden && current) { render(saRead()); schedule(); } });
-    onWin('keydown', (e) => { if (e.key === 'Escape') { if (!bar.hidden) hide(); closePop(); } });
+    onWin('keydown', (e) => {
+      if (e.key !== 'Escape' || (bar.hidden && !pop)) return;   // nothing open: Escape belongs to the page
+      const t = (e.composedPath && e.composedPath()[0]) || e.target;
+      if (t && t.nodeType === 1 && (bar.contains(t) || (pop && pop.contains(t)))) return;   // their own handlers close one layer at a time
+      e.preventDefault();
+      e.stopPropagation();
+      swallowKeyup(e.code);
+      if (!bar.hidden) hide();
+      closePop();
+    }, true);
     saListeners.add((s) => { barSig = ''; if (!bar.hidden) { render(s); position(); } });
 
     // ---- Shortcuts ----
@@ -10758,7 +10820,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const sel = saReadSelection(win) || saReadSelection(window) || (current && !bar.hidden ? current : null);
       if (!sel) return;   // no selection: leave the key to the page and browser
       e.preventDefault();
-      e.stopPropagation();
+      e.stopImmediatePropagation();   // recognized: the page and browser don't also act on it
+      if (win === window) swallowKeyup(e.code); else frameSwallow.add(e.code);
       if (id === 'focus') { show(sel); const f = bar.querySelector('.gsa-launch, .gsa-row .gsa-btn'); if (f) f.focus(); return; }
       let toolId = id;
       if (id === 'repeat') { toolId = s.last; if (!toolId || !SA_BY_ID[toolId]) { announce('No tool used yet.'); return; } }
@@ -15561,9 +15624,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // typing, ignored with modifier keys, and only while the Games tab is open.
   // They work in fullscreen too, since the listener is on window.
   onWin('keydown', (e) => {
-    const k = e.key.toLowerCase();
+    const k = String(e.key || '').toLowerCase();
     if (k !== 'p' && k !== 'r' && k !== 't') return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
     const gamesPane = panel.querySelector('.gpa-pane[data-pane="games"]');
     if (!gamesPane || !gamesPane.classList.contains('active')) return;
     // Don't steal the key from a text field (inside the panel or on the page).
@@ -15572,11 +15635,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const tag = (activeEl.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || activeEl.isContentEditable) return;
     }
-    e.preventDefault();
+    consoleHandled(e);
     if (k === 'p') togglePause();
     else if (k === 'r') loadGame(currentGameId);
     else if (k === 't') toggleGameTimer();
-  });
+  }, true);
 
   // Fullscreen the game stage (works from inside the shadow DOM).
   fullscreenBtn.addEventListener('click', () => {
@@ -17022,7 +17085,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       pal.hidden = false;
       palInput.value = '';
       palIndex = 0;
-      if (can('users.view') && !state.users.length) { try { state.users = (await api('/admin/users')).users; } catch (e) { /* ignore */ } }
+      if (can('users.view') && !state.users.length) { try { state.users = (await api('/admin/users')).users || []; } catch (e) { /* ignore */ } }
       renderPalette();
       palInput.focus();
     }
@@ -17045,13 +17108,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // Ctrl/⌘K only while the Admin pane is on screen, and only when focus is
     // in the console or nowhere in particular (the page body) — never while
     // the person is typing in the host page.
-    onDoc('keydown', (e) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || String(e.key).toLowerCase() !== 'k') return;
+    onWin('keydown', (e) => {
+      if (!primaryModOnly(e) || e.altKey || e.shiftKey || e.repeat || !keyIsLetter(e, 'k')) return;
       if (!pane.classList.contains('active') || !state.who || !pane.getClientRects().length) return;   // panel minimized or hidden
       const ae = document.activeElement;
       if (!(ae === host || ae === document.body || ae === document.documentElement || !ae)) return;
-      e.preventDefault();
-      e.stopPropagation();
+      consoleHandled(e);
       if (pal.hidden) openPalette(); else closePalette();
     }, true);
 
@@ -17732,6 +17794,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const add = (label, value, good) => rows.push({ label, value: String(value), good });
 
       add('Page origin', location.origin, true);
+      add('Operating system', ENV.osLabel, ENV.os !== 'unknown');
+      add('Browser', ENV.browserLabel, ENV.browser !== 'unknown');
+      add('Primary shortcut modifier', ENV.primaryMod === 'meta' ? '⌘ Command' : 'Ctrl', true);
       add('Panel storage', location.hostname, true);
       add('Online', navigator.onLine ? 'yes' : 'no (offline)', navigator.onLine);
       add('Provider', currentProviderLabel(), true);
@@ -18776,6 +18841,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const t = e.composedPath ? e.composedPath()[0] : e.target;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       e.preventDefault();
+      e.stopPropagation();   // don't also trigger the page's own "/" search
+      swallowKeyup(e.code);
       searchInput.focus();
     });
 
