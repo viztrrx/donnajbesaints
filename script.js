@@ -259,8 +259,46 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const swallowKeyups = new Set();
   function swallowKeyup(code) { if (code) swallowKeyups.add(code); }
   function consoleHandled(e) { e.preventDefault(); e.stopImmediatePropagation(); swallowKeyup(e.code); }
-  onWin('keydown', (e) => { if (!e.repeat) swallowKeyups.delete(e.code); }, true);   // a fresh press clears any keyup that never arrived
-  onWin('keyup', (e) => { if (swallowKeyups.delete(e.code)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+  // ---- One keyboard path for every console command ----
+  // Commands register a handler that returns true when it recognized and
+  // handled the key. The same dispatcher listens on the page's window and on
+  // every same-site frame the user focuses (keys pressed inside a frame never
+  // reach the top window), so shortcuts keep working on sites that embed
+  // their content in frames. Other sites' frames stay private to the browser.
+  const consoleKeyCommands = [];
+  function registerConsoleKey(id, fn) { consoleKeyCommands.push({ id, fn }); }
+  function consoleKeydown(e) {
+    if (!e.repeat) swallowKeyups.delete(e.code);   // a fresh press clears any keyup that never arrived
+    for (const c of consoleKeyCommands) {
+      try { if (c.fn(e) === true) return; } catch (err) { console.warn('[Agent Console] shortcut "' + c.id + '" failed:', err); }
+    }
+  }
+  function consoleKeyup(e) { if (swallowKeyups.delete(e.code)) { e.preventDefault(); e.stopImmediatePropagation(); } }
+  const consoleKeyDocs = new WeakSet();
+  const consoleFrameHooks = [];   // other modules that also need each same-site frame
+  function listenForConsoleKeys(win) {
+    let doc;
+    try { doc = win.document; if (!doc || consoleKeyDocs.has(doc)) return; } catch (err) { return; }   // other-site frame
+    consoleKeyDocs.add(doc);
+    const o = { capture: true, signal: gpaAbort.signal };
+    win.addEventListener('keydown', consoleKeydown, o);
+    win.addEventListener('keyup', consoleKeyup, o);
+    // Frames are picked up when they load (load events don't bubble, but a
+    // capturing listener sees them), once for any already on the page, and
+    // when focus moves into one. No polling or page scanning.
+    doc.addEventListener('load', (e) => { const t = e.target; if (t && /^(IFRAME|FRAME)$/.test(t.tagName)) { try { listenForConsoleKeys(t.contentWindow); } catch (err) { /* other site */ } } }, o);
+    try { doc.querySelectorAll('iframe, frame').forEach((f) => { try { if (f.contentWindow) listenForConsoleKeys(f.contentWindow); } catch (err) { /* other site */ } }); } catch (err) { /* ignore */ }
+    win.addEventListener('blur', () => setTimeout(() => followFocusIntoFrame(win), 0), { signal: gpaAbort.signal });
+    followFocusIntoFrame(win);
+    if (win !== window) consoleFrameHooks.forEach((h) => { try { h(win); } catch (err) { /* ignore */ } });
+  }
+  function followFocusIntoFrame(win) {
+    try {
+      const fe = win.document.activeElement;
+      if (fe && /^(IFRAME|FRAME)$/.test(fe.tagName) && fe.contentWindow) listenForConsoleKeys(fe.contentWindow);
+    } catch (err) { /* other-site frame */ }
+  }
+  listenForConsoleKeys(window);
 
   // Deliberately shadows the globals for this whole file so every repeating
   // timer is tracked without touching the call sites. Ids stay real, so
@@ -636,7 +674,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       admin: ['feature', 'Owner switch for the selection assistant'], study: ['feature', 'Flashcards from a selection'] } },
     { at: '2026-09-27T06:35:38-04:00', commit: '', title: 'Shortcuts adapt to your OS and browser and never leak into the page', parts: {
       console: ['fix', 'OS and browser detection; ⌘ on Apple, Ctrl elsewhere; handled keys stay in the console'],
-      selection: ['fix', 'ChromeOS-safe defaults; handled shortcuts no longer reach the page'], admin: ['fix', 'Palette uses ⌘K on Apple devices and Ctrl+K elsewhere'] } }
+      selection: ['fix', 'ChromeOS-safe defaults; handled shortcuts no longer reach the page'], admin: ['fix', 'Palette uses ⌘K on Apple devices and Ctrl+K elsewhere'] } },
+    { at: '2026-09-27T07:09:46-04:00', commit: '', title: 'Console shortcuts work inside embedded frames; option to hide the reopen button', parts: {
+      console: ['feature', 'One shortcut dispatcher for the page and same-site frames; Hide the reopen button setting'],
+      'theme#controls': ['feature', 'Hide the reopen button'], selection: ['fix', 'Frames found on load, not only on focus'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -3574,6 +3615,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                   <div><div class="gps-label">Show or hide the console</div><p class="gps-hint">Press the Down arrow twice quickly anywhere on the page. It's ignored while you type, in lists and menus, and while a game is running.</p></div>
                   <span class="gpx-kbd" role="img" aria-label="Down arrow, twice"><kbd aria-hidden="true">↓</kbd><kbd aria-hidden="true">↓</kbd></span>
                 </div>
+                <div class="gps-item gps-item-row" data-k="controls hide reopen button icon collapsed minimized invisible hidden console arrow down">
+                  <div><div class="gps-label">Hide the reopen button</div><p class="gps-hint" id="gps-hide-mini-hint">When on, pressing ↓↓ hides the console and its round reopen button completely, so nothing is left on the page. Press ↓↓ again to bring the console back, or run the loader again.</p></div>
+                  <button id="gps-hide-mini" class="gps-switch" aria-pressed="false" aria-label="Hide the reopen button when the console is collapsed">Hide the reopen button</button>
+                </div>
                 </div>
               </section>
 
@@ -5388,12 +5433,46 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // the minimized button, the double-↓ shortcut and re-running the script.
   // Collapsing only hides the UI: every pane's DOM, conversation and state
   // stay exactly as they were.
+  // ---- "Hide the reopen button" (Settings → Controls, off by default) ----
+  // While collapsed with this on, the whole console host is display:none —
+  // no button, no hit area, no shadow, nothing left in the page. ↓↓ (or
+  // running the loader again) still toggles it back through the same path.
+  const HIDE_MINI_KEY = 'gpa_hide_reopen_icon';
+  function reopenIconHidden() { try { return localStorage.getItem(HIDE_MINI_KEY) === 'on'; } catch (e) { return false; } }
+  function applyReopenIconVisibility() { host.style.display = isMin && reopenIconHidden() ? 'none' : ''; }
+  function syncHideMiniSwitch() {
+    const sw = panel.querySelector('#gps-hide-mini');
+    if (!sw) return;
+    const on = reopenIconHidden();
+    sw.classList.toggle('primary', on);
+    sw.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  (function hideReopenButtonSetting() {
+    const sw = panel.querySelector('#gps-hide-mini');
+    if (!sw) return;
+    if (ENV.os === 'ios' || ENV.os === 'android') {
+      const hint = panel.querySelector('#gps-hide-mini-hint');
+      if (hint) hint.textContent += ' On a phone or tablet without a keyboard, only running the loader again brings it back.';
+    }
+    sw.addEventListener('click', () => {
+      try { localStorage.setItem(HIDE_MINI_KEY, reopenIconHidden() ? 'off' : 'on'); } catch (e) { /* storage blocked */ }
+      syncHideMiniSwitch();
+      applyReopenIconVisibility();
+    });
+    // Another tab (or a profile switch) changing it applies right away.
+    onWin('storage', (e) => { if (e.key === HIDE_MINI_KEY || e.key === null) { syncHideMiniSwitch(); applyReopenIconVisibility(); } });
+    syncHideMiniSwitch();
+    const controlsTab = panel.querySelector('.gps-tab[data-sec="controls"]');
+    if (controlsTab) controlsTab.addEventListener('click', syncHideMiniSwitch);   // after a profile switch
+  })();
+
   function toggleAgentConsole() {
     const active = root.activeElement;
     const focusWasInPanel = !!active && active !== minimized && panel.contains(active);
     const focusWasOnMini = active === minimized;
     setMinimized(!isMin);
-    if (isMin && focusWasInPanel) minimized.focus({ preventScroll: true });
+    if (isMin && focusWasInPanel && reopenIconHidden()) { try { active.blur(); } catch (e) { /* ignore */ } }   // nothing to focus: hand focus back to the page
+    else if (isMin && focusWasInPanel) minimized.focus({ preventScroll: true });
     else if (!isMin && focusWasOnMini) {
       const collapseBtn = panel.querySelector('#gpa-min');
       if (collapseBtn) collapseBtn.focus({ preventScroll: true });
@@ -5459,7 +5538,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function takeScrollSnapshot(e) {
     const t = (e.composedPath && e.composedPath()[0]) || e.target;
     const box = scrollBoxOf(t);
-    return { x: window.scrollX, y: window.scrollY, box, top: box ? box.scrollTop : 0, left: box ? box.scrollLeft : 0 };
+    let view = null;
+    try { view = t && t.ownerDocument && t.ownerDocument.defaultView !== window ? t.ownerDocument.defaultView : null; } catch (err) { view = null; }
+    return { x: window.scrollX, y: window.scrollY, box, top: box ? box.scrollTop : 0, left: box ? box.scrollLeft : 0, view, vx: view ? view.scrollX : 0, vy: view ? view.scrollY : 0 };
   }
   function restoreScrollSnapshot(snap) {
     if (!snap) return;
@@ -5467,11 +5548,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (snap.box && snap.box.isConnected) {
       try { snap.box.scrollTo({ left: snap.left, top: snap.top, behavior: 'instant' }); } catch (err) { snap.box.scrollTop = snap.top; }
     }
+    if (snap.view) { try { snap.view.scrollTo({ left: snap.vx, top: snap.vy, behavior: 'instant' }); } catch (err) { /* frame gone */ } }
   }
   function pinScrollSnapshot(snap) {
     if (!snap) return;
     const moved = () => Math.abs(window.scrollY - snap.y) > 0.5 || Math.abs(window.scrollX - snap.x) > 0.5
-      || (snap.box && snap.box.isConnected && (Math.abs(snap.box.scrollTop - snap.top) > 0.5 || Math.abs(snap.box.scrollLeft - snap.left) > 0.5));
+      || (snap.box && snap.box.isConnected && (Math.abs(snap.box.scrollTop - snap.top) > 0.5 || Math.abs(snap.box.scrollLeft - snap.left) > 0.5))
+      || (snap.view && (() => { try { return Math.abs(snap.view.scrollY - snap.vy) > 0.5; } catch (err) { return false; } })());
     const t0 = performance.now();
     let still = 0;
     restoreScrollSnapshot(snap);
@@ -5481,11 +5564,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (age < 600 && (age < 250 || still < 4)) requestAnimationFrame(frame);
     })();
   }
-  onWin('keydown', (e) => {
+  registerConsoleKey('toggle-console', (e) => {
     if (e.key !== 'ArrowDown' || e.repeat || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || arrowDownHasOwnMeaning(e)) {
       lastArrowDownAt = 0;
       arrowSnapshot = null;
-      return;
+      return false;
     }
     const now = performance.now();
     if (lastArrowDownAt && now - lastArrowDownAt <= AGENT_CONSOLE_DOUBLE_DOWN_WINDOW) {
@@ -5501,11 +5584,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       // a few frames (bounded, so a real scroll right after is never fought).
       pinScrollSnapshot(snap);
       toggleAgentConsole();
-      return;
+      return true;
     }
     lastArrowDownAt = now;
     arrowSnapshot = takeScrollSnapshot(e);
-  }, true);
+    return false;
+  });
   panel.querySelector('#gpa-close').addEventListener('click', () => host.remove());
 
   // ---- Fullscreen the whole console (header, sidebar, everything) --------
@@ -5550,6 +5634,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // dot. Drop the class while minimized, restore it on expand if signed out.
     panel.classList.toggle('gpa-locked', !v && !signedInNow);
     panel.classList.toggle('gpa-minimized', v);
+    applyReopenIconVisibility();
     panel.classList.toggle('gpa-fullpage', !v && panelSizeKey === 'full');
     panel.style.width = v ? 'auto' : sizeFor(panelSizeKey).w + 'px';
     panel.style.height = v ? 'auto' : sizeFor(panelSizeKey).h + 'px';
@@ -10766,8 +10851,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         if ((!sel || sel.isCollapsed) && saRead().dismissOnClear && !bar.contains(document.activeElement)) hide();
         else if (coarse()) consider(win, 'touch');
       }, opts);
-      win.addEventListener('keydown', onShortcut, opts);
-      if (win !== window) win.addEventListener('keyup', (e) => { if (frameSwallow.delete(e.code)) { e.preventDefault(); e.stopImmediatePropagation(); } }, opts);
       if (win !== window) win.addEventListener('scroll', schedule, { capture: true, passive: true, signal: gpaAbort.signal });
       win.addEventListener('blur', () => setTimeout(() => attachFocusedFrame(win), 0), { signal: gpaAbort.signal });
     }
@@ -10775,7 +10858,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // one (which happens on the mousedown that starts a selection there) —
     // no scanning of the page for frames.
     const attached = new WeakSet();
-    const frameSwallow = new Set();   // keyups to hide inside frames (top window uses swallowKeyup)
     function attachFocusedFrame(parentWin) {
       if (!saRead().iframes) return;
       try {
@@ -10792,18 +10874,24 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     function schedule() { if (bar.hidden && !pop) return; cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { position(); }); }
     attached.add(document);
     attach(document, window);
+    const attachFrameWin = (w) => { try { const d = w.document; if (d && !attached.has(d)) { attached.add(d); attach(d, w); } } catch (e) { /* other site */ } };
+    consoleFrameHooks.push(attachFrameWin);
+    // Frames the console already knows about (found before this module ran).
+    try { document.querySelectorAll('iframe, frame').forEach((f) => { try { if (f.contentWindow) attachFrameWin(f.contentWindow); } catch (e) { /* other site */ } }); } catch (e) { /* ignore */ }
     onWin('scroll', schedule, { capture: true, passive: true });
     onWin('resize', () => { barSig = ''; if (!bar.hidden && current) { render(saRead()); schedule(); } });
-    onWin('keydown', (e) => {
-      if (e.key !== 'Escape' || (bar.hidden && !pop)) return;   // nothing open: Escape belongs to the page
+    registerConsoleKey('selection-escape', (e) => {
+      if (e.key !== 'Escape' || (bar.hidden && !pop)) return false;   // nothing open: Escape belongs to the page
       const t = (e.composedPath && e.composedPath()[0]) || e.target;
-      if (t && t.nodeType === 1 && (bar.contains(t) || (pop && pop.contains(t)))) return;   // their own handlers close one layer at a time
+      if (t && t.nodeType === 1 && (bar.contains(t) || (pop && pop.contains(t)))) return false;   // their own handlers close one layer at a time
       e.preventDefault();
       e.stopPropagation();
       swallowKeyup(e.code);
       if (!bar.hidden) hide();
       closePop();
-    }, true);
+      return true;
+    });
+    registerConsoleKey('selection-shortcuts', (e) => onShortcut(e) === true);
     saListeners.add((s) => { barSig = ''; if (!bar.hidden) { render(s); position(); } });
 
     // ---- Shortcuts ----
@@ -10821,14 +10909,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (!sel) return;   // no selection: leave the key to the page and browser
       e.preventDefault();
       e.stopImmediatePropagation();   // recognized: the page and browser don't also act on it
-      if (win === window) swallowKeyup(e.code); else frameSwallow.add(e.code);
-      if (id === 'focus') { show(sel); const f = bar.querySelector('.gsa-launch, .gsa-row .gsa-btn'); if (f) f.focus(); return; }
+      swallowKeyup(e.code);
+      if (id === 'focus') { show(sel); const f = bar.querySelector('.gsa-launch, .gsa-row .gsa-btn'); if (f) f.focus(); return true; }
       let toolId = id;
-      if (id === 'repeat') { toolId = s.last; if (!toolId || !SA_BY_ID[toolId]) { announce('No tool used yet.'); return; } }
-      if (!saAvailable(SA_BY_ID[toolId], s)) { announce(SA_BY_ID[toolId].label + ' is turned off.'); return; }
+      if (id === 'repeat') { toolId = s.last; if (!toolId || !SA_BY_ID[toolId]) { announce('No tool used yet.'); return true; } }
+      if (!saAvailable(SA_BY_ID[toolId], s)) { announce(SA_BY_ID[toolId].label + ' is turned off.'); return true; }
       if (bar.hidden || !current || current.text !== sel.text) show(sel);
       const b = bar.querySelector(`.gsa-btn[data-tool="${toolId}"]`);
       runTool(toolId, sel, b);
+      return true;
     }
 
     // Exposed for the settings UI and tests.
@@ -15623,23 +15712,26 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // T = show/hide the match timer. All share the same guards — ignored while
   // typing, ignored with modifier keys, and only while the Games tab is open.
   // They work in fullscreen too, since the listener is on window.
-  onWin('keydown', (e) => {
+  registerConsoleKey('game-keys', (e) => {
     const k = String(e.key || '').toLowerCase();
-    if (k !== 'p' && k !== 'r' && k !== 't') return;
-    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (k !== 'p' && k !== 'r' && k !== 't') return false;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || isMin) return false;
     const gamesPane = panel.querySelector('.gpa-pane[data-pane="games"]');
-    if (!gamesPane || !gamesPane.classList.contains('active')) return;
+    if (!gamesPane || !gamesPane.classList.contains('active')) return false;
+    const src = (e.composedPath && e.composedPath()[0]) || e.target;
+    if (src && src.nodeType === 1 && (src.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(src.tagName))) return false;
     // Don't steal the key from a text field (inside the panel or on the page).
     const activeEl = root.activeElement || document.activeElement;
     if (activeEl) {
       const tag = (activeEl.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || activeEl.isContentEditable) return;
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || activeEl.isContentEditable) return false;
     }
     consoleHandled(e);
     if (k === 'p') togglePause();
     else if (k === 'r') loadGame(currentGameId);
     else if (k === 't') toggleGameTimer();
-  }, true);
+    return true;
+  });
 
   // Fullscreen the game stage (works from inside the shadow DOM).
   fullscreenBtn.addEventListener('click', () => {
@@ -17108,14 +17200,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // Ctrl/⌘K only while the Admin pane is on screen, and only when focus is
     // in the console or nowhere in particular (the page body) — never while
     // the person is typing in the host page.
-    onWin('keydown', (e) => {
-      if (!primaryModOnly(e) || e.altKey || e.shiftKey || e.repeat || !keyIsLetter(e, 'k')) return;
-      if (!pane.classList.contains('active') || !state.who || !pane.getClientRects().length) return;   // panel minimized or hidden
+    registerConsoleKey('admin-palette', (e) => {
+      if (!primaryModOnly(e) || e.altKey || e.shiftKey || e.repeat || !keyIsLetter(e, 'k')) return false;
+      if (!pane.classList.contains('active') || !state.who || !pane.getClientRects().length) return false;   // panel minimized or hidden
       const ae = document.activeElement;
-      if (!(ae === host || ae === document.body || ae === document.documentElement || !ae)) return;
+      if (!(ae === host || ae === document.body || ae === document.documentElement || !ae)) return false;
       consoleHandled(e);
       if (pal.hidden) openPalette(); else closePalette();
-    }, true);
+      return true;
+    });
 
     refreshNav();
     if (admGet(ADMIN_KEYS.TELE_TOKEN) || (sessionRole() && sessionRole() !== 'user')) connect(true);
