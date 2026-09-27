@@ -19,6 +19,7 @@ Every screenshot below comes from the current build on a demo page, with demo ac
 | <img src="docs/screenshots/saved.png" alt="Saved" width="420"><br>**Saved** | <img src="docs/screenshots/music.png" alt="Music" width="420"><br>**Music** |
 | <img src="docs/screenshots/proxy.png" alt="Proxy" width="420"><br>**Proxy** | <img src="docs/screenshots/games.png" alt="Games" width="420"><br>**Games** |
 | <img src="docs/screenshots/selection-bubble.png" alt="Selection assistant" width="420"><br>**Selection assistant** | <img src="docs/screenshots/selection-explain.png" alt="Selection answer" width="420"><br>**Selection answer** |
+| <img src="docs/screenshots/selection-more.png" alt="Selection tools menu" width="420"><br>**Selection tools menu** | <img src="docs/screenshots/settings-selection.png" alt="Selection assistant settings" width="420"><br>**Selection assistant settings** |
 | <img src="docs/screenshots/settings-overview.png" alt="Settings" width="420"><br>**Settings** | <img src="docs/screenshots/settings-theme.png" alt="Themes" width="420"><br>**Themes** |
 | <img src="docs/screenshots/settings-memory.png" alt="Memory" width="420"><br>**Memory** | <img src="docs/screenshots/settings-version-history.png" alt="Version history" width="420"><br>**Version history** |
 | <img src="docs/screenshots/admin-overview.png" alt="Admin overview" width="420"><br>**Admin overview** | <img src="docs/screenshots/admin-users.png" alt="Admin users" width="420"><br>**Admin users** |
@@ -111,11 +112,49 @@ General\-purpose chat, independent of the page. Voice input via the browser's sp
 
 ### Selection assistant {#selection-assistant}
 
-![The selection bubble over highlighted page text](docs/screenshots/selection-bubble.png)
+![The selection toolbar above highlighted text](docs/screenshots/selection-bubble.png)
 
-Select any text on the page and a small bubble appears: **Explain**, **Simplify**, **Translate**, **Define**, **Humanize**, **Grammar**, copy\-as\-clean\-text, or save to your insights. The answer opens in a small popup next to the selection. Both follow the current theme.
+Select text on any page, or inside an embedded frame from the same site, and a compact toolbar appears next to it. It shows your primary tools, and **More** holds the rest in four groups:
+
+- **AI:** Ask AI, Answer, Explain, Summarize, Simplify, Define, Translate, Humanize, Fix grammar, Debug code.
+- **Learning:** Solve quiz, Hint, Practice quiz, Make flashcards.
+- **Research:** Search the web, Research, Ask in Page Insights.
+- **Productivity:** Save, Add to Notes, Copy clean text.
+
+Answers open in a small popup with Copy, Save and Try again. Everything follows the current theme, including theme previews and custom themes. On phones the toolbar becomes a bottom tray.
+
+![The grouped More menu with keyboard shortcuts](docs/screenshots/selection-more.png)
 
 ![An Explain answer next to the selection](docs/screenshots/selection-explain.png)
+
+**Keyboard shortcuts.** They only act while text is selected and you are not typing in a field, so they never take over ordinary typing. The defaults use Alt+Shift (⌥⇧ on a Mac), because Ctrl and ⌘ shortcuts belong to the browser.
+
+| Action | Windows / Linux | Mac |
+| --- | --- | --- |
+| Ask AI | Alt+Shift+/ | ⌥⇧/ |
+| Answer | Alt+Shift+Enter | ⌥⇧↵ |
+| Solve quiz | Alt+Shift+Q | ⌥⇧Q |
+| Explain | Alt+Shift+E | ⌥⇧E |
+| Summarize | Alt+Shift+M | ⌥⇧M |
+| Search the web | Alt+Shift+F | ⌥⇧F |
+| Save | Alt+Shift+S | ⌥⇧S |
+| Repeat last tool | Alt+Shift+R | ⌥⇧R |
+| Move focus to the toolbar | Alt+Shift+K | ⌥⇧K |
+
+**Make it yours** in **Settings → Controls → Selection assistant**:
+
+- Choose up to five primary tools, and reorder or remove them.
+- Turn single tools or whole groups off, and star favorites.
+- Record new shortcuts by pressing them. Browser shortcuts such as Ctrl+C are refused, and a conflict asks before moving a shortcut from another tool.
+- Pick a style: Compact, Comfortable, Minimal (one button) or Expanded (a list with shortcuts). You can also set the position, animation and behavior.
+- **Smart tool ordering** puts the likeliest tools first for what you selected: a quiz question, a single word, code or a long passage. Turn it off to always use your own order.
+- Reset restores the assistant's defaults and nothing else.
+
+Controls also lists every keyboard shortcut in the console.
+
+Settings are saved per account. The owner can turn the whole assistant off, or single tools, with the `selection` and `sel_<tool>` feature switches. Existing switches also apply: turning off `quiz` hides Solve quiz. A tool the owner turned off can't be turned back on in Settings, and Settings says why.
+
+![Settings → Controls → Selection assistant](docs/screenshots/settings-selection.png)
 
 ### Chat {#chat}
 
@@ -259,12 +298,12 @@ Every tab, every Settings section and every Admin section shows its own version 
 
 To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table and the tables below follow from it.
 
-**Current version: Agent Console `v7.2.0`**, updated Sep 27, 2026, 2:49 AM EDT.
+**Current version: Agent Console `v8.0.0`**, updated Sep 27, 2026, 5:25 AM EDT.
 
 | Part | Version | Last updated |
 | --- | --- | --- |
 | Console shell | `v2.4.0` | Sep 27, 2026, 2:49 AM EDT |
-| Selection assistant | `v1.3.0` | Sep 27, 2026, 2:49 AM EDT |
+| Selection assistant | `v2.0.0` | Sep 27, 2026, 5:25 AM EDT |
 | Welcome | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Page Insights | `v3.2.0` | Sep 27, 2026, 2:49 AM EDT |
 | Ask AI | `v2.2.0` | Sep 27, 2026, 2:49 AM EDT |
@@ -272,19 +311,20 @@ To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table a
 | Music | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Proxy | `v3.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Games | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
-| Study | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
+| Study | `v2.2.0` | Sep 27, 2026, 5:25 AM EDT |
 | Notes | `v2.2.0` | Sep 27, 2026, 2:49 AM EDT |
 | Humanize | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Grammar | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Saved | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Settings | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
-| Admin | `v2.2.0` | Sep 27, 2026, 2:49 AM EDT |
+| Admin | `v2.3.0` | Sep 27, 2026, 5:25 AM EDT |
 
 <details>
 <summary>Full release history</summary>
 
 | Version | Date | Change | Commit |
 | --- | --- | --- | --- |
+| `v8.0.0` | Sep 27, 2026, 5:25 AM EDT | Selection assistant rebuilt: personal toolbar, grouped tools, shortcuts, iframes and a phone tray | this release |
 | `v7.2.0` | Sep 27, 2026, 2:49 AM EDT | Version and version history on every tab and section | this release |
 | `v7.1.1` | Sep 27, 2026, 2:49 AM EDT | Selection bubble and answer popup styled and themed again on every page | this release |
 | `v7.1.0` | Sep 27, 2026, 2:44 AM EDT | Admin, charts and status colors follow the current theme | this release |

@@ -581,7 +581,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-09-27T02:49:36-04:00', commit: '', title: 'Version and version history on every tab and section', parts: {
       console: ['feature'], selection: ['feature'], welcome: ['feature'], scan: ['feature'], ask: ['feature'], chat: ['feature'], music: ['feature'], browser: ['feature'],
       games: ['feature'], study: ['feature'], notes: ['feature'], humanize: ['feature'], grammar: ['feature'], saved: ['feature'], theme: ['feature'], admin: ['feature'],
-      'theme#*': ['feature'], 'admin#*': ['feature'] } }
+      'theme#*': ['feature'], 'admin#*': ['feature'] } },
+    { at: '2026-09-27T05:25:23-04:00', commit: '', title: 'Selection assistant rebuilt: personal toolbar, grouped tools, shortcuts, iframes and a phone tray', parts: {
+      selection: ['redesign', 'Personal toolbar, More menu, shortcuts, smart ordering, iframes, phone tray'], 'theme#controls': ['feature', 'Selection assistant settings and a keyboard shortcut list'],
+      admin: ['feature', 'Owner switch for the selection assistant'], study: ['feature', 'Flashcards from a selection'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -2079,6 +2082,70 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gps-empty svg { width: 28px; height: 28px; }
       .gps-empty[hidden] { display: none; }
 
+
+      /* ---- Settings → Controls: selection assistant ---- */
+      .gsa-set { margin-top: 12px; }
+      .gsa-sd > summary { font-weight: 600; }
+      .gsa-sb { display: flex; flex-direction: column; gap: 4px; padding: 0 0 12px; }
+      .gsa-srow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--gps-soft); }
+      .gsa-srow:first-child { border-top: none; }
+      .gsa-srow-col { flex-direction: column; align-items: stretch; }
+      .gsa-sl { font-size: 13px; font-weight: 500; }
+      .gsa-srow .gps-hint { margin: 2px 0 0; }
+      .gsa-delay { width: auto; }
+      .gsa-gblock { padding: 4px 0 8px; border-top: 1px solid var(--gps-soft); }
+      .gsa-gblock:first-child { border-top: none; }
+      .gsa-tools { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 4px; }
+      .gsa-tool { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 4px 0 8px; border-radius: var(--gps-r1); background: var(--gpa-field); border: 1px solid var(--gpa-border); }
+      .gsa-tool.is-off { opacity: 0.6; }
+      .gsa-check { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; cursor: pointer; }
+      .gsa-check input { accent-color: var(--gpa-accent); width: 16px; height: 16px; margin: 0; }
+      .gsa-check span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gsa-ti { display: inline-grid; place-items: center; color: var(--gpa-accent); }
+      .gsa-ti svg { width: 15px; height: 15px; }
+      .gsa-pol { font-size: 10.5px; color: var(--gpa-warning); }
+      .gsa-star { display: inline-grid; place-items: center; width: 30px; height: 30px; border: none; border-radius: 8px; background: none; color: var(--gpa-sub); cursor: pointer; }
+      .gsa-star svg { width: 15px; height: 15px; }
+      .gsa-star.is-on { color: var(--gpa-warning); }
+      .gsa-star.is-on svg { fill: currentColor; }
+      .gsa-star:hover { background: var(--gps-soft); }
+      .gsa-prim { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+      .gsa-prim li { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 4px 0 10px; border-radius: var(--gps-r1); background: var(--gpa-field); border: 1px solid var(--gpa-border); }
+      .gsa-prim li.is-off { opacity: 0.6; }
+      .gsa-pn { font: 600 11px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-sub); width: 14px; }
+      .gsa-pl { flex: 1; min-width: 0; font-size: 13px; }
+      .gsa-pl em { font-style: normal; color: var(--gpa-sub); font-size: 11.5px; }
+      .gsa-ib { width: 32px; min-height: 32px; padding: 0; justify-content: center; }
+      .gsa-ib svg { width: 14px; height: 14px; transform: rotate(-90deg); }
+      .gsa-ib.gsa-down svg { transform: rotate(90deg); }
+      .gsa-ib[data-pm="remove"] svg { transform: none; }
+      .gsa-keys-list { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; }
+      .gsa-krow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px 12px; padding: 7px 0; border-top: 1px solid var(--gps-soft); }
+      .gsa-krow:first-child { border-top: none; }
+      .gsa-krow.is-rec { background: color-mix(in srgb, var(--gpa-accent) 8%, transparent); border-radius: var(--gps-r1); padding: 7px 8px; }
+      .gsa-kl { font-size: 13px; }
+      .gsa-kv { display: inline-flex; align-items: center; min-height: 26px; }
+      .gsa-ka { display: inline-flex; gap: 4px; }
+      .gsa-ka .gps-btn { min-height: 30px; padding: 0 10px; font-size: 12px; }
+      .gsa-none { font-size: 12px; color: var(--gpa-sub); }
+      .gsa-rec { font-size: 12px; color: var(--gpa-accent); font-weight: 600; }
+      .gsa-rec kbd { font: 600 10.5px 'Geist Mono', ui-monospace, monospace; padding: 1px 5px; border: 1px solid var(--gpa-border); border-radius: 5px; color: var(--gpa-sub); }
+      .gsa-kmsg { grid-column: 1 / -1; margin: 0; padding: 8px 10px; border-radius: var(--gps-r1); font-size: 12.5px; }
+      .gsa-kmsg.is-warn { color: var(--gpa-text); background: color-mix(in srgb, var(--gpa-warning) 12%, transparent); border: 1px solid color-mix(in srgb, var(--gpa-warning) 45%, var(--gpa-border)); }
+      .gsa-kmsg.is-conflict { background: color-mix(in srgb, var(--gpa-danger) 8%, var(--gpa-field)); border: 1px solid color-mix(in srgb, var(--gpa-danger) 45%, var(--gpa-border)); }
+      .gsa-kmsg .gps-row { margin-top: 8px; }
+      .gsa-set .gsa-keys, .gsa-cheat .gsa-keys { display: inline-flex; gap: 3px; }
+      .gsa-set kbd, .gsa-cheat kbd { min-width: 20px; height: 20px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: 5px; font: 600 11px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-text); background: var(--gpa-field); border: 1px solid var(--gpa-border); box-shadow: 0 1px 0 var(--gpa-border); }
+      .gsa-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+      .gsa-cheat { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 6px; }
+      .gsa-ch { font: 600 11px 'Geist Mono', ui-monospace, monospace; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gpa-sub); margin-bottom: 4px; }
+      .gsa-ch .gps-hint { text-transform: none; letter-spacing: normal; font-family: inherit; font-weight: 400; }
+      .gsa-crow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 12.5px; border-top: 1px solid var(--gps-soft); }
+      .gsa-crow:first-of-type { border-top: none; }
+      @container gps (max-width: 460px) {
+        .gsa-krow { grid-template-columns: minmax(0, 1fr) auto; }
+        .gsa-ka { grid-column: 1 / -1; }
+      }
 
       /* ---- Memory: constellation, list, notes and confirm chips ---- */
       .gps-memstage { height: 220px; }
@@ -3932,20 +3999,142 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // must sit over page text), where shadow-root styles and :host tokens
   // don't reach. They get their own page-level stylesheet plus a mirror of
   // the current theme tokens, so they match the console in every theme.
-  const PAGE_WIDGET_SEL = '.gpa-sel-bubble, .gpa-sel-pop';
+  const PAGE_WIDGET_SEL = '.gsa, .gsa-tip, .gsa-sr, .gpa-sel-pop';
   const pageWidgetStyle = document.createElement('style');
   pageWidgetStyle.id = 'gpa-page-widget-style';
   pageWidgetStyle.textContent = `
-      .gpa-sel-bubble { font: 11px 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--gpa-text); position: fixed; z-index: 2147483647; display: flex; gap: 2px; padding: 4px; border-radius: calc(10px * var(--gpa-rs)); background: var(--gpa-panel); border: 1px solid var(--gpa-accent); box-shadow: 0 6px 24px color-mix(in srgb, var(--gpa-shade) 45%, transparent); }
-      .gpa-sel-bubble button { background: transparent; border: none; color: var(--gpa-text); font-size: 11px; padding: 4px 7px; border-radius: calc(6px * var(--gpa-rs)); cursor: pointer; white-space: nowrap; font-family: inherit; }
-      .gpa-sel-bubble button:hover { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
-      .gpa-sel-pop { font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; box-sizing: border-box; position: fixed; z-index: 2147483647; max-width: 340px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: calc(10px * var(--gpa-rs)); background: var(--gpa-panel); border: 1px solid var(--gpa-accent); color: var(--gpa-text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; box-shadow: 0 8px 28px color-mix(in srgb, var(--gpa-shade) 50%, transparent); }
-      .gpa-sel-pop .gpa-sel-pop-src { display: block; margin-top: 8px; font-size: 10px; opacity: 0.65; overflow-wrap: break-word; }
-      .gpa-sel-pop .gpa-sel-pop-retry { display: block; margin-top: 8px; background: transparent; border: 1px solid var(--gpa-accent); color: var(--gpa-text); font-size: 11px; padding: 4px 8px; border-radius: calc(6px * var(--gpa-rs)); cursor: pointer; font-family: inherit; }
-      .gpa-sel-pop .gpa-sel-pop-retry:hover { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); }
-      .gpa-sel-pop .gpa-sel-pop-retry:disabled { opacity: 0.6; cursor: default; }
-      .gpa-sel-bubble button { font: inherit; line-height: 1.2; margin: 0; box-shadow: none; text-transform: none; letter-spacing: normal; }
-      .gpa-sel-bubble button:focus-visible, .gpa-sel-pop button:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 1px; }
+      .gsa, .gsa *, .gsa-tip, .gsa-tip *, .gpa-sel-pop, .gpa-sel-pop * { box-sizing: border-box; }
+      .gsa, .gsa-tip, .gpa-sel-pop {
+        font: 500 12.5px/1.3 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; letter-spacing: normal; text-transform: none;
+        color: var(--gpa-text); -webkit-font-smoothing: antialiased; text-align: left;
+      }
+      :where(.gsa, .gpa-sel-pop) button { all: unset; box-sizing: border-box; font: inherit; color: inherit; cursor: pointer; }
+      .gsa svg, .gsa-tip svg, .gpa-sel-pop svg { width: 15px; height: 15px; flex: none; display: block; fill: none; stroke: currentColor; }
+      .gsa[hidden], .gsa-tip[hidden], .gsa [hidden], .gpa-sel-pop [hidden] { display: none !important; }
+      .gsa-sr { position: fixed !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+      /* Toolbar: layered glass with a hairline highlight, one depth shadow. */
+      .gsa {
+        position: fixed; z-index: 2147483646; display: flex; flex-direction: column; gap: 4px; padding: 4px;
+        border-radius: calc(12px * var(--gpa-rs, 1)); border: 1px solid var(--gpa-border);
+        background: linear-gradient(180deg, color-mix(in srgb, var(--gpa-text) 5%, var(--gpa-panel)), var(--gpa-panel));
+        box-shadow: 0 1px 0 color-mix(in srgb, var(--gpa-text) 8%, transparent) inset, 0 12px 28px -10px color-mix(in srgb, var(--gpa-shade) 70%, transparent), 0 0 0 1px color-mix(in srgb, var(--gpa-accent) 10%, transparent);
+        -webkit-backdrop-filter: saturate(1.3) blur(10px); backdrop-filter: saturate(1.3) blur(10px);
+        transform-origin: 50% 100%;
+      }
+      .gsa[data-side="below"] { transform-origin: 50% 0; }
+      .gsa.is-in[data-anim="full"] { animation: gsa-in 170ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+      .gsa.is-in[data-anim="reduced"] { animation: gsa-fade 140ms ease both; }
+      @keyframes gsa-in { from { opacity: 0; transform: perspective(600px) translateY(4px) rotateX(-8deg) scale(0.97); } to { opacity: 1; transform: none; } }
+      @keyframes gsa-fade { from { opacity: 0; } to { opacity: 1; } }
+      .gsa-row { display: flex; align-items: center; gap: 2px; }
+      .gsa-btn {
+        position: relative; display: inline-flex !important; align-items: center; justify-content: center; gap: 6px;
+        min-height: 30px; padding: 0 10px; border-radius: calc(8px * var(--gpa-rs, 1)); white-space: nowrap; color: var(--gpa-text);
+        transition: background 120ms ease, color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+      }
+      .gsa-btn svg { color: var(--gpa-accent); }
+      .gsa-btn:hover { background: color-mix(in srgb, var(--gpa-accent) 14%, transparent); transform: translateY(-1px); }
+      .gsa-btn:active { transform: translateY(0) scale(0.97); background: color-mix(in srgb, var(--gpa-accent) 22%, transparent); }
+      .gsa-btn:focus-visible, .gsa-item:focus-visible, .gpa-sel-pop button:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 1px; }
+      .gsa-more { padding: 0 8px; color: var(--gpa-sub); }
+      .gsa-row > .gsa-more { margin-left: 2px; border-left: 1px solid var(--gpa-border); border-radius: 0 calc(8px * var(--gpa-rs, 1)) calc(8px * var(--gpa-rs, 1)) 0; }
+      .gsa-more[aria-expanded="true"] { background: color-mix(in srgb, var(--gpa-accent) 16%, transparent); color: var(--gpa-text); }
+      .gsa-spin { display: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--gpa-accent) 30%, transparent); border-top-color: var(--gpa-accent); animation: gsa-rot 700ms linear infinite; }
+      .gsa-btn.is-busy .gsa-spin { display: inline-block; }
+      .gsa-btn.is-busy svg { display: none; }
+      .gsa-btn.is-done { color: var(--gpa-success); }
+      .gsa-btn.is-done svg { color: var(--gpa-success); }
+      @keyframes gsa-rot { to { transform: rotate(360deg); } }
+      /* Layouts: one component, four densities. */
+      .gsa[data-layout="compact"] .gsa-btn { min-height: 28px; padding: 0 8px; font-size: 12px; gap: 5px; }
+      .gsa[data-layout="comfortable"] .gsa-btn { min-height: 34px; padding: 0 12px; font-size: 13px; }
+      .gsa[data-layout="minimal"] { flex-direction: row; align-items: center; padding: 3px; border-radius: 999px; }
+      .gsa[data-layout="minimal"] .gsa-launch { width: 30px; min-height: 30px; padding: 0; border-radius: 999px; }
+      .gsa[data-layout="minimal"] .gsa-launch[aria-expanded="true"] { background: color-mix(in srgb, var(--gpa-accent) 16%, transparent); }
+      .gsa[data-layout="minimal"] .gsa-row .gsa-btn { min-height: 28px; padding: 0 8px; font-size: 12px; }
+      .gsa[data-layout="minimal"] .gsa-menu { position: absolute; left: 0; }
+      .gsa[data-layout="expanded"] { min-width: 220px; }
+      .gsa[data-layout="expanded"] .gsa-row { flex-direction: column; align-items: stretch; }
+      .gsa[data-layout="expanded"] .gsa-btn { justify-content: flex-start; min-height: 32px; font-size: 13px; }
+      .gsa[data-layout="expanded"] .gsa-row > .gsa-more { border-left: none; border-top: 1px solid var(--gpa-border); border-radius: calc(8px * var(--gpa-rs, 1)); margin: 2px 0 0; }
+      .gsa[data-layout="expanded"] .gsa-keys { margin-left: auto; }
+      /* Phones: a bottom tray instead of a floating bar. */
+      .gsa[data-layout="tray"] {
+        left: 8px !important; right: 8px; top: auto !important; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); max-height: calc(100vh - 100px);   /* clears the console's round button */
+        border-radius: calc(16px * var(--gpa-rs, 1)); padding: 8px; transform-origin: 50% 100%;
+      }
+      .gsa-tray-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 4px 6px; font-weight: 600; font-size: 13px; }
+      .gsa[data-layout="tray"] .gsa-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+      .gsa[data-layout="tray"] .gsa-btn { min-height: 44px; justify-content: flex-start; font-size: 14px; background: color-mix(in srgb, var(--gpa-text) 4%, transparent); }
+      .gsa[data-layout="tray"] .gsa-row > .gsa-more { grid-column: 1 / -1; justify-content: center; border-left: none; border-radius: calc(8px * var(--gpa-rs, 1)); margin: 0; }
+      .gsa[data-layout="tray"] .gsa-menu { position: static; max-height: 40vh; box-shadow: none; margin-top: 4px; }
+      .gsa[data-layout="tray"] .gsa-item { min-height: 44px; }
+      .gsa-x { display: inline-grid !important; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: var(--gpa-sub); }
+      .gsa-x:hover { background: color-mix(in srgb, var(--gpa-text) 8%, transparent); color: var(--gpa-text); }
+      /* More menu */
+      .gsa-menu {
+        position: absolute; left: 0; right: auto; min-width: 250px; overflow: auto; overscroll-behavior: contain; padding: 4px;
+        border-radius: calc(12px * var(--gpa-rs, 1)); border: 1px solid var(--gpa-border); background: var(--gpa-panel);
+        box-shadow: 0 16px 36px -12px color-mix(in srgb, var(--gpa-shade) 75%, transparent);
+        scrollbar-width: thin; scrollbar-color: var(--gpa-border) transparent;
+      }
+      .gsa-menu[data-dir="down"] { top: calc(100% + 6px); }
+      .gsa-menu[data-dir="up"] { bottom: calc(100% + 6px); }
+      .gsa[data-anim="full"] .gsa-menu:not([hidden]) { animation: gsa-fade 120ms ease both; }
+      .gsa-group + .gsa-group { margin-top: 4px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, var(--gpa-border) 70%, transparent); }
+      .gsa-gh { padding: 6px 8px 3px; font: 600 10.5px 'Geist Mono', ui-monospace, monospace; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gpa-sub); }
+      .gsa-item { display: flex !important; align-items: center; gap: 9px; width: 100%; min-height: 32px; padding: 0 8px; border-radius: calc(7px * var(--gpa-rs, 1)); color: var(--gpa-text); }
+      .gsa-item svg { color: var(--gpa-accent); }
+      .gsa-item .gsa-keys { margin-left: auto; }
+      .gsa-item .gsa-l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gsa-item:hover, .gsa-item:focus { background: color-mix(in srgb, var(--gpa-accent) 14%, transparent); }
+      .gsa-fav svg { width: 12px; height: 12px; color: var(--gpa-warning); fill: currentColor; }
+      .gsa-empty { margin: 6px 8px; font-size: 12px; color: var(--gpa-sub); max-width: 240px; }
+      /* Keycaps */
+      .gsa-keys { display: inline-flex; gap: 3px; margin-left: 8px; }
+      .gsa-keys kbd {
+        min-width: 18px; height: 18px; padding: 0 4px; display: inline-grid; place-items: center; border-radius: 5px;
+        font: 600 10.5px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-sub);
+        background: color-mix(in srgb, var(--gpa-text) 6%, var(--gpa-panel)); border: 1px solid var(--gpa-border); box-shadow: 0 1px 0 var(--gpa-border);
+      }
+      /* Tooltip */
+      .gsa-tip {
+        position: fixed; z-index: 2147483647; display: flex; align-items: center; gap: 2px; padding: 5px 8px; pointer-events: none;
+        border-radius: calc(8px * var(--gpa-rs, 1)); background: var(--gpa-text); color: var(--gpa-panel); font-size: 12px; font-weight: 600;
+        box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--gpa-shade) 70%, transparent); animation: gsa-fade 120ms ease both;
+      }
+      .gsa-tip .gsa-keys kbd { background: color-mix(in srgb, var(--gpa-panel) 18%, transparent); color: var(--gpa-panel); border-color: color-mix(in srgb, var(--gpa-panel) 35%, transparent); box-shadow: none; }
+      /* Answer popup */
+      .gpa-sel-pop {
+        position: fixed; z-index: 2147483646; width: min(360px, calc(100vw - 16px)); max-height: min(360px, calc(100vh - 16px)); display: flex; flex-direction: column;
+        border-radius: calc(14px * var(--gpa-rs, 1)); border: 1px solid var(--gpa-border); background: var(--gpa-panel); color: var(--gpa-text);
+        box-shadow: 0 1px 0 color-mix(in srgb, var(--gpa-text) 8%, transparent) inset, 0 20px 44px -16px color-mix(in srgb, var(--gpa-shade) 75%, transparent);
+      }
+      .gpa-sel-pop[data-anim="full"] { animation: gsa-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+      .gpa-sel-pop[data-anim="reduced"] { animation: gsa-fade 140ms ease both; }
+      .gpa-sel-pop.is-error { border-color: color-mix(in srgb, var(--gpa-danger) 60%, var(--gpa-border)); }
+      .gpa-sel-pop.is-error .gsa-pop-body { color: var(--gpa-danger); }
+      .gsa-pop-head { display: flex; align-items: center; gap: 8px; padding: 8px 6px 6px 12px; border-bottom: 1px solid color-mix(in srgb, var(--gpa-border) 70%, transparent); }
+      .gsa-pop-head svg { color: var(--gpa-accent); }
+      .gsa-pop-head b { flex: 1; font-size: 13px; font-weight: 600; }
+      .gsa-pop-body { padding: 10px 12px; overflow: auto; font-size: 13px; line-height: 1.55; font-weight: 400; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .gsa-loading { display: inline-flex; align-items: center; gap: 8px; color: var(--gpa-sub); }
+      .gsa-loading .gsa-spin { display: inline-block; }
+      .gsa-pop-src { margin: 0 12px; padding: 6px 0 0; border-top: 1px dashed color-mix(in srgb, var(--gpa-border) 80%, transparent); font-size: 11px; color: var(--gpa-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gsa-pop-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px; }
+      .gsa-pop-foot button { display: inline-flex !important; align-items: center; gap: 5px; min-height: 28px; padding: 0 9px; border-radius: 8px; font-size: 12px; border: 1px solid var(--gpa-border); background: color-mix(in srgb, var(--gpa-text) 4%, transparent); }
+      .gsa-pop-foot button:hover { border-color: color-mix(in srgb, var(--gpa-accent) 50%, var(--gpa-border)); }
+      .gsa-pop-foot button svg { width: 13px; height: 13px; color: var(--gpa-accent); }
+      .gsa-pop-foot .gpa-model-badge { margin-left: auto; font-size: 10.5px; color: var(--gpa-sub); }
+      @media (prefers-reduced-motion: reduce) {
+        .gsa.is-in, .gsa .gsa-menu, .gpa-sel-pop, .gsa-tip { animation: gsa-fade 1ms linear both !important; }
+        .gsa-btn:hover, .gsa-btn:active { transform: none; }
+        .gsa-spin { animation-duration: 1.6s; }
+      }
+      @media (forced-colors: active) {
+        .gsa, .gpa-sel-pop, .gsa-menu { border: 1px solid CanvasText; }
+        .gsa-btn:focus-visible, .gsa-item:focus-visible { outline: 2px solid Highlight; }
+      }
   `;
   const pageTokenStyle = document.createElement('style');
   pageTokenStyle.id = 'gpa-page-widget-tokens';
@@ -9921,110 +10110,666 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // style/tone/word choice alone so the two tools stay clearly distinct.
   const GRAMMAR_PROMPT = 'Proofread the given text for grammar, spelling, and punctuation errors only — do not change the writer\'s style, tone, word choice, or length beyond what is needed to fix an actual error. Reply with the corrected version first, then a blank line, then "Fixed:" followed by one short line per correction naming what was wrong and the fix. If there are no errors, reply with the text unchanged, then a blank line, then "No errors found."';
 
-  // Text-selection assistant: select any text on the page → floating bubble
-  // with Explain / Simplify / Translate / Define / Humanize / Grammar / clean-copy / save.
-  (function selectionAssistant() {
-    const ACTIONS = [
-      ['Explain', 'Explain the selected text clearly and concisely.'],
-      ['Simplify', 'Rewrite the selected text in much simpler words anyone can understand. Keep it short.'],
-      ['Translate', 'Translate the selected text to English. If it is already in English, translate it to Spanish.'],
-      ['Define', 'Define the key terms, jargon, or names in the selected text — one per line, term first.'],
-      ['Humanize', HUMANIZE_PROMPT, true],
-      ['Grammar', GRAMMAR_PROMPT],
-      ['📋 Clean', null],
-      ['💾', 'save']
-    ];
-    let bubble = null, pop = null;
+  // ---- Selection assistant ---------------------------------------------------
+  // Select text on the page (or inside a same-origin iframe) and a compact
+  // toolbar appears with the user's primary tools, a grouped More menu,
+  // tooltips and keyboard shortcuts. Everything a person can change lives in
+  // one per-profile settings object (SA_KEY — a gpa_* key, so each account's
+  // profile snapshot carries its own copy). Owner feature flags sit above
+  // those preferences: a tool the owner turned off can't be turned back on.
+  const SA_KEY = 'gpa_selection_assistant';
+  let selectionAssistantApi = null;   // { hide, render } once the toolbar exists
+  const SA_IS_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+  const SA_ICON_MORE = gpsSvg('<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>');
+  const SA_ICON_SPARK = GPS_ICONS.effects;
+  const SA_GROUPS = [['ai', 'AI'], ['learning', 'Learning'], ['research', 'Research'], ['productivity', 'Productivity']];
+  const SA_PLAIN = ' Reply in plain text only — no markdown symbols.';
+  // id, label, short label, group, icon, owner flags it depends on, how it runs.
+  const SA_TOOLS = [
+    { id: 'ask', label: 'Ask AI', short: 'Ask', group: 'ai', icon: 'chat', run: 'ask' },
+    { id: 'answer', label: 'Answer', short: 'Answer', group: 'ai', icon: 'check', sys: 'Answer the question or task in the selected text directly and correctly. Give the answer first, then one or two sentences of reasoning.' },
+    { id: 'explain', label: 'Explain', short: 'Explain', group: 'ai', icon: 'effects', sys: 'Explain the selected text clearly and concisely.' },
+    { id: 'summarize', label: 'Summarize', short: 'Summary', group: 'ai', icon: 'note', sys: 'Summarize the selected text in two to four short lines, each starting with "- ".' },
+    { id: 'simplify', label: 'Simplify', short: 'Simplify', group: 'ai', icon: 'type', sys: 'Rewrite the selected text in much simpler words anyone can understand. Keep it short.' },
+    { id: 'define', label: 'Define', short: 'Define', group: 'ai', icon: 'book', sys: 'Define the key terms, jargon, or names in the selected text — one per line, term first.' },
+    { id: 'translate', label: 'Translate', short: 'Translate', group: 'ai', icon: 'globe', sys: 'Translate the selected text to English. If it is already in English, translate it to Spanish.' },
+    { id: 'humanize', label: 'Humanize', short: 'Humanize', group: 'ai', icon: 'wand', flags: ['humanize'], sys: () => HUMANIZE_PROMPT },
+    { id: 'grammar', label: 'Fix grammar', short: 'Grammar', group: 'ai', icon: 'spell', flags: ['grammar'], sys: () => GRAMMAR_PROMPT },
+    { id: 'debug', label: 'Debug code', short: 'Debug', group: 'ai', icon: 'lab', sys: 'The selected text is code. Point out bugs or likely problems, then show the corrected code. Keep it brief.' },
+    { id: 'solve', label: 'Solve quiz', short: 'Solve', group: 'learning', icon: 'quiz', flags: ['quiz'], hard: true, sys: 'The selected text is a quiz or homework question, possibly with answer choices. Work it out carefully. Put the final answer on the first line as "Answer: …" (include the choice letter if there are choices), then briefly explain why it is correct.' },
+    { id: 'hint', label: 'Hint', short: 'Hint', group: 'learning', icon: 'eye', flags: ['tutor'], sys: 'The selected text is a question the user is trying to learn. Give one helpful hint that moves them toward the answer without revealing the answer itself.' },
+    { id: 'practice', label: 'Practice quiz', short: 'Practice', group: 'learning', icon: 'cap', sys: 'Write three multiple-choice practice questions that test understanding of the selected text. Number them, give four options (A–D) each, and list the answers at the end under "Answers:".' },
+    { id: 'study', label: 'Make flashcards', short: 'Cards', group: 'learning', icon: 'cards', flags: ['study'], run: 'study' },
+    { id: 'search', label: 'Search the web', short: 'Search', group: 'research', icon: 'search', run: 'search' },
+    { id: 'research', label: 'Research', short: 'Research', group: 'research', icon: 'network', flags: ['research', 'browser'], run: 'research' },
+    { id: 'insights', label: 'Ask in Page Insights', short: 'Insights', group: 'research', icon: 'scan', run: 'insights' },
+    { id: 'save', label: 'Save', short: 'Save', group: 'productivity', icon: 'pin', run: 'save' },
+    { id: 'notes', label: 'Add to Notes', short: 'Notes', group: 'productivity', icon: 'pen', flags: ['notes'], run: 'notes' },
+    { id: 'copy', label: 'Copy clean text', short: 'Copy', group: 'productivity', icon: 'copy', run: 'copy' }
+  ];
+  const SA_BY_ID = Object.fromEntries(SA_TOOLS.map((t) => [t.id, t]));
+  // Actions that aren't tools but can have a shortcut.
+  const SA_COMMANDS = [
+    { id: 'repeat', label: 'Repeat last tool' },
+    { id: 'focus', label: 'Move focus to the toolbar' }
+  ];
+  // Alt/⌥ + Shift defaults: browsers and the OS leave these combinations alone
+  // (Ctrl/⌘ shortcuts belong to the browser: ⌘S saves the page, ⌘⇧Q logs out
+  // of macOS), and they only act while text is selected outside a text field.
+  const SA_DEFAULT_KEYS = {
+    ask: 'alt+shift+Slash', answer: 'alt+shift+Enter', solve: 'alt+shift+KeyQ', explain: 'alt+shift+KeyE',
+    summarize: 'alt+shift+KeyM', search: 'alt+shift+KeyF', save: 'alt+shift+KeyS', repeat: 'alt+shift+KeyR', focus: 'alt+shift+KeyK'
+  };
+  // Shortcuts the rest of the console already uses (shown in the cheat sheet
+  // and never assignable to a selection tool).
+  const APP_SHORTCUTS = [
+    { id: 'console', label: 'Show or hide the console', keys: ['↓', '↓'] },
+    { id: 'palette', label: 'Admin command palette (Admin pane)', combo: 'mod+KeyK' },
+    { id: 'search', label: 'Search Settings (Settings pane)', keys: ['/'] },
+    { id: 'close', label: 'Close menus, popups and dialogs', keys: ['Esc'] }
+  ];
+  const SA_DEFAULTS = {
+    v: 1, enabled: true, iframes: true, onMouse: true, onKeyboard: true, delay: 120,
+    dismissOnClear: true, dismissOnClickAway: true, keepOpen: true, rememberLast: true, smart: true,
+    layout: 'compact', position: 'auto', animation: 'full',
+    primary: ['ask', 'answer', 'solve', 'explain'], disabled: {}, groupsOff: {}, favorites: [], shortcuts: {}, last: null
+  };
+  const SA_PRIMARY_MAX = 5;
+  function saRead() {
+    let raw = {};
+    try { raw = JSON.parse(localStorage.getItem(SA_KEY) || '{}') || {}; } catch (e) { raw = {}; }
+    const s = { ...SA_DEFAULTS, ...raw };
+    s.primary = (Array.isArray(s.primary) ? s.primary : SA_DEFAULTS.primary).filter((id) => SA_BY_ID[id]).slice(0, SA_PRIMARY_MAX);
+    s.favorites = (Array.isArray(s.favorites) ? s.favorites : []).filter((id) => SA_BY_ID[id]);
+    s.disabled = s.disabled && typeof s.disabled === 'object' ? s.disabled : {};
+    s.groupsOff = s.groupsOff && typeof s.groupsOff === 'object' ? s.groupsOff : {};
+    s.shortcuts = s.shortcuts && typeof s.shortcuts === 'object' ? s.shortcuts : {};
+    if (!['compact', 'comfortable', 'minimal', 'expanded'].includes(s.layout)) s.layout = 'compact';
+    if (!['auto', 'above', 'below'].includes(s.position)) s.position = 'auto';
+    if (!['full', 'reduced', 'off'].includes(s.animation)) s.animation = 'full';
+    s.delay = Math.max(0, Math.min(1000, Number(s.delay) || 0));
+    return s;
+  }
+  const saListeners = new Set();
+  function saWrite(patch, event) {
+    const next = { ...saRead(), ...patch };
+    try { localStorage.setItem(SA_KEY, JSON.stringify(next)); } catch (e) { /* storage blocked */ }
+    if (event) saTelemetry(event);
+    saListeners.forEach((fn) => { try { fn(next); } catch (e) { /* listener error */ } });
+    return next;
+  }
+  // Configuration events only (tool ids and setting names — never selected
+  // text), through the existing usage log, which honors the telemetry switch.
+  function saTelemetry(ev) {
+    try { if (typeof telemetryOn === 'function' && !telemetryOn()) return; logUsageEvent(ev); } catch (e) { /* ignore */ }
+  }
+  // Owner policy → user preference. featureOn() already merges the global
+  // switches with this user's per-user overrides from the worker.
+  function saPolicyOff(tool) {
+    if (ownerMode) return false;
+    if (!featureOn('selection')) return 'The owner turned the selection assistant off';
+    if (!featureOn('sel_' + tool.id)) return 'Turned off by the owner';
+    const f = (tool.flags || []).find((x) => !featureOn(x));
+    return f ? 'Turned off by the owner' : false;
+  }
+  function saAvailable(tool, s) { return !saPolicyOff(tool) && !s.disabled[tool.id] && !s.groupsOff[tool.group]; }
 
-    function removeBubble() { if (bubble) { bubble.remove(); bubble = null; } }
-    function removePop() { if (pop) { pop.remove(); pop = null; } }
+  // ---- Shortcut registry ----
+  function comboFromEvent(e) {
+    const parts = [];
+    if (e.ctrlKey) parts.push('ctrl');
+    if (e.metaKey) parts.push('meta');
+    if (e.altKey) parts.push('alt');
+    if (e.shiftKey) parts.push('shift');
+    parts.push(e.code);
+    return parts.join('+');
+  }
+  function comboParse(c) {
+    const p = String(c || '').split('+');
+    const code = p.pop();
+    const mod = p.includes('mod');
+    return { ctrl: p.includes('ctrl') || (mod && !SA_IS_MAC), meta: p.includes('meta') || (mod && SA_IS_MAC), alt: p.includes('alt'), shift: p.includes('shift'), code };
+  }
+  function comboNorm(c) { const k = comboParse(c); return [k.ctrl && 'ctrl', k.meta && 'meta', k.alt && 'alt', k.shift && 'shift', k.code].filter(Boolean).join('+'); }
+  const SA_KEY_NAMES = { Slash: '/', Period: '.', Comma: ',', Semicolon: ';', Quote: "'", Backquote: '`', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Minus: '-', Equal: '=', Space: 'Space', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Escape: 'Esc', Backspace: '⌫', Delete: 'Del', Tab: 'Tab' };
+  function comboKeys(c) {
+    const k = comboParse(c);
+    const key = /^Key[A-Z]$/.test(k.code) ? k.code.slice(3) : /^Digit\d$/.test(k.code) ? k.code.slice(5) : k.code === 'Enter' ? (SA_IS_MAC ? '↵' : 'Enter') : (SA_KEY_NAMES[k.code] || k.code);
+    const out = [];
+    if (SA_IS_MAC) { if (k.ctrl) out.push('⌃'); if (k.alt) out.push('⌥'); if (k.shift) out.push('⇧'); if (k.meta) out.push('⌘'); }
+    else { if (k.ctrl) out.push('Ctrl'); if (k.meta) out.push('Win'); if (k.alt) out.push('Alt'); if (k.shift) out.push('Shift'); }
+    out.push(key);
+    return out;
+  }
+  const comboText = (c) => comboKeys(c).join(SA_IS_MAC ? '' : '+');
+  const comboAria = (c) => {
+    const k = comboParse(c);
+    const key = /^Key[A-Z]$/.test(k.code) ? k.code.slice(3) : /^Digit\d$/.test(k.code) ? k.code.slice(5) : /^(Enter|Space|Tab|Escape|Backspace|Delete|Home|End|PageUp|PageDown|F\d+|Arrow\w+)$/.test(k.code) ? k.code : (SA_KEY_NAMES[k.code] || k.code);
+    return [k.ctrl && 'Control', k.meta && 'Meta', k.alt && 'Alt', k.shift && 'Shift', key].filter(Boolean).join('+');
+  };
+  const keycaps = (c) => `<span class="gsa-keys" aria-hidden="true">${comboKeys(c).map((x) => `<kbd>${escapeHtml(x)}</kbd>`).join('')}</span>`;
+  function saBinding(id, s) {
+    s = s || saRead();
+    if (Object.prototype.hasOwnProperty.call(s.shortcuts, id)) return s.shortcuts[id] || null;
+    return SA_DEFAULT_KEYS[id] || null;
+  }
+  function saBindings(s) {
+    const map = {};
+    [...SA_TOOLS, ...SA_COMMANDS].forEach((t) => { const b = saBinding(t.id, s); if (b) map[comboNorm(b)] = t.id; });
+    return map;
+  }
+  // Why a combination can't be used, or null when it's free to assign.
+  function comboProblem(c) {
+    const k = comboParse(c);
+    if (/^(Control|Shift|Alt|Meta)(Left|Right)$/.test(k.code) || !k.code) return 'Press a key together with the modifiers.';
+    if (!k.ctrl && !k.meta && !k.alt) return 'Add Alt' + (SA_IS_MAC ? ' (⌥)' : '') + ' so the shortcut never fires while you type.';
+    if ((k.ctrl || k.meta) && !k.alt) return (SA_IS_MAC ? '⌘ and ⌃' : 'Ctrl') + ' shortcuts belong to the browser and the system (copy, save, find, tabs, text editing). Use Alt' + (SA_IS_MAC ? ' (⌥)' : '') + ' with Shift instead.';
+    if (SA_IS_MAC && k.meta) return '⌘⌥ shortcuts open browser tools such as developer tools. Use ⌥⇧ instead.';
+    if (!SA_IS_MAC && k.ctrl && k.alt) return 'Ctrl+Alt types characters on many keyboards (AltGr). Choose another shortcut.';
+    if (!SA_IS_MAC && k.alt && !k.shift && ['KeyF', 'KeyE', 'KeyD', 'Home', 'ArrowLeft', 'ArrowRight', 'F4', 'Space', 'Tab'].includes(k.code)) return 'The browser or system uses this shortcut. Choose another shortcut.';
+    if (k.alt && k.shift && ['KeyT', 'KeyB', 'KeyA', 'KeyI'].includes(k.code)) return 'The browser uses this shortcut. Choose another shortcut.';
+    if (k.code === 'ArrowDown' || k.code === 'Escape' || k.code === 'Tab') return 'The console uses this key. Choose another shortcut.';
+    return null;
+  }
 
-    function showPop(x, y, selectedText, sys, allowRetry) {
-      removePop();
-      pop = document.createElement('div');
-      pop.className = 'gpa-sel-pop';
-      pop.textContent = 'Thinking…';
-      pop.style.left = Math.max(8, Math.min(x, window.innerWidth - 356)) + 'px';
-      pop.style.top = Math.max(8, Math.min(y + 14, window.innerHeight - 280)) + 'px';
-      document.body.appendChild(pop);
-
-      function renderResult(out) {
-        pop.textContent = stripConfidence(out);
-        speak(out);
-        const src = document.createElement('span');
-        src.className = 'gpa-sel-pop-src';
-        src.textContent = selectedText.slice(0, 120) + (selectedText.length > 120 ? '…' : '');
-        pop.appendChild(src);
-        appendModelBadge(pop);
-        if (allowRetry) {
-          const retryBtn = document.createElement('button');
-          retryBtn.className = 'gpa-sel-pop-retry';
-          retryBtn.textContent = '🔄 Try again';
-          retryBtn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            retryBtn.textContent = 'Thinking…';
-            retryBtn.disabled = true;
-            callAI(
-              `Selected text:\n"""\n${selectedText}\n"""\n\nYour previous rewrite was:\n"""\n${out}\n"""\nWrite a different rewrite this time — vary the wording and sentence structure from that previous version while still following the instructions.`,
-              sys
-            )
-              .then((out2) => renderResult(out2))
-              .catch((e) => { pop.textContent = 'AI error: ' + (e && e.message || e); });
-          });
-          pop.appendChild(retryBtn);
-        }
+  // ---- Selection capture: top page and same-origin iframes ----
+  const saIsEditable = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+  function saFrameOffset(win) {
+    let x = 0, y = 0, w = win;
+    try {
+      while (w && w !== window) {
+        const fe = w.frameElement;
+        if (!fe) return null;
+        const r = fe.getBoundingClientRect();
+        const cs = w.parent.getComputedStyle(fe);
+        x += r.left + fe.clientLeft + parseFloat(cs.paddingLeft || 0);
+        y += r.top + fe.clientTop + parseFloat(cs.paddingTop || 0);
+        w = w.parent;
       }
+    } catch (e) { return null; }
+    return { x, y };
+  }
+  function saReadSelection(win) {
+    try {
+      const sel = win.getSelection();
+      if (!sel || !sel.rangeCount || sel.isCollapsed) return null;
+      const text = String(sel).trim();
+      if (text.length < 2) return null;
+      const node = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
+      if (node && node.closest && node.closest('#gpa-root-host, .gsa, .gpa-sel-pop, .gsa-tip')) return null;
+      return { text, range: sel.getRangeAt(0).cloneRange(), win };
+    } catch (e) { return null; }
+  }
+  function saAnchorRect(sel) {
+    if (!sel) return null;
+    try {
+      const off = sel.win === window ? { x: 0, y: 0 } : saFrameOffset(sel.win);
+      if (!off) return null;
+      const rects = [...sel.range.getClientRects()].filter((r) => r.width || r.height);
+      const base = rects.length ? rects : [sel.range.getBoundingClientRect()];
+      const first = base[0], last = base[base.length - 1];
+      let left = Math.min(...base.map((r) => r.left)), right = Math.max(...base.map((r) => r.right));
+      let top = first.top, bottom = last.bottom;
+      if (!right && !bottom) return null;
+      left += off.x; right += off.x; top += off.y; bottom += off.y;
+      // Clip to the frame's visible box so a scrolled-away selection hides.
+      if (sel.win !== window) {
+        const fe = sel.win.frameElement.getBoundingClientRect();
+        const fo = saFrameOffset(sel.win.parent) || { x: 0, y: 0 };
+        const box = { l: fe.left + fo.x, t: fe.top + fo.y, r: fe.right + fo.x, b: fe.bottom + fo.y };
+        if (bottom < box.t || top > box.b || right < box.l || left > box.r) return { hidden: true };
+        top = Math.max(top, box.t); bottom = Math.min(bottom, box.b);
+      }
+      if (bottom < 0 || top > window.innerHeight) return { hidden: true };
+      return { left, right, top, bottom, width: right - left, height: bottom - top };
+    } catch (e) { return null; }
+  }
+  // Picks above / below (then clamps sideways) using measured size, avoiding
+  // the viewport edges, the selection itself and the open console panel.
+  function saPlace(el, a, pref, gap) {
+    gap = gap == null ? 8 : gap;
+    const w = el.offsetWidth, h = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight, m = 8;
+    const fitsAbove = a.top - gap - h >= m, fitsBelow = a.bottom + gap + h <= vh - m;
+    let side = pref === 'below' ? (fitsBelow || !fitsAbove ? 'below' : 'above') : pref === 'above' ? (fitsAbove || !fitsBelow ? 'above' : 'below') : (fitsAbove ? 'above' : fitsBelow ? 'below' : (a.top > vh - a.bottom ? 'above' : 'below'));
+    let top = side === 'above' ? a.top - gap - h : a.bottom + gap;
+    let left = Math.min(Math.max(m, a.left + Math.min(a.width, 240) / 2 - w / 2), vw - w - m);
+    if (!fitsAbove && !fitsBelow) {
+      // No room above or below: sit beside the selection, else overlap its end.
+      if (a.right + gap + w <= vw - m) { side = 'right'; left = a.right + gap; top = Math.min(Math.max(m, a.top), vh - h - m); }
+      else if (a.left - gap - w >= m) { side = 'left'; left = a.left - gap - w; top = Math.min(Math.max(m, a.top), vh - h - m); }
+      else top = Math.min(Math.max(m, top), vh - h - m);
+    }
+    try {
+      const hostEl = document.getElementById('gpa-root-host');
+      const pr = hostEl && !isMin ? panel.getBoundingClientRect() : null;
+      if (pr && pr.width && left < pr.right && left + w > pr.left && top < pr.bottom && top + h > pr.top) {
+        if (pr.left - w - m >= m && a.left < pr.left) left = Math.min(left, pr.left - w - m);
+      }
+    } catch (e) { /* ignore */ }
+    el.style.left = Math.round(left) + 'px';
+    el.style.top = Math.round(top) + 'px';
+    el.dataset.side = side;
+    return side;
+  }
+  function saContext(text) {
+    const words = text.split(/\s+/).filter(Boolean).length;
+    const codeHits = (text.match(/[{};]|=>|\bfunction\b|\bdef\b|\bclass\b|\breturn\b|\bconst\b|<\/?[a-z][\w-]*>/g) || []).length;
+    if (codeHits >= 3) return 'code';
+    if (/\?\s*$|^\s*(question|q)\s*\d+|(^|\s)[A-Da-d][).]\s|\b(true or false|which of the following|select the|choose the)\b/i.test(text)) return 'quiz';
+    if (words <= 3) return 'word';
+    if (words >= 25) return 'article';
+    return 'general';
+  }
+  const SA_SMART = { quiz: ['solve', 'answer', 'hint', 'explain'], word: ['define', 'translate', 'explain', 'search'], code: ['ask', 'explain', 'debug', 'research'], article: ['ask', 'summarize', 'explain', 'research'], general: [] };
+  function saPrimaryFor(s, text) {
+    const avail = (id) => SA_BY_ID[id] && saAvailable(SA_BY_ID[id], s);
+    const base = s.primary.filter(avail);
+    if (!s.smart || !text) return base;
+    const n = Math.max(4, base.length);
+    return [...new Set([...SA_SMART[saContext(text)].filter(avail), ...base, ...s.favorites.filter(avail)])].slice(0, n);
+  }
 
-      callAI(`Selected text:\n"""\n${selectedText}\n"""`, sys)
-        .then((out) => renderResult(out))
-        .catch((e) => { pop.textContent = 'AI error: ' + (e && e.message || e); });
-      pop.addEventListener('click', removePop);
+  (function selectionAssistant() {
+    let current = null;           // { text, range, win }
+    let busyTool = null;
+    let showTimer = 0;
+    let tipTimer = 0;
+    let barSig = '';
+    const coarse = () => window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.innerWidth <= 640;
+
+    // One toolbar element, reused; buttons are rebuilt only when their set changes.
+    const bar = document.createElement('div');
+    bar.className = 'gpa-sel-bubble gsa';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Selection assistant');
+    bar.hidden = true;
+    const tip = document.createElement('div');
+    tip.className = 'gsa-tip';
+    tip.id = 'gsa-tip';
+    tip.setAttribute('role', 'tooltip');
+    tip.hidden = true;
+    const live = document.createElement('div');
+    live.className = 'gsa-sr';
+    live.setAttribute('aria-live', 'polite');
+    gpaCleanups.push(() => { bar.remove(); tip.remove(); live.remove(); });
+    const mount = () => { if (!bar.isConnected) document.body.appendChild(bar); if (!tip.isConnected) document.body.appendChild(tip); if (!live.isConnected) document.body.appendChild(live); };
+    const announce = (t) => { live.textContent = ''; setTimeout(() => { live.textContent = t; }, 30); };
+
+    function btnHtml(t, s, mode) {
+      const b = saBinding(t.id, s);
+      const label = mode === 'compact' ? t.short : t.label;
+      return `<button type="button" class="gsa-btn" data-tool="${t.id}" aria-label="${escapeHtml(t.label)}${b ? ' (' + escapeHtml(comboText(b)) + ')' : ''}"${b ? ` aria-keyshortcuts="${escapeHtml(comboAria(b))}"` : ''} tabindex="-1">`
+        + `${GPS_ICONS[t.icon] || ''}<span class="gsa-l">${escapeHtml(label)}</span>${mode === 'expanded' && b ? keycaps(b) : ''}<i class="gsa-spin" aria-hidden="true"></i></button>`;
+    }
+    function menuHtml(s, primaryIds) {
+      const avail = SA_TOOLS.filter((t) => saAvailable(t, s) && !primaryIds.includes(t.id));
+      const item = (t) => { const b = saBinding(t.id, s); return `<button type="button" role="menuitem" class="gsa-item" data-tool="${t.id}" tabindex="-1">${GPS_ICONS[t.icon] || ''}<span class="gsa-l">${escapeHtml(t.label)}</span>${s.favorites.includes(t.id) ? `<span class="gsa-fav" aria-label="Favorite">${GPS_ICONS.star}</span>` : ''}${b ? keycaps(b) : ''}</button>`; };
+      let html = '';
+      const lastT = s.rememberLast && s.last && SA_BY_ID[s.last] && saAvailable(SA_BY_ID[s.last], s) ? SA_BY_ID[s.last] : null;
+      if (lastT) html += `<div role="group" aria-label="Last used" class="gsa-group"><div class="gsa-gh" aria-hidden="true">Last used</div>${item(lastT)}</div>`;
+      const favs = avail.filter((t) => s.favorites.includes(t.id) && (!lastT || t.id !== lastT.id));
+      if (favs.length) html += `<div role="group" aria-label="Favorites" class="gsa-group"><div class="gsa-gh" aria-hidden="true">Favorites</div>${favs.map(item).join('')}</div>`;
+      SA_GROUPS.forEach(([g, name]) => {
+        const list = avail.filter((t) => t.group === g && !favs.includes(t) && (!lastT || t.id !== lastT.id));
+        if (list.length) html += `<div role="group" aria-label="${name}" class="gsa-group"><div class="gsa-gh" aria-hidden="true">${name}</div>${list.map(item).join('')}</div>`;
+      });
+      return html || '<p class="gsa-empty">Every other tool is turned off. Choose tools in Settings → Controls.</p>';
+    }
+    function render(s) {
+      const mode = coarse() ? 'tray' : s.layout;
+      const primaryIds = saPrimaryFor(s, current && current.text);
+      const sig = [mode, primaryIds.join(','), JSON.stringify(s.shortcuts), s.favorites.join(','), s.last, JSON.stringify(s.disabled), JSON.stringify(s.groupsOff), featureFlagsSig()].join('|');
+      bar.dataset.layout = mode;
+      bar.dataset.anim = s.animation;
+      if (sig === barSig && bar.firstChild) return;
+      barSig = sig;
+      const tools = primaryIds.map((id) => SA_BY_ID[id]);
+      const moreCount = SA_TOOLS.filter((t) => saAvailable(t, s) && !primaryIds.includes(t.id)).length;
+      bar.innerHTML = (mode === 'tray' ? '<div class="gsa-tray-head"><span>Selection</span><button type="button" class="gsa-x" data-close aria-label="Close selection tools">' + GPS_ICONS.x + '</button></div>' : '')
+        + (mode === 'minimal' ? `<button type="button" class="gsa-btn gsa-launch" aria-label="Selection tools" aria-expanded="false" tabindex="-1">${SA_ICON_SPARK}</button>` : '')
+        + `<div class="gsa-row"${mode === 'minimal' ? ' hidden' : ''}>${tools.map((t) => btnHtml(t, s, mode === 'tray' ? 'comfortable' : mode)).join('')}`
+        + (moreCount ? `<button type="button" class="gsa-btn gsa-more" aria-haspopup="menu" aria-expanded="false" aria-label="More tools" tabindex="-1">${SA_ICON_MORE}${mode === 'compact' || mode === 'minimal' ? '' : '<span class="gsa-l">More</span>'}</button>` : '')
+        + `</div><div class="gsa-menu" role="menu" aria-label="More tools" hidden>${menuHtml(s, primaryIds)}</div>`;
+      const first = bar.querySelector('.gsa-btn');
+      if (first) first.tabIndex = 0;
+    }
+    function featureFlagsSig() { try { return JSON.stringify(featureFlags) + ownerMode; } catch (e) { return ''; } }
+
+    function position() {
+      if (bar.hidden || !current) return;
+      if (bar.dataset.layout === 'tray') { bar.style.left = ''; bar.style.top = ''; return; }
+      const a = saAnchorRect(current);
+      if (!a || a.hidden) { bar.style.visibility = 'hidden'; hideTip(); return; }
+      bar.style.visibility = '';
+      saPlace(bar, a, saRead().position);
+    }
+    function show(sel) {
+      const s = saRead();
+      if (!s.enabled || saPolicyOff({ id: '_', flags: [] })) return;
+      current = sel;
+      mount();
+      closeMenu(false);
+      render(s);
+      const wasHidden = bar.hidden;
+      bar.style.visibility = 'hidden';
+      bar.hidden = false;
+      position();
+      if (bar.style.visibility === 'hidden' && bar.dataset.layout !== 'tray') return;
+      bar.style.visibility = '';
+      if (wasHidden) { bar.classList.remove('is-in'); void bar.offsetWidth; bar.classList.add('is-in'); }
+    }
+    function hide() {
+      clearTimeout(showTimer);
+      hideTip();
+      closeMenu(false);
+      bar.hidden = true;
+      bar.classList.remove('is-in');
+      current = null;
+    }
+    const isInside = (t) => !!(t && t.closest && t.closest('.gsa, .gpa-sel-pop, .gsa-tip'));
+
+    // ---- Menu, launcher, keyboard ----
+    function openMenu(focusFirst) {
+      const menu = bar.querySelector('.gsa-menu');
+      const more = bar.querySelector('.gsa-more');
+      if (!menu || !more) return;
+      menu.hidden = false;
+      more.setAttribute('aria-expanded', 'true');
+      if (bar.dataset.layout !== 'tray') {
+        const r = bar.getBoundingClientRect();
+        const below = window.innerHeight - r.bottom, above = r.top;
+        menu.dataset.dir = below >= Math.min(menu.scrollHeight, 360) || below >= above ? 'down' : 'up';
+        menu.style.maxHeight = Math.max(160, Math.min(420, (menu.dataset.dir === 'down' ? below : above) - 16)) + 'px';
+      }
+      if (focusFirst) { const f = menu.querySelector('[role="menuitem"]'); if (f) f.focus(); }
+    }
+    function closeMenu(refocus) {
+      const menu = bar.querySelector('.gsa-menu');
+      const more = bar.querySelector('.gsa-more');
+      if (menu) menu.hidden = true;
+      if (more) { more.setAttribute('aria-expanded', 'false'); if (refocus) more.focus(); }
+    }
+    bar.addEventListener('mousedown', (e) => { if (e.target.closest('button')) e.preventDefault(); });   // keep the page selection
+    bar.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.hasAttribute('data-close')) { hide(); return; }
+      if (b.classList.contains('gsa-launch')) {
+        const row = bar.querySelector('.gsa-row');
+        row.hidden = !row.hidden;
+        b.setAttribute('aria-expanded', row.hidden ? 'false' : 'true');
+        position();
+        if (!row.hidden) { const f = row.querySelector('.gsa-btn'); if (f) f.focus(); }
+        return;
+      }
+      if (b.classList.contains('gsa-more')) { const menu = bar.querySelector('.gsa-menu'); if (menu.hidden) openMenu(e.detail === 0); else closeMenu(false); return; }
+      if (b.dataset.tool) runTool(b.dataset.tool, current, b);
+    });
+    bar.addEventListener('keydown', (e) => {
+      const inMenu = e.target.closest('.gsa-menu');
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (inMenu) closeMenu(true); else { hide(); } return; }
+      const list = inMenu ? [...bar.querySelectorAll('.gsa-menu [role="menuitem"]')] : [...bar.querySelectorAll('.gsa-launch, .gsa-row:not([hidden]) > .gsa-btn')];
+      const i = list.indexOf(e.target.closest('button'));
+      if (i < 0) return;
+      const keys = inMenu ? { ArrowDown: 1, ArrowUp: -1 } : { ArrowRight: 1, ArrowLeft: -1, ArrowDown: bar.dataset.layout === 'expanded' ? 1 : 0, ArrowUp: bar.dataset.layout === 'expanded' ? -1 : 0 };
+      let j = null;
+      if (keys[e.key]) j = (i + keys[e.key] + list.length) % list.length;
+      if (e.key === 'Home') j = 0;
+      if (e.key === 'End') j = list.length - 1;
+      if (!inMenu && e.key === 'ArrowDown' && e.target.classList.contains('gsa-more')) { e.preventDefault(); openMenu(true); return; }
+      if (j == null) return;
+      e.preventDefault();
+      list.forEach((x, k) => { x.tabIndex = k === j ? 0 : -1; });
+      list[j].focus();
+    });
+    // Tooltips: label + shortcut, after a short delay, on hover or focus,
+    // placed on the side away from the selection.
+    function showTip(b) {
+      const t = SA_BY_ID[b.dataset.tool];
+      const label = t ? t.label : b.getAttribute('aria-label');
+      if (!label) return;
+      const s = saRead();
+      const k = t && saBinding(t.id, s);
+      tip.innerHTML = `<span>${escapeHtml(label)}</span>${k ? keycaps(k) : ''}`;
+      tip.hidden = false;
+      const r = b.getBoundingClientRect();
+      const awayFromSelection = bar.dataset.side === 'below' ? 'below' : 'above';
+      saPlace(tip, { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }, awayFromSelection, 6);
+      b.setAttribute('aria-describedby', 'gsa-tip');
+    }
+    function hideTip() { clearTimeout(tipTimer); tip.hidden = true; }
+    bar.addEventListener('pointerover', (e) => { const b = e.target.closest('.gsa-row .gsa-btn, .gsa-launch, .gsa-more'); if (!b || e.pointerType === 'touch') return; clearTimeout(tipTimer); tipTimer = setTimeout(() => showTip(b), 450); });
+    bar.addEventListener('pointerout', (e) => { if (!e.relatedTarget || !bar.contains(e.relatedTarget)) hideTip(); else hideTip(); });
+    bar.addEventListener('focusin', (e) => { const b = e.target.closest('.gsa-row .gsa-btn, .gsa-launch, .gsa-more'); if (b) { clearTimeout(tipTimer); tipTimer = setTimeout(() => showTip(b), 300); } else hideTip(); });
+    bar.addEventListener('focusout', hideTip);
+
+    // ---- Running tools ----
+    function openConsoleTab(tab) {
+      try { if (isMin) setMinimized(false); } catch (e) { /* ignore */ }
+      const item = panel.querySelector(`.gpa-dropdown-item[data-tab="${tab}"]`);
+      if (item) item.click();
+    }
+    function remember(id) {
+      const s = saRead();
+      if (s.rememberLast && s.last !== id) saWrite({ last: id });
+    }
+    function runTool(id, sel, btn) {
+      const t = SA_BY_ID[id];
+      if (!t || !sel) return;
+      const s = saRead();
+      if (!saAvailable(t, s)) { announce(t.label + ' is not available.'); return; }
+      closeMenu(false);
+      hideTip();
+      remember(id);
+      const text = sel.text;
+      const after = () => { if (!saRead().keepOpen || t.run) hide(); };
+      if (t.run === 'copy') {
+        const clean = text.replace(/\s+/g, ' ').trim();
+        (navigator.clipboard ? navigator.clipboard.writeText(clean) : Promise.reject(new Error('no clipboard')))
+          .then(() => { flash(btn, 'Copied'); announce('Copied to the clipboard.'); setTimeout(hide, 700); })
+          .catch(() => { announce('Copy failed.'); });
+        return;
+      }
+      if (t.run === 'save') { openConsoleTab('saved'); saveInsight(text); hide(); return; }
+      if (t.run === 'search') { window.open('https://www.google.com/search?q=' + encodeURIComponent(text.slice(0, 300)), '_blank', 'noopener'); hide(); return; }
+      if (t.run === 'ask') {
+        openConsoleTab('ask');
+        const input = panel.querySelector('#gpa-ask-input');
+        if (input) { input.value = `About this text: "${text.slice(0, 2000)}"\n\n`; input.focus(); input.setSelectionRange(input.value.length, input.value.length); input.dispatchEvent(new Event('input', { bubbles: true })); }
+        hide();
+        return;
+      }
+      if (t.run === 'notes') {
+        openConsoleTab('notes');
+        const input = panel.querySelector('#gpa-notes-input');
+        if (input) { input.value = input.value.trim() ? input.value.trim() + '\n\n' + text : text; input.focus(); input.dispatchEvent(new Event('input', { bubbles: true })); }
+        showToast('Added to Notes. Press "Read, research & make notes" when ready.');
+        hide();
+        return;
+      }
+      if (t.run === 'research') {
+        openConsoleTab('browser');
+        const input = panel.querySelector('#gpa-research-input');
+        const go = panel.querySelector('#gpa-research-btn');
+        if (input && go) { input.value = text.slice(0, 300); go.click(); }
+        hide();
+        return;
+      }
+      if (t.run === 'insights') {
+        openConsoleTab('scan');
+        const q = panel.querySelector('#gpa-question');
+        const row = panel.querySelector('#gpa-question-row');
+        const scanBtn = panel.querySelector('#gpa-scan-btn');
+        const ask = () => { if (!q) return; q.value = `Explain this part of the page in context: "${text.slice(0, 1200)}"`; const b = panel.querySelector('#gpa-question-btn'); if (b) b.click(); };
+        if (row && row.style.display === 'none' && scanBtn) { scanBtn.click(); setTimeout(ask, 250); } else ask();
+        hide();
+        return;
+      }
+      if (t.run === 'study') {
+        openConsoleTab('study');
+        if (typeof buildDeckFrom === 'function') buildDeckFrom(text);
+        hide();
+        return;
+      }
+      // AI answer in the popup next to the selection.
+      showResult(t, sel, btn);
+      after();
+    }
+    function flash(btn, label) {
+      if (!btn) return;
+      btn.classList.add('is-done');
+      const l = btn.querySelector('.gsa-l');
+      const old = l ? l.textContent : '';
+      if (l) l.textContent = label;
+      setTimeout(() => { btn.classList.remove('is-done'); if (l) l.textContent = old; }, 900);
     }
 
-    // Capture phase, not bubble: some sites (custom highlight tooltips,
-    // anti-copy/paywall scripts, rich editors) call stopPropagation() on
-    // their own mouseup handler, which would otherwise stop a bubble-phase
-    // listener on document from ever seeing the event. A capturing listener
-    // on document runs before the event reaches the page's own handlers, so
-    // it fires regardless of what they do with it afterward.
-    onDoc('mouseup', (e) => {
-      if (e.target.closest && (e.target.closest('#gpa-root-host') || e.target.closest('.gpa-sel-bubble') || e.target.closest('.gpa-sel-pop'))) return;
-      setTimeout(() => {
-        const sel = window.getSelection();
-        const text = sel ? String(sel).trim() : '';
-        if (!text || text.length < 2 || !sel.rangeCount || sel.isCollapsed) { removeBubble(); return; }
-        removeBubble();
-        const rect = sel.getRangeAt(0).getBoundingClientRect();
-        if (!rect.width && !rect.height) return;
-        bubble = document.createElement('div');
-        bubble.className = 'gpa-sel-bubble';
-        ACTIONS.forEach(([label, sys, retry]) => {
-          const b = document.createElement('button');
-          b.textContent = label;
-          b.addEventListener('mousedown', (ev) => {
-            ev.preventDefault();
-            ev.stopPropagation();
-            if (sys === null) {
-              navigator.clipboard.writeText(text.replace(/\s+/g, ' ').trim()).then(() => {
-                b.textContent = '✓ Copied';
-                setTimeout(removeBubble, 600);
-              });
-            } else if (sys === 'save') {
-              saveInsight(text);
-              removeBubble();
-            } else {
-              showPop(rect.left, rect.bottom, text, sys + ' Reply in plain text only — no markdown symbols.', retry === true);
-            }
-          });
-          bubble.appendChild(b);
-        });
-        document.body.appendChild(bubble);
-        bubble.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - bubble.offsetWidth - 12)) + 'px';
-        bubble.style.top = Math.max(8, rect.top - bubble.offsetHeight - 6) + 'px';
-      }, 10);
-    }, true);
-    onWin('scroll', removeBubble, true);
-    onWin('keydown', (e) => { if (e.key === 'Escape') { removeBubble(); removePop(); } });
+    // ---- Result popup ----
+    let pop = null;
+    function closePop() { if (pop) { pop.remove(); pop = null; } }
+    gpaCleanups.push(closePop);
+    function showResult(t, sel, btn) {
+      closePop();
+      const rect = saAnchorRect(sel) || { left: 20, right: 20, top: 20, bottom: 20, width: 0, height: 0 };
+      pop = document.createElement('div');
+      pop.className = 'gpa-sel-pop';
+      pop.setAttribute('role', 'dialog');
+      pop.setAttribute('aria-label', t.label + ' result');
+      pop.dataset.anim = saRead().animation;
+      pop.innerHTML = `<div class="gsa-pop-head">${GPS_ICONS[t.icon] || ''}<b>${escapeHtml(t.label)}</b><button type="button" class="gsa-x" aria-label="Close">${GPS_ICONS.x}</button></div>`
+        + `<div class="gsa-pop-body" aria-live="polite"><span class="gsa-loading"><i class="gsa-spin" aria-hidden="true"></i>Thinking…</span></div>`
+        + `<div class="gsa-pop-src"></div><div class="gsa-pop-foot" hidden><button type="button" data-p="copy">${GPS_ICONS.copy}<span>Copy</span></button><button type="button" data-p="save">${GPS_ICONS.pin}<span>Save</span></button><button type="button" data-p="retry">${GPS_ICONS.refresh}<span>Try again</span></button></div>`;
+      pop.querySelector('.gsa-pop-src').textContent = sel.text.slice(0, 140) + (sel.text.length > 140 ? '…' : '');
+      document.body.appendChild(pop);
+      const other = bar.hidden ? (saRead().position === 'above' ? 'above' : 'below') : (bar.dataset.side === 'above' ? 'below' : 'above');
+      saPlace(pop, rect, other, 10);
+      if (btn) { btn.classList.add('is-busy'); btn.setAttribute('aria-busy', 'true'); }
+      busyTool = t.id;
+      const body = pop.querySelector('.gsa-pop-body');
+      const foot = pop.querySelector('.gsa-pop-foot');
+      const mine = pop;
+      let lastOut = '';
+      const sys = (typeof t.sys === 'function' ? t.sys() : t.sys) + SA_PLAIN;
+      const ask = (retryOf) => callAI(retryOf
+        ? `Selected text:\n"""\n${sel.text}\n"""\n\nYour previous answer was:\n"""\n${retryOf}\n"""\nWrite a different version this time while still following the instructions.`
+        : `Selected text:\n"""\n${sel.text}\n"""`, sys, null, !!t.hard);
+      const done = () => { busyTool = null; if (btn) { btn.classList.remove('is-busy'); btn.removeAttribute('aria-busy'); } };
+      const render = (out) => {
+        if (pop !== mine) return;
+        lastOut = stripConfidence(out);
+        body.textContent = lastOut;
+        pop.classList.remove('is-error');
+        foot.hidden = false;
+        pop.querySelector('.gpa-model-badge') || appendModelBadge(foot);
+        speak(out);
+        saPlace(pop, saAnchorRect(sel) || rect, pop.dataset.side === 'left' || pop.dataset.side === 'right' ? 'below' : pop.dataset.side, 10);
+        announce(t.label + ' ready.');
+      };
+      const fail = (e) => { if (pop !== mine) return; pop.classList.add('is-error'); body.textContent = 'AI error: ' + (e && e.message || e); foot.hidden = false; announce(t.label + ' failed.'); };
+      ask().then(render, fail).finally(done);
+      pop.addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        if (b.classList.contains('gsa-x')) { closePop(); return; }
+        if (b.dataset.p === 'copy') { try { navigator.clipboard.writeText(lastOut); b.querySelector('span').textContent = 'Copied'; } catch (err) { /* ignore */ } }
+        if (b.dataset.p === 'save') { openConsoleTab('saved'); saveInsight(`${sel.text}\n\n${t.label}:\n${lastOut}`); }
+        if (b.dataset.p === 'retry') { body.innerHTML = '<span class="gsa-loading"><i class="gsa-spin" aria-hidden="true"></i>Thinking…</span>'; foot.hidden = true; ask(lastOut).then(render, fail); }
+      });
+      pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closePop(); } });
+    }
+
+    // ---- When to show ----
+    function consider(win, source) {
+      const s = saRead();
+      if (!s.enabled) { hide(); return; }
+      if (source === 'mouse' && !s.onMouse) return;
+      if (source === 'keyboard' && !s.onKeyboard) return;
+      if (win !== window && !s.iframes) return;
+      clearTimeout(showTimer);
+      showTimer = setTimeout(() => {
+        const sel = saReadSelection(win);
+        if (!sel) { if (s.dismissOnClear) hide(); return; }
+        if (current && !bar.hidden && current.text === sel.text) { current = sel; position(); return; }
+        show(sel);
+      }, source === 'touch' ? Math.max(350, s.delay) : s.delay);
+    }
+    function attach(doc, win) {
+      const opts = { capture: true, signal: gpaAbort.signal };
+      doc.addEventListener('mouseup', (e) => { if (!isInside(e.target) && !(e.target.closest && e.target.closest('#gpa-root-host'))) consider(win, 'mouse'); }, opts);
+      doc.addEventListener('keyup', (e) => {
+        if (isInside(e.target)) return;
+        if (e.shiftKey || /^(Arrow|Home|End|PageUp|PageDown)/.test(e.key) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a')) {
+          if (saIsEditable(e.target)) return;
+          consider(win, 'keyboard');
+        }
+      }, opts);
+      doc.addEventListener('mousedown', (e) => {
+        if (isInside(e.target)) return;
+        if (pop && !pop.contains(e.target)) closePop();
+        if (!bar.hidden && saRead().dismissOnClickAway) hide();
+      }, opts);
+      doc.addEventListener('selectionchange', () => {
+        if (bar.hidden) { if (coarse()) consider(win, 'touch'); return; }
+        if (!current || current.win !== win) return;
+        const sel = win.getSelection();
+        if ((!sel || sel.isCollapsed) && saRead().dismissOnClear && !bar.contains(document.activeElement)) hide();
+        else if (coarse()) consider(win, 'touch');
+      }, opts);
+      doc.addEventListener('keydown', onShortcut, opts);
+      if (win !== window) win.addEventListener('scroll', schedule, { capture: true, passive: true, signal: gpaAbort.signal });
+      win.addEventListener('blur', () => setTimeout(() => attachFocusedFrame(win), 0), { signal: gpaAbort.signal });
+    }
+    // Same-origin frames are attached lazily, the first time focus moves into
+    // one (which happens on the mousedown that starts a selection there) —
+    // no scanning of the page for frames.
+    const attached = new WeakSet();
+    function attachFocusedFrame(parentWin) {
+      if (!saRead().iframes) return;
+      try {
+        const fe = parentWin.document.activeElement;
+        if (!fe || !/^(IFRAME|FRAME)$/.test(fe.tagName)) return;
+        const w = fe.contentWindow;
+        const d = w && w.document;   // throws for cross-origin frames
+        if (!d || attached.has(d)) return;
+        attached.add(d);
+        attach(d, w);
+      } catch (e) { /* cross-origin: the browser keeps its selection private */ }
+    }
+    let raf = 0;
+    function schedule() { if (bar.hidden && !pop) return; cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { position(); }); }
+    attached.add(document);
+    attach(document, window);
+    onWin('scroll', schedule, { capture: true, passive: true });
+    onWin('resize', () => { barSig = ''; if (!bar.hidden && current) { render(saRead()); schedule(); } });
+    onWin('keydown', (e) => { if (e.key === 'Escape') { if (!bar.hidden) hide(); closePop(); } });
+    saListeners.add((s) => { barSig = ''; if (!bar.hidden) { render(s); position(); } });
+
+    // ---- Shortcuts ----
+    function onShortcut(e) {
+      if (e.repeat || e.isComposing || (!e.altKey && !e.ctrlKey && !e.metaKey)) return;
+      const target = (e.composedPath && e.composedPath()[0]) || e.target;
+      const hostEl = document.getElementById('gpa-root-host');
+      if (saIsEditable(target) || (hostEl && e.composedPath && e.composedPath().includes(hostEl))) return;
+      const s = saRead();
+      if (!s.enabled) return;
+      const id = saBindings(s)[comboFromEvent(e)];
+      if (!id) return;
+      const win = (target && target.ownerDocument && target.ownerDocument.defaultView) || window;
+      const sel = saReadSelection(win) || saReadSelection(window) || (current && !bar.hidden ? current : null);
+      if (!sel) return;   // no selection: leave the key to the page and browser
+      e.preventDefault();
+      e.stopPropagation();
+      if (id === 'focus') { show(sel); const f = bar.querySelector('.gsa-launch, .gsa-row .gsa-btn'); if (f) f.focus(); return; }
+      let toolId = id;
+      if (id === 'repeat') { toolId = s.last; if (!toolId || !SA_BY_ID[toolId]) { announce('No tool used yet.'); return; } }
+      if (!saAvailable(SA_BY_ID[toolId], s)) { announce(SA_BY_ID[toolId].label + ' is turned off.'); return; }
+      if (bar.hidden || !current || current.text !== sel.text) show(sel);
+      const b = bar.querySelector(`.gsa-btn[data-tool="${toolId}"]`);
+      runTool(toolId, sel, b);
+    }
+
+    // Exposed for the settings UI and tests.
+    selectionAssistantApi = { hide, render: () => { barSig = ''; if (!bar.hidden) { render(saRead()); position(); } } };
   })();
 
   // Standalone Humanize tab: same rewrite as the selection-assistant bubble
@@ -10366,11 +11111,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     fcStudy.appendChild(row);
   }
 
-  panel.querySelector('#gpa-fc-gen').addEventListener('click', async () => {
+  // Builds a Study deck from any text: the page (button below) or a selection
+  // (the selection assistant's "Make flashcards").
+  async function buildDeckFrom(text) {
     const fcStatus = panel.querySelector('#gpa-fc-status');
     const fcStudy = panel.querySelector('#gpa-fc-study');
-    const text = extractPageText().slice(0, 12000);
-    if (text.trim().length < 80) { fcStatus.textContent = 'Not enough page text here to build cards — open a page with real content first.'; return; }
+    if (String(text || '').trim().length < 40) { fcStatus.textContent = 'Not enough text to build cards — select or open more material first.'; return; }
     fcStatus.textContent = '✨ Building your deck…';
     try {
       const sys = 'Create flashcards from the provided material. Return ONLY a JSON array of 8-15 objects: [{"q":"question","a":"short answer"}]. Cover the most important facts and concepts. No text outside the JSON array.';
@@ -10384,6 +11130,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       fcStatus.textContent = '';
       showError(fcStudy, e, currentProviderLabel());
     }
+  }
+  panel.querySelector('#gpa-fc-gen').addEventListener('click', async () => {
+    const text = extractPageText().slice(0, 12000);
+    if (text.trim().length < 80) { panel.querySelector('#gpa-fc-status').textContent = 'Not enough page text here to build cards — open a page with real content first.'; return; }
+    buildDeckFrom(text);
   });
 
   // Scratchpad (Saved tab): autosaved textarea + AI tidier.
@@ -16556,7 +17307,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         reason = prompt(`Reason to show ${user} (optional):`, '') || '';
       } else if (action === 'setfeatures') {
         const raw = prompt(
-          `Per-user feature overrides for ${user}, as JSON (true/false per key — quiz, tutor, games, music, browser, notes, study, watch, autofill, research). Example: {"quiz":false,"games":false}`,
+          `Per-user feature overrides for ${user}, as JSON (true/false per key — quiz, tutor, games, music, browser, notes, study, watch, autofill, research, selection, or sel_<tool> such as sel_solve). Example: {"quiz":false,"games":false}`,
           '{}'
         );
         if (raw === null) return;
@@ -16668,7 +17419,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const FLAGS = [
       ['quiz', 'Quiz solver'], ['tutor', 'Tutor mode'], ['games', 'Games'],
       ['music', 'Music'], ['browser', 'Proxy'], ['notes', 'Notes'], ['study', 'Study'],
-      ['watch', 'Page watcher'], ['autofill', 'Form auto-fill'], ['research', 'Research mode']
+      ['watch', 'Page watcher'], ['autofill', 'Form auto-fill'], ['research', 'Research mode'], ['selection', 'Selection assistant']
     ];
     let knownFlags = {};
     function renderFlags() {
@@ -18727,6 +19478,196 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
     syncScan(); syncAskModels(); syncChat(); syncMusic(); syncProxy(); syncGames(); syncSaved(); syncStudy();
     ['notes', 'humanize', 'grammar'].forEach(refreshIdle);
+  })();
+
+  // ---- Settings → Controls: Selection assistant + Keyboard shortcuts ----------
+  (function selectionAssistantSettings() {
+    const sec = panel.querySelector('#gps .gps-sec[data-sec="controls"]');
+    if (!sec) return;
+    const host = document.createElement('div');
+    host.className = 'gps-list gsa-set';
+    host.innerHTML = `
+      <div class="gps-item gps-item-row" data-k="selection assistant toolbar highlight selected text bubble on off">
+        <div><div class="gps-label">Selection assistant</div><p class="gps-hint" id="gsa-s-hint">Select text on any page to get a small toolbar of AI and study tools.</p></div>
+        <button class="gps-switch" id="gsa-s-enabled" aria-label="Selection assistant">Selection assistant</button>
+      </div>
+      <details class="gps-item gpx-details gsa-sd" data-g="general" data-k="selection assistant behavior mouse keyboard iframe delay dismiss keep open"><summary>General</summary><div class="gsa-sb" data-body="general"></div></details>
+      <details class="gps-item gpx-details gsa-sd" data-g="tools" data-k="selection assistant tools enable disable categories favorites star ai learning research productivity"><summary>Tools</summary><div class="gsa-sb" data-body="tools"></div></details>
+      <details class="gps-item gpx-details gsa-sd" data-g="primary" data-k="selection assistant primary tools order reorder toolbar buttons"><summary>Primary tools</summary><div class="gsa-sb" data-body="primary"></div></details>
+      <details class="gps-item gpx-details gsa-sd" data-g="shortcuts" data-k="selection assistant shortcuts keyboard keys hotkeys record conflict"><summary>Shortcuts</summary><div class="gsa-sb" data-body="shortcuts"></div></details>
+      <details class="gps-item gpx-details gsa-sd" data-g="appearance" data-k="selection assistant appearance compact comfortable minimal expanded position above below animation"><summary>Appearance</summary><div class="gsa-sb" data-body="appearance"></div></details>
+      <details class="gps-item gpx-details gsa-sd" data-g="advanced" data-k="selection assistant smart ordering last used reset personalization"><summary>Advanced</summary><div class="gsa-sb" data-body="advanced"></div></details>
+      <div class="gps-item" data-k="keyboard shortcuts cheat sheet keys list"><div class="gps-label">Keyboard shortcuts</div><div class="gsa-cheat" data-body="cheat"></div></div>`;
+    sec.appendChild(host);
+    const $s = (sel) => host.querySelector(sel);
+    const body = (g) => host.querySelector(`[data-body="${g}"]`);
+    const sw = (key, label, on, hint, disabled) => `<div class="gsa-srow"><div><div class="gsa-sl">${label}</div>${hint ? `<p class="gps-hint">${hint}</p>` : ''}</div><button class="gps-switch${on ? ' primary' : ''}" data-set="${key}" data-fk="set-${key}" aria-pressed="${on ? 'true' : 'false'}" aria-label="${escapeHtml(label)}"${disabled ? ' disabled' : ''}>${escapeHtml(label)}</button></div>`;
+    const seg = (key, label, opts, val) => `<div class="gsa-srow gsa-srow-col"><div class="gsa-sl" id="gsa-l-${key}">${label}</div><div class="gps-seg" role="group" aria-labelledby="gsa-l-${key}">${opts.map(([v, t]) => `<button class="gps-seg-btn${v === val ? ' primary' : ''}" data-seg="${key}" data-v="${v}" data-fk="seg-${key}-${v}" aria-pressed="${v === val ? 'true' : 'false'}">${t}</button>`).join('')}</div></div>`;
+    const toolIcon = (t) => `<span class="gsa-ti" aria-hidden="true">${GPS_ICONS[t.icon] || ''}</span>`;
+    let recording = null;   // tool id being recorded
+    let conflict = null;    // { id, combo, other }
+    let problem = null;     // { id, text }
+
+    function renderAll() {
+      const s = saRead();
+      const fk = (() => { const a = root.activeElement; return a && host.contains(a) ? a.dataset.fk : null; })();
+      const master = $s('#gsa-s-enabled');
+      const policy = saPolicyOff({ id: '_', flags: [] });
+      master.classList.toggle('primary', s.enabled && !policy);
+      master.setAttribute('aria-pressed', s.enabled && !policy ? 'true' : 'false');
+      master.disabled = !!policy;
+      $s('#gsa-s-hint').textContent = policy ? policy + '.' : 'Select text on any page to get a small toolbar of AI and study tools.';
+      body('general').innerHTML = sw('onMouse', 'Show after selecting with the mouse', s.onMouse)
+        + sw('onKeyboard', 'Show after selecting with the keyboard', s.onKeyboard, 'Shift with the arrow keys, or Ctrl/⌘ A.')
+        + sw('iframes', 'Show inside embedded frames', s.iframes, 'Works in frames from the same site. Browsers keep selections in other sites\' frames private.')
+        + sw('dismissOnClear', 'Hide when the selection clears', s.dismissOnClear)
+        + sw('dismissOnClickAway', 'Hide when clicking elsewhere', s.dismissOnClickAway)
+        + sw('keepOpen', 'Keep the toolbar open after using a tool', s.keepOpen, 'Applies to tools that answer next to the selection.')
+        + `<div class="gsa-srow"><div><div class="gsa-sl" id="gsa-l-delay">Delay before showing</div></div><select class="gpa-input gsa-delay" data-fk="delay" aria-labelledby="gsa-l-delay">${[0, 60, 120, 250, 400, 700].map((d) => `<option value="${d}"${d === s.delay ? ' selected' : ''}>${d} ms</option>`).join('')}</select></div>`;
+      body('tools').innerHTML = SA_GROUPS.map(([g, name]) => {
+        const off = !!s.groupsOff[g];
+        const rows = SA_TOOLS.filter((t) => t.group === g).map((t) => {
+          const pol = saPolicyOff(t);
+          const on = !pol && !s.disabled[t.id];
+          const fav = s.favorites.includes(t.id);
+          return `<li class="gsa-tool${pol || off ? ' is-off' : ''}"><label class="gsa-check">${toolIcon(t)}<input type="checkbox" data-tool-on="${t.id}" data-fk="on-${t.id}"${on ? ' checked' : ''}${pol || off ? ' disabled' : ''}><span>${escapeHtml(t.label)}</span></label>`
+            + (pol ? `<span class="gsa-pol">${escapeHtml(pol)}</span>` : '')
+            + `<button class="gsa-star${fav ? ' is-on' : ''}" data-fav="${t.id}" data-fk="fav-${t.id}" aria-pressed="${fav ? 'true' : 'false'}" aria-label="Favorite ${escapeHtml(t.label)}" title="${fav ? 'Remove from favorites' : 'Add to favorites'}">${GPS_ICONS.star}</button></li>`;
+        }).join('');
+        return `<div class="gsa-gblock">${sw('group-' + g, name + ' tools', !off)}<ul class="gsa-tools">${rows}</ul></div>`;
+      }).join('') + '<p class="gps-hint">Favorites appear first in the More menu. With smart ordering on, they also fill free toolbar slots.</p>';
+      const prim = s.primary;
+      const addable = SA_TOOLS.filter((t) => !prim.includes(t.id) && saAvailable(t, s));
+      body('primary').innerHTML = `<p class="gps-hint">These show on the toolbar, in this order. Everything else is under More. Up to ${SA_PRIMARY_MAX}.</p><ol class="gsa-prim">`
+        + prim.map((id, i) => { const t = SA_BY_ID[id]; const pol = !saAvailable(t, s); return `<li${pol ? ' class="is-off"' : ''}><span class="gsa-pn">${i + 1}</span>${toolIcon(t)}<span class="gsa-pl">${escapeHtml(t.label)}${pol ? ' <em>(hidden: turned off)</em>' : ''}</span>`
+          + `<button class="gps-btn gsa-ib" data-pm="up" data-i="${i}" data-fk="pm-up-${id}" aria-label="Move ${escapeHtml(t.label)} up"${i === 0 ? ' disabled' : ''}>${GPS_ICONS.arrow}</button>`
+          + `<button class="gps-btn gsa-ib gsa-down" data-pm="down" data-i="${i}" data-fk="pm-down-${id}" aria-label="Move ${escapeHtml(t.label)} down"${i === prim.length - 1 ? ' disabled' : ''}>${GPS_ICONS.arrow}</button>`
+          + `<button class="gps-btn gsa-ib" data-pm="remove" data-i="${i}" data-fk="pm-rm-${id}" aria-label="Remove ${escapeHtml(t.label)} from the toolbar">${GPS_ICONS.x}</button></li>`; }).join('')
+        + `</ol>${prim.length ? '' : '<p class="gps-hint">No primary tools: the toolbar shows only More.</p>'}<div class="gps-row"><select class="gpa-input" id="gsa-add-sel" data-fk="add-sel" aria-label="Tool to add"${prim.length >= SA_PRIMARY_MAX || !addable.length ? ' disabled' : ''}>${addable.map((t) => `<option value="${t.id}">${escapeHtml(t.label)}</option>`).join('')}</select>`
+        + `<button class="gps-btn" data-pm="add" data-fk="pm-add"${prim.length >= SA_PRIMARY_MAX || !addable.length ? ' disabled' : ''}>${GPS_ICONS.plus}<span>Add</span></button><button class="gps-btn" data-pm="defaults" data-fk="pm-def">Restore defaults</button></div>`;
+      body('shortcuts').innerHTML = `<p class="gps-hint">Shortcuts only act while text is selected on the page and you're not typing in a field. ${SA_IS_MAC ? '⌘ and ⌃' : 'Ctrl'} combinations stay with the browser.</p><ul class="gsa-keys-list">`
+        + [...SA_TOOLS, ...SA_COMMANDS].map((t) => {
+          const b = saBinding(t.id, s);
+          const isRec = recording === t.id;
+          const conf = conflict && conflict.id === t.id ? conflict : null;
+          const prob = problem && problem.id === t.id ? problem : null;
+          return `<li class="gsa-krow${isRec ? ' is-rec' : ''}"><span class="gsa-kl">${escapeHtml(t.label)}</span>`
+            + `<span class="gsa-kv">${isRec ? '<span class="gsa-rec" aria-live="polite">Press your new shortcut… <kbd>Esc</kbd> cancels</span>' : b ? keycaps(b) + `<span class="gsa-sr">${escapeHtml(comboText(b))}</span>` : '<span class="gsa-none">None</span>'}</span>`
+            + `<span class="gsa-ka"><button class="gps-btn" data-rec="${t.id}" data-fk="rec-${t.id}">${isRec ? 'Recording…' : 'Edit'}</button><button class="gps-btn" data-kreset="${t.id}" data-fk="kreset-${t.id}"${!Object.prototype.hasOwnProperty.call(s.shortcuts, t.id) ? ' disabled' : ''}>Reset</button><button class="gps-btn" data-kclear="${t.id}" data-fk="kclear-${t.id}"${!b ? ' disabled' : ''}>Clear</button></span>`
+            + (prob ? `<p class="gsa-kmsg is-warn" role="alert">${escapeHtml(prob.text)}</p>` : '')
+            + (conf ? `<div class="gsa-kmsg is-conflict" role="alert"><b>Shortcut conflict.</b> ${keycaps(conf.combo)} is already assigned to <b>${escapeHtml(conf.otherLabel)}</b>.<div class="gps-row"><button class="gps-btn gps-btn-primary" data-kre="1" data-fk="kre">Reassign</button><button class="gps-btn" data-kcancel="1" data-fk="kcancel">Cancel</button></div></div>` : '')
+            + `</li>`;
+        }).join('') + '</ul><button class="gps-btn" data-kall="1" data-fk="kall">Reset all shortcuts</button>';
+      body('appearance').innerHTML = seg('layout', 'Toolbar style', [['compact', 'Compact'], ['comfortable', 'Comfortable'], ['minimal', 'Minimal'], ['expanded', 'Expanded']], s.layout)
+        + '<p class="gps-hint">Compact shows short labels; Comfortable shows full labels; Minimal shows one button that opens the tools; Expanded is a list with shortcuts. Phones always get a bottom tray.</p>'
+        + seg('position', 'Position', [['auto', 'Auto'], ['above', 'Above selection'], ['below', 'Below selection']], s.position)
+        + seg('animation', 'Animation', [['full', 'Full'], ['reduced', 'Reduced'], ['off', 'Off']], s.animation)
+        + '<p class="gps-hint">Your system\'s reduce-motion setting always wins.</p>';
+      body('advanced').innerHTML = sw('smart', 'Smart tool ordering', s.smart, 'Puts the most useful tools first for what you selected: a quiz question, a single word, code or a long passage. Your own order is used whenever this is off.')
+        + sw('rememberLast', 'Remember the last tool I used', s.rememberLast, `Shows it first in More, and ${escapeHtml(comboText(saBinding('repeat', s) || '') || 'the Repeat shortcut')} runs it on a new selection.`)
+        + `<div class="gsa-srow"><div><div class="gsa-sl">Reset selection assistant</div><p class="gps-hint">Restores tools, order, favorites, shortcuts, appearance and behavior. Nothing else changes.</p></div><button class="gps-btn gps-btn-danger" data-sareset="1" data-fk="sareset">Reset</button></div>`;
+      const b2 = saBindings(s);
+      body('cheat').innerHTML = `<div class="gsa-cgroup"><div class="gsa-ch">Console</div>${APP_SHORTCUTS.map((a) => `<div class="gsa-crow"><span>${escapeHtml(a.label)}</span>${a.combo ? keycaps(a.combo) : `<span class="gsa-keys" aria-hidden="true">${a.keys.map((k) => `<kbd>${escapeHtml(k)}</kbd>`).join('')}</span>`}<span class="gsa-sr">${escapeHtml(a.combo ? comboText(a.combo) : a.keys.join(' then '))}</span></div>`).join('')}</div>`
+        + `<div class="gsa-cgroup"><div class="gsa-ch">Selection assistant <span class="gps-hint">(with text selected)</span></div>${Object.entries(b2).map(([c, id]) => { const t = SA_BY_ID[id] || SA_COMMANDS.find((x) => x.id === id); return `<div class="gsa-crow"><span>${escapeHtml(t.label)}</span>${keycaps(c)}<span class="gsa-sr">${escapeHtml(comboText(c))}</span></div>`; }).join('') || '<p class="gps-hint">No selection shortcuts set.</p>'}</div>`;
+      if (fk) { const el = host.querySelector(`[data-fk="${CSS.escape(fk)}"]`); if (el && !el.disabled) el.focus(); }
+    }
+    saListeners.add(() => renderAll());
+
+    // ---- Events ----
+    host.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b || b.disabled) return;
+      const s = saRead();
+      if (b.id === 'gsa-s-enabled') { saWrite({ enabled: !s.enabled }, 'SELECTION_SETTING_CHANGED:enabled'); return; }
+      if (b.dataset.set) {
+        const key = b.dataset.set;
+        if (key.startsWith('group-')) { const g = key.slice(6); saWrite({ groupsOff: { ...s.groupsOff, [g]: !s.groupsOff[g] } }, (s.groupsOff[g] ? 'SELECTION_TOOL_ENABLED:group:' : 'SELECTION_TOOL_DISABLED:group:') + g); return; }
+        saWrite({ [key]: !s[key] }, key === 'smart' ? 'SELECTION_SMART_ORDERING_CHANGED' : 'SELECTION_SETTING_CHANGED:' + key);
+        return;
+      }
+      if (b.dataset.seg) { saWrite({ [b.dataset.seg]: b.dataset.v }, b.dataset.seg === 'layout' || b.dataset.seg === 'animation' ? 'SELECTION_APPEARANCE_CHANGED:' + b.dataset.seg : 'SELECTION_SETTING_CHANGED:' + b.dataset.seg); return; }
+      if (b.dataset.fav) { const id = b.dataset.fav; const favs = s.favorites.includes(id) ? s.favorites.filter((x) => x !== id) : [...s.favorites, id]; saWrite({ favorites: favs }, 'SELECTION_SETTING_CHANGED:favorites'); return; }
+      if (b.dataset.pm) {
+        const p = [...s.primary];
+        const i = Number(b.dataset.i);
+        if (b.dataset.pm === 'up' && i > 0) [p[i - 1], p[i]] = [p[i], p[i - 1]];
+        if (b.dataset.pm === 'down' && i < p.length - 1) [p[i + 1], p[i]] = [p[i], p[i + 1]];
+        if (b.dataset.pm === 'remove') p.splice(i, 1);
+        if (b.dataset.pm === 'add') { const v = $s('#gsa-add-sel').value; if (v && !p.includes(v) && p.length < SA_PRIMARY_MAX) p.push(v); }
+        if (b.dataset.pm === 'defaults') { saWrite({ primary: [...SA_DEFAULTS.primary] }, 'SELECTION_PRIMARY_TOOL_CHANGED'); return; }
+        saWrite({ primary: p }, 'SELECTION_PRIMARY_TOOL_CHANGED');
+        return;
+      }
+      if (b.dataset.rec) { recording = recording === b.dataset.rec ? null : b.dataset.rec; conflict = null; problem = null; renderAll(); return; }
+      if (b.dataset.kreset) { const sc = { ...s.shortcuts }; delete sc[b.dataset.kreset]; const def = SA_DEFAULT_KEYS[b.dataset.kreset]; const clash = def && Object.entries(saBindings({ ...s, shortcuts: sc })).find(([c, id]) => c === comboNorm(def) && id !== b.dataset.kreset); if (clash) sc[clash[1]] = null; saWrite({ shortcuts: sc }, 'SELECTION_SHORTCUT_CHANGED:' + b.dataset.kreset); return; }
+      if (b.dataset.kclear) { saWrite({ shortcuts: { ...s.shortcuts, [b.dataset.kclear]: null } }, 'SELECTION_SHORTCUT_CHANGED:' + b.dataset.kclear); return; }
+      if (b.dataset.kall) { recording = null; conflict = null; problem = null; saWrite({ shortcuts: {} }, 'SELECTION_SHORTCUT_CHANGED:all'); return; }
+      if (b.dataset.kre && conflict) { const c = conflict; conflict = null; saWrite({ shortcuts: { ...s.shortcuts, [c.other]: null, [c.id]: c.combo } }, 'SELECTION_SHORTCUT_CHANGED:' + c.id); return; }
+      if (b.dataset.kcancel) { conflict = null; renderAll(); return; }
+      if (b.dataset.sareset) {
+        saConfirm('Reset the selection assistant?', 'Tools, order, favorites, shortcuts, appearance and behavior go back to their defaults. Nothing else changes.', 'Reset').then((ok) => {
+          if (!ok) return;
+          recording = null; conflict = null; problem = null;
+          try { localStorage.removeItem(SA_KEY); } catch (err) { /* ignore */ }
+          saWrite({}, 'SELECTION_SETTING_CHANGED:reset');
+          showToast('Selection assistant reset.');
+        });
+      }
+    });
+    host.addEventListener('change', (e) => {
+      const s = saRead();
+      const t = e.target;
+      if (t.dataset.toolOn) { const id = t.dataset.toolOn; const dis = { ...s.disabled }; if (t.checked) delete dis[id]; else dis[id] = true; saWrite({ disabled: dis }, (t.checked ? 'SELECTION_TOOL_ENABLED:' : 'SELECTION_TOOL_DISABLED:') + id); }
+      if (t.classList.contains('gsa-delay')) saWrite({ delay: Number(t.value) }, 'SELECTION_SETTING_CHANGED:delay');
+    });
+    // The recorder: the next non-modifier key with its modifiers.
+    host.addEventListener('keydown', (e) => {
+      if (!recording || !e.target.closest(`[data-rec="${recording}"]`)) return;
+      if (/^(Shift|Control|Alt|Meta|AltGraph|CapsLock)$/.test(e.key)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape' && !e.altKey && !e.ctrlKey && !e.metaKey) { recording = null; problem = null; renderAll(); return; }
+      const combo = comboFromEvent(e);
+      const bad = comboProblem(combo);
+      const id = recording;
+      if (bad) { problem = { id, text: bad }; renderAll(); return; }
+      const s = saRead();
+      const other = saBindings(s)[comboNorm(combo)];
+      recording = null;
+      problem = null;
+      if (other && other !== id) {
+        const o = SA_BY_ID[other] || SA_COMMANDS.find((x) => x.id === other);
+        conflict = { id, combo, other, otherLabel: o ? o.label : other };
+        renderAll();
+        return;
+      }
+      saWrite({ shortcuts: { ...s.shortcuts, [id]: combo } }, 'SELECTION_SHORTCUT_CHANGED:' + id);
+      showToast(`${(SA_BY_ID[id] || SA_COMMANDS.find((x) => x.id === id)).label}: ${comboText(combo)}`);
+    }, true);
+    // Uses the shared Settings confirmation dialog.
+    function saConfirm(title, text, okLabel) {
+      const dialog = panel.querySelector('#gps-dialog');
+      if (!dialog) return Promise.resolve(confirm(title));
+      dialog.querySelector('#gps-dialog-title').textContent = title;
+      dialog.querySelector('#gps-dialog-body').textContent = text;
+      const ok = dialog.querySelector('#gps-dialog-ok');
+      const cancel = dialog.querySelector('#gps-dialog-cancel');
+      ok.textContent = okLabel;
+      const back = root.activeElement;
+      dialog.hidden = false;
+      cancel.focus();
+      return new Promise((resolve) => {
+        const obs = new MutationObserver(() => { if (dialog.hidden) finish(false); });
+        let settled = false;
+        function finish(v) { if (settled) return; settled = true; obs.disconnect(); ok.removeEventListener('click', onOk, true); dialog.hidden = true; if (back && back.focus) back.focus(); resolve(v); }
+        function onOk() { finish(true); }
+        ok.addEventListener('click', onOk, true);   // capture: before the dialog's own handler hides it
+        obs.observe(dialog, { attributes: true, attributeFilter: ['hidden'] });
+      });
+    }
+    const tab = panel.querySelector('#gps .gps-tab[data-sec="controls"]');
+    if (tab) tab.addEventListener('click', () => { recording = null; conflict = null; problem = null; renderAll(); });
+    renderAll();
   })();
 
   // ---- Version chips: every tab, Settings section and Admin section ----------
