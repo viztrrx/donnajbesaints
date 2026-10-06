@@ -15,6 +15,10 @@
 //   /read?url=…        — fetches a public web page server-side and returns it
 //                        as inert text so research mode can read pages the
 //                        browser itself is not allowed to fetch (CORS).
+//   /eagler/*          — the Eaglercraft tab: the game's frame page, its loader
+//                        and the owner's own client build (passed through from
+//                        EAGLER_CLIENT), plus a WebSocket proxy for servers
+//                        and Shared World relays. See handleEagler below.
 //   Anything else      — 404. Unrouted paths are never forwarded anywhere.
 //
 // SECURITY MODEL (read this before changing a route):
@@ -66,6 +70,29 @@
 // /admin/audit (GET) — last 100 admin actions, newest first, 90-day TTL.
 // /admin/backup (GET) / /admin/restore (POST) — full state export/import
 // (config, moderation records, rooms, audit), owner only.
+//
+// Eaglercraft (all optional; the tab says what is missing until they're set):
+//   EAGLER_CLIENT  — base URL of YOUR OWN EaglercraftX 1.8 web build (the
+//                    folder holding classes.js, assets.epk and lang/). Nothing
+//                    is bundled: builds contain Mojang's code and are not ours
+//                    to redistribute. See eaglercraft/README.md.
+//   EAGLER_LOADER  — where eaglercraft/loader/ is served from. Defaults to this
+//                    repository on raw.githubusercontent.com.
+//   EAGLER_RELAYS  — comma-separated Shared World relay URLs (wss://…).
+//                    Defaults to the three public relays the official client
+//                    ships with.
+//   EAGLER_SERVERS — comma-separated "Name|wss://host/" servers listed on the
+//                    Multiplayer screen.
+//   EAGLER_WS_ALLOW — extra hosts (host or host:port) the WebSocket proxy may
+//                    reach. Hosts named here or in EAGLER_RELAYS/SERVERS are
+//                    trusted as given, private addresses included.
+//   EAGLER_WS_OPEN — "1" lets the WebSocket proxy reach ANY public host (the
+//                    SSRF guard still applies), so Direct Connect works for
+//                    any server. Off by default: on, your worker is a
+//                    WebSocket relay for anyone who knows its address.
+//   EAGLER_REAL_IP — "1" forwards the player's IP to relays as X-Real-IP, for
+//                    a relay you run with enable-real-ip-header: true.
+//   EAGLER_VOICE   — "1" turns on the game's WebRTC voice chat.
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -96,7 +123,7 @@ const jsonResponse = (obj, status) => new Response(JSON.stringify(obj), {
 // handleRequest where it can reuse the existing closures.
 // ============================================================================
 const WORKER_VERSION = '2026.09.27-v2';
-const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs'];
+const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs', 'eaglercraft'];
 
 // ---- Permissions ------------------------------------------------------------
 // The single source of truth for who may do what. Roles come from a verified
@@ -1594,7 +1621,7 @@ async function handleRequest(req, env, ctx) {
           '/v1/*', '/read', '/track', '/status', '/active-count', '/health',
           '/chat/poll', '/chat/send', '/chat/report', '/unlock',
           '/auth/register', '/auth/login', '/auth/me', '/auth/logout', '/auth/revoke',
-          '/memory/*', ...Object.keys(ADMIN_ROUTES)
+          '/memory/*', '/eagler/*', ...Object.keys(ADMIN_ROUTES)
         ]
       });
     }
@@ -2846,6 +2873,11 @@ async function handleRequest(req, env, ctx) {
       return json({ ok: true, restored, rejected });
     }
 
+    // ---- Eaglercraft: frame page, loader, client build, WebSocket proxy ----
+    if (url.pathname === '/eagler' || url.pathname.startsWith('/eagler/')) {
+      return handleEagler(req, env, url, { json, safeTargetUrl, getConfig: () => getConfig(env && env.TELEMETRY) });
+    }
+
     // ---- /read?url=… : server-side page fetch for research mode ----
     // Public http(s) pages only (see safeTargetUrl), redirects followed by
     // hand so each hop is re-checked, and the result is returned as inert
@@ -3120,4 +3152,219 @@ async function clearAllChatMessages(kv) {
     } while (cursor);
   }
   return deleted;
+}
+
+// ============================================================================
+// Eaglercraft (/eagler/*)
+// ----------------------------------------------------------------------------
+// The console's Eaglercraft tab runs the game in a frame whose page, scripts
+// and assets all come from here, so every HTTP request and WebSocket the game
+// makes goes through this worker:
+//
+//   GET /eagler/            the frame page (eaglercraft/loader/frame.html)
+//   GET /eagler/config.js   relays, servers and paths for the loader
+//   GET /eagler/status      JSON: is the route on, is a client configured
+//   GET /eagler/loader/*    eaglercraft/loader/* from EAGLER_LOADER
+//   GET /eagler/client/*    the owner's own build from EAGLER_CLIENT
+//   GET /eagler/ws?url=…    WebSocket proxy to a server or Shared World relay
+//
+// The frame page's Content-Security-Policy only allows connections back to
+// this origin, so a socket or fetch that skipped the loader's WebSocket
+// rewrite is refused by the browser instead of quietly going direct.
+//
+// What cannot come through here: Shared World gameplay and voice use WebRTC
+// peer connections (UDP, negotiated through the relay). The relay handshake
+// is proxied; the peer-to-peer traffic goes between the players' browsers, or
+// through a TURN server the relay names. A worker cannot carry WebRTC.
+// ============================================================================
+const EAGLER_DEFAULT_LOADER = 'https://raw.githubusercontent.com/viztrrx/donnajbesaints/main/eaglercraft/loader/';
+// The relays the official EaglercraftX 1.8 index.html ships with.
+const EAGLER_DEFAULT_RELAYS = ['wss://relay.deev.is/', 'wss://relay.lax1dude.net/', 'wss://relay.shhnowisnottheti.me/'];
+const EAGLER_TYPES = {
+  html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8',
+  css: 'text/css; charset=utf-8', json: 'application/json', lang: 'text/plain; charset=utf-8', txt: 'text/plain; charset=utf-8',
+  epk: 'application/octet-stream', epw: 'application/octet-stream', wasm: 'application/wasm',
+  png: 'image/png', jpg: 'image/jpeg', ico: 'image/x-icon', ogg: 'audio/ogg', mp3: 'audio/mpeg', webp: 'image/webp'
+};
+// For the frame page only. 'self' covers wss:// back to this host, which is
+// the only socket the game is allowed to open. blob: is for the integrated
+// server, which the client starts as a Worker from a blob: copy of classes.js.
+// 'wasm-unsafe-eval' allows WebAssembly compilation, not JavaScript eval.
+const EAGLER_FRAME_CSP = [
+  "default-src 'none'",
+  "script-src 'self' blob: 'wasm-unsafe-eval'",
+  "worker-src 'self' blob:",
+  "connect-src 'self' blob: data:",
+  "img-src 'self' data: blob:",
+  "media-src 'self' data: blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:",
+  "base-uri 'none'",
+  "form-action 'none'",
+  'frame-ancestors *'
+].join('; ');
+
+function eaglerList(raw) {
+  return String(raw || '').split(',').map((x) => x.trim()).filter(Boolean);
+}
+function eaglerWsUrl(raw) {
+  let u;
+  try { u = new URL(String(raw)); } catch (e) { return null; }
+  if (u.protocol !== 'ws:' && u.protocol !== 'wss:') return null;
+  if (u.username || u.password || !u.hostname) return null;
+  u.hash = '';
+  return u;
+}
+function eaglerSettings(env) {
+  const e = env || {};
+  const relays = (eaglerList(e.EAGLER_RELAYS).length ? eaglerList(e.EAGLER_RELAYS) : EAGLER_DEFAULT_RELAYS)
+    .map(eaglerWsUrl).filter(Boolean).map((u) => u.href);
+  const servers = eaglerList(e.EAGLER_SERVERS).map((entry) => {
+    const bar = entry.indexOf('|');
+    const name = bar >= 0 ? entry.slice(0, bar).trim() : '';
+    const u = eaglerWsUrl(bar >= 0 ? entry.slice(bar + 1).trim() : entry);
+    return u ? { addr: u.href, name: (name || u.host).slice(0, 60) } : null;
+  }).filter(Boolean);
+  const hosts = new Set();
+  relays.forEach((r) => hosts.add(new URL(r).host.toLowerCase()));
+  servers.forEach((s) => hosts.add(new URL(s.addr).host.toLowerCase()));
+  eaglerList(e.EAGLER_WS_ALLOW).forEach((h) => {
+    const u = eaglerWsUrl(/^wss?:\/\//i.test(h) ? h : 'wss://' + h);
+    if (u) hosts.add(u.host.toLowerCase());
+  });
+  const base = (raw, fallback) => { const v = String(raw || fallback || '').trim(); return v ? v.replace(/\/*$/, '/') : ''; };
+  return {
+    client: base(e.EAGLER_CLIENT, ''),
+    loader: base(e.EAGLER_LOADER, EAGLER_DEFAULT_LOADER),
+    relays, servers, hosts,
+    open: e.EAGLER_WS_OPEN === '1',
+    realIp: e.EAGLER_REAL_IP === '1',
+    voice: e.EAGLER_VOICE === '1'
+  };
+}
+
+async function handleEagler(req, env, url, h) {
+  const json = h.json;
+  const sub = url.pathname.replace(/^\/eagler\/?/, '');
+  const cfg = eaglerSettings(env);
+  let enabled = true;
+  try { const c = await h.getConfig(); enabled = !(c.features && c.features.eaglercraft === false); } catch (e) { /* no KV: on */ }
+
+  if (sub === 'status') {
+    return json({ ok: true, enabled, clientConfigured: !!cfg.client, relays: cfg.relays, servers: cfg.servers, openProxy: cfg.open, voice: cfg.voice });
+  }
+  if (!enabled) return json({ error: 'Eaglercraft is turned off by the owner.' }, 403);
+
+  if (sub === 'ws') return eaglerWebSocket(req, url, cfg, h);
+  if (req.method !== 'GET' && req.method !== 'HEAD') return json({ error: 'method not allowed' }, 405);
+
+  if (sub === '' || sub === 'index.html') {
+    // /eagler without the slash would resolve the page's relative URLs one
+    // level too high.
+    if (url.pathname === '/eagler') return Response.redirect(url.origin + '/eagler/', 301);
+    return eaglerPassThrough(req, cfg.loader + 'frame.html', 'html', { 'Content-Security-Policy': EAGLER_FRAME_CSP, 'Cache-Control': 'no-cache' }, json);
+  }
+  if (sub === 'config.js') {
+    const conf = {
+      clientConfigured: !!cfg.client, clientBase: '/eagler/client/', wsPath: '/eagler/ws',
+      relays: cfg.relays, servers: cfg.servers, openProxy: cfg.open, voice: cfg.voice,
+      allowedHosts: [...cfg.hosts]
+    };
+    return new Response('window.__eaglerConfig = ' + JSON.stringify(conf) + ';\n', {
+      headers: { ...CORS_HEADERS, ...SECURITY_HEADERS, 'Content-Type': EAGLER_TYPES.js }
+    });
+  }
+  let m = /^loader\/([A-Za-z0-9_-]+\.(js|css|html))$/.exec(sub);
+  if (m) {
+    const extra = m[2] === 'html' ? { 'Content-Security-Policy': EAGLER_FRAME_CSP } : {};
+    return eaglerPassThrough(req, cfg.loader + m[1], m[2], { ...extra, 'Cache-Control': 'no-cache' }, json);
+  }
+  m = /^client\/(.+)$/.exec(sub);
+  if (m) {
+    const path = m[1];
+    if (!cfg.client) return json({ error: 'No Eaglercraft client is configured on this worker (set EAGLER_CLIENT).' }, 503);
+    // Plain relative paths only: no "..", no absolute URLs, no odd characters.
+    if (!/^[A-Za-z0-9_][A-Za-z0-9_.\-/]*$/.test(path) || path.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')) {
+      return json({ error: 'bad path' }, 400);
+    }
+    const ext = (/\.([a-z0-9]+)$/i.exec(path) || [])[1] || '';
+    return eaglerPassThrough(req, cfg.client + path, ext.toLowerCase(), { 'Cache-Control': 'public, max-age=3600' }, json);
+  }
+  return json({ error: 'not found' }, 404);
+}
+
+// Streams one static file from an owner-configured origin. The type comes
+// from the extension, never from upstream: raw.githubusercontent.com, for
+// one, serves everything as text/plain.
+async function eaglerPassThrough(req, src, ext, extraHeaders, json) {
+  let up;
+  try {
+    up = await fetch(src, { method: req.method === 'HEAD' ? 'HEAD' : 'GET', redirect: 'follow', cf: { cacheTtl: 300, cacheEverything: true } });
+  } catch (e) {
+    return json({ error: 'could not reach the file host', detail: String((e && e.message) || e).slice(0, 120) }, 502);
+  }
+  if (!up.ok) return json({ error: 'file host returned ' + up.status }, up.status === 404 ? 404 : 502);
+  // No Access-Control-Allow-Origin: the frame loads these same-origin, and
+  // other sites have no business reading the owner's build through here.
+  const headers = {
+    ...SECURITY_HEADERS,
+    'Content-Type': EAGLER_TYPES[ext] || 'application/octet-stream',
+    ...extraHeaders
+  };
+  const len = up.headers.get('content-length');
+  if (len) headers['Content-Length'] = len;
+  return new Response(req.method === 'HEAD' ? null : up.body, { status: 200, headers });
+}
+
+// Both directions of one proxied socket. A close on either side closes the
+// other; codes the protocol forbids sending (1005, 1006, 1015) become 1000.
+function eaglerPipe(from, to) {
+  from.addEventListener('message', (e) => { try { to.send(e.data); } catch (err) { /* other side gone */ } });
+  from.addEventListener('close', (e) => {
+    const code = [1005, 1006, 1015].includes(e.code) || !e.code ? 1000 : e.code;
+    try { to.close(code, String(e.reason || '').slice(0, 120)); } catch (err) { /* already closed */ }
+  });
+  from.addEventListener('error', () => { try { to.close(1011, 'peer error'); } catch (err) { /* already closed */ } });
+}
+
+async function eaglerWebSocket(req, url, cfg, h) {
+  const json = h.json;
+  if ((req.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') {
+    return json({ error: 'expected a WebSocket upgrade' }, 426);
+  }
+  const target = eaglerWsUrl(url.searchParams.get('url'));
+  if (!target) return json({ error: 'missing or malformed ?url= (ws:// or wss:// only)' }, 400);
+  const httpUrl = target.href.replace(/^ws/i, 'http');
+  // Hosts the owner named are trusted as given; anything else needs
+  // EAGLER_WS_OPEN and has to pass the same public-address check as /read.
+  const named = cfg.hosts.has(target.host.toLowerCase());
+  if (!named && !(cfg.open && h.safeTargetUrl(httpUrl))) {
+    return json({ error: 'This worker does not proxy WebSockets to ' + target.host + '. The owner can add it to EAGLER_WS_ALLOW.' }, 403);
+  }
+  const headers = { Upgrade: 'websocket' };
+  const origin = req.headers.get('Origin');
+  if (origin) headers.Origin = origin;
+  const proto = req.headers.get('Sec-WebSocket-Protocol');
+  if (proto) headers['Sec-WebSocket-Protocol'] = proto;
+  if (cfg.realIp) {
+    const ip = req.headers.get('CF-Connecting-IP');
+    if (ip) headers['X-Real-IP'] = ip;
+  }
+  let up;
+  try { up = await fetch(httpUrl, { headers }); } catch (e) {
+    return json({ error: 'could not reach ' + target.host }, 502);
+  }
+  const upstream = up.webSocket;
+  if (!upstream) return json({ error: target.host + ' did not accept a WebSocket (HTTP ' + up.status + ')' }, 502);
+  upstream.accept();
+  const pair = new WebSocketPair();
+  const client = pair[0];
+  const server = pair[1];
+  server.accept();
+  eaglerPipe(server, upstream);
+  eaglerPipe(upstream, server);
+  const resHeaders = {};
+  const chosen = up.headers.get('Sec-WebSocket-Protocol');
+  if (chosen) resHeaders['Sec-WebSocket-Protocol'] = chosen;
+  return new Response(null, { status: 101, webSocket: client, headers: resHeaders });
 }

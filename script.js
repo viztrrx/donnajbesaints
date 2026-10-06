@@ -132,6 +132,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     'ASK AI — general chat like this conversation, with voice input and spoken answers.',
     'MUSIC — plays songs via YouTube search, SoundCloud links, or a local audio library.',
     'BROWSER — embeds other sites in a frame, plus research mode that reads sources automatically and writes a cited brief.',
+    'EAGLERCRAFT — Minecraft 1.8 (EaglercraftX) in the console: singleplayer, servers and Shared Worlds with friends, launched in the tab or in an about:blank window. The console has to be fullscreen to play.',
     'STUDY — generates flashcard decks from the current page with spaced practice.',
     'NOTES — the user pastes a passage; the AI reads it, researches it across the web, writes organized study notes, and then remembers the passage, notes and research so follow-up questions about the text are answered with full context.',
     'SAVED — saved insights, an autosaved scratchpad, and a pomodoro timer.',
@@ -677,11 +678,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       selection: ['fix', 'ChromeOS-safe defaults; handled shortcuts no longer reach the page'], admin: ['fix', 'Palette uses ⌘K on Apple devices and Ctrl+K elsewhere'] } },
     { at: '2026-09-27T07:09:46-04:00', commit: '', title: 'Console shortcuts work inside embedded frames; option to hide the reopen button', parts: {
       console: ['feature', 'One shortcut dispatcher for the page and same-site frames; Hide the reopen button setting'],
-      'theme#controls': ['feature', 'Hide the reopen button'], selection: ['fix', 'Frames found on load, not only on focus'] } }
+      'theme#controls': ['feature', 'Hide the reopen button'], selection: ['fix', 'Frames found on load, not only on focus'] } },
+    { at: '2026-10-06T12:00:00-04:00', commit: '', title: 'Eaglercraft tab: Minecraft 1.8 through your Worker, played in fullscreen, in the tab or an about:blank window', parts: {
+      eaglercraft: ['added'], console: ['fix', 'Fullscreen button recognizes the console in fullscreen'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
-    music: 'Music', browser: 'Proxy', games: 'Games', study: 'Study', notes: 'Notes', humanize: 'Humanize', grammar: 'Grammar',
+    music: 'Music', browser: 'Proxy', eaglercraft: 'Eaglercraft', games: 'Games', study: 'Study', notes: 'Notes', humanize: 'Humanize', grammar: 'Grammar',
     saved: 'Saved', theme: 'Settings', admin: 'Admin'
   };
   const SECTION_IDS = {
@@ -826,6 +829,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     pen: gpsSvg('<path d="M15.5 4.5l4 4L8.5 19.5H4.5v-4z"/><path d="M13 7l4 4"/>'),
     spell: gpsSvg('<path d="M4 16L8 5h.3L12 16M5.3 12.5h5.4"/><path d="M13.5 15l2.5 2.5 4.5-6"/>'),
     game: gpsSvg('<rect x="3" y="7.5" width="18" height="10" rx="4"/><path d="M7.5 11v3.5M5.8 12.8h3.4"/><circle cx="15.5" cy="11.5" r="1" fill="currentColor"/><circle cx="17.8" cy="14" r="1" fill="currentColor"/>'),
+    cube: gpsSvg('<path d="M12 3.2l7.8 4.4v8.8L12 20.8l-7.8-4.4V7.6z"/><path d="M4.2 7.6L12 12l7.8-4.4M12 12v8.8"/>'),
     lab: gpsSvg('<path d="M9.5 3.5h5M10.5 3.5v6L5 19a1.2 1.2 0 0 0 1 1.5h12a1.2 1.2 0 0 0 1-1.5l-5.5-9.5v-6"/><path d="M7.5 14.5h9"/>'),
     sun: gpsSvg('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>'),
     settings: gpsSvg('<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/>'),
@@ -1170,6 +1174,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-browser-view { position: relative; flex: 1; min-height: 280px; display: flex; }
       .gpx-browser-view .gpa-iframe { flex: 1; border: none; border-radius: 0; min-height: 280px; height: auto; background: var(--gpa-bg); }
       .gpx-browser .gpx-details { border: none; border-top: 1px solid var(--gpa-border); border-radius: 0; background: transparent; }
+
+      /* ---- Eaglercraft (reuses the Proxy stage; the game draws itself) ---- */
+      .gpx-eag-state { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 12px; color: var(--gpa-text); }
+      .gpx-eag-state > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gpx-eag-stage .gpx-browser-view, .gpx-eag-stage .gpa-iframe { min-height: 0; }
+      .gpx-eag-stage .gpa-iframe { display: block; width: 100%; background: #000; }
+      .gpx-eagler[data-eagler="loading"] > :not(.gpx-eag-stage),
+      .gpx-eagler[data-eagler="playing"] > :not(.gpx-eag-stage) { display: none; }
+      .gpx-eagler[data-eagler="loading"] > .gpx-eag-stage,
+      .gpx-eagler[data-eagler="playing"] > .gpx-eag-stage { flex: 1 1 0; min-height: 0; }
+      .gpx-eag-cover { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; overflow: auto; background: var(--gpa-bg); }
+      .gpx-eag-net-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12.5px; line-height: 1.5; }
+      .gpx-eag-net-row b { font-weight: 600; overflow-wrap: anywhere; }
+      /* The about:blank window: the same panel, filling the window. */
+      .gpa-panel.gpx-eag-window { position: fixed; inset: 0; width: auto; height: auto; border: none; border-radius: 0; animation: none; user-select: none; }
+      .gpx-eag-window .gpx-browser-bar { flex-shrink: 0; }
+      .gpx-eag-window .gpx-browser-view { flex: 1; min-height: 0; }
 
       /* ---- Games ---- */
       .gpx-games { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
@@ -2512,6 +2533,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button class="gpa-dropdown-item" data-tab="chat"><span class="gpa-nav-ic">${GPS_ICONS.users}</span><span class="gpa-nav-label">Chat</span><span id="gpa-chat-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
           <button class="gpa-dropdown-item" data-tab="music"><span class="gpa-nav-ic">${GPS_ICONS.music}</span><span class="gpa-nav-label">Music</span></button>
           <button class="gpa-dropdown-item" data-tab="browser"><span class="gpa-nav-ic">${GPS_ICONS.globe}</span><span class="gpa-nav-label">Proxy</span></button>
+          <button class="gpa-dropdown-item" data-tab="eaglercraft"><span class="gpa-nav-ic">${GPS_ICONS.cube}</span><span class="gpa-nav-label">Eaglercraft</span></button>
           <button class="gpa-dropdown-item" data-tab="games"><span class="gpa-nav-ic">${GPS_ICONS.game}</span><span class="gpa-nav-label">Games</span></button>
           <button class="gpa-dropdown-item" data-tab="study"><span class="gpa-nav-ic">${GPS_ICONS.cards}</span><span class="gpa-nav-label">Study</span></button>
           <button class="gpa-dropdown-item" data-tab="notes"><span class="gpa-nav-ic">${GPS_ICONS.note}</span><span class="gpa-nav-label">Notes</span></button>
@@ -2879,6 +2901,38 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             </div>
             <div id="gpa-research-out" class="gpa-output" style="max-height:260px;"></div>
           </section>
+        </div>
+      </div>
+
+      <div class="gpa-pane" data-pane="eaglercraft">
+        <div class="gpx-room gpx-eagler" data-eagler="idle" data-proxy="idle">
+          ${gpxHero({ room: 'eaglercraft', title: 'Eaglercraft', status: 'Not running', scene: GPX_SCENES.games,
+            desc: 'Minecraft 1.8 in your browser through EaglercraftX: singleplayer, servers and Shared Worlds with friends. It loads and connects through your Worker, and the console has to be fullscreen to play.',
+            actions: `<button id="gpa-eag-fs" class="gpa-btn primary">${gpxLbl('panel', 'Enter Fullscreen')}</button>` })}
+          <section class="gpa-card gpx-card gpx-eag-launcher">
+            <div class="gpx-card-head">${GPS_ICONS.cube}<div class="gpa-card-title">Play</div><span id="gpa-eag-fs-chip" class="gpx-chip">Fullscreen off</span></div>
+            <p id="gpa-eag-gate" class="gpa-sub">Eaglercraft requires fullscreen mode. Enter fullscreen, then launch.</p>
+            <div class="gpa-row">
+              <button id="gpa-eag-here" class="gpa-btn primary" disabled>${gpxLbl('cube', 'Launch Eaglercraft Here')}</button>
+              <button id="gpa-eag-blank" class="gpa-btn" disabled>${gpxLbl('external', 'Launch in about:blank')}</button>
+              <button id="gpa-eag-end" class="gpa-btn" style="display:none;">${gpxLbl('x', 'Stop Eaglercraft')}</button>
+            </div>
+            <div id="gpa-eag-error" class="gpx-inline-error" role="alert" style="display:none;"></div>
+          </section>
+          <section id="gpa-eag-stage" class="gpx-browser gpx-eag-stage" style="display:none;">
+            <div class="gpx-browser-bar">
+              <div class="gpx-eag-state"><span class="gpx-dot"></span><span id="gpa-eag-status">Not running</span></div>
+              <button id="gpa-eag-stop" class="gpa-btn">${gpxLbl('x', 'Stop Eaglercraft')}</button>
+            </div>
+            <div class="gpx-loadbar" aria-hidden="true"></div>
+            <div id="gpa-eag-view" class="gpx-browser-view"></div>
+          </section>
+          <details class="gpx-details" id="gpa-eag-net">
+            <summary>${gpxLbl('link', 'How it connects')}</summary>
+            <p class="gpa-sub">The game page, its files and every server or Shared World relay connection go through your Worker. Shared World gameplay is the exception: players connect to each other with WebRTC, directly over your network when you share one, and no Worker can carry that. Each connection below says which way it went.</p>
+            <div id="gpa-eag-net-list" class="gpx-stack"><p class="gpa-sub">No connections yet.</p></div>
+            <p class="gpa-sub">Worlds, settings and resource packs are saved in this browser, under your Worker's address and the site the console is open on. Use the game's Export to move a world to another device.</p>
+          </details>
         </div>
       </div>
 
@@ -4413,7 +4467,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          fullscreen mode) are the two panes where more width actually helps
          rather than just adding empty margin — let those two fill the full
          available width instead of the shared reading-width cap above. */
-      .gpa-pane.active[data-pane="browser"], .gpa-pane.active[data-pane="games"] {
+      .gpa-pane.active[data-pane="browser"], .gpa-pane.active[data-pane="eaglercraft"], .gpa-pane.active[data-pane="games"] {
         max-width: none;
       }
       @keyframes gpa-pane-in {
@@ -5523,7 +5577,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // In-console dialogs and the admin palette own the keyboard while open.
     if (!isMin && ['#gps-dialog', '#gpa-save-modal', '#gpa-langpick', '.gac-palette', '.gpa-ann-backdrop'].some((sel) => isShown(root.querySelector(sel)))) return true;
     const gamesPane = panel.querySelector('.gpa-pane[data-pane="games"]');
-    return !isMin && !!gamesPane && gamesPane.classList.contains('active');
+    const eagPane = panel.querySelector('.gpa-pane[data-pane="eaglercraft"]');
+    return !isMin && ((!!gamesPane && gamesPane.classList.contains('active')) || (!!eagPane && eagPane.classList.contains('active')));
   }
   // Nearest scrollable ancestor, walking out through shadow roots.
   function scrollBoxOf(node) {
@@ -5593,18 +5648,35 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   panel.querySelector('#gpa-close').addEventListener('click', () => host.remove());
 
   // ---- Fullscreen the whole console (header, sidebar, everything) --------
+  // The panel lives in a shadow root, so document.fullscreenElement reports
+  // the shadow host, never the panel; the shadow root's own fullscreenElement
+  // is the real one. Something inside the panel being fullscreen (a game
+  // stage, the Eaglercraft frame) still counts as the console being
+  // fullscreen.
+  function isConsoleFullscreen() {
+    const el = root.fullscreenElement || null;
+    if (el) return el === panel || panel.contains(el);
+    return document.webkitFullscreenElement === host || document.webkitFullscreenElement === panel;
+  }
+  // Resolves when the browser reports fullscreen; rejects with the browser's
+  // reason when it refuses (no user gesture, a frame without allowfullscreen,
+  // iPhone Safari, which has no element fullscreen at all).
+  function requestConsoleFullscreen() {
+    if (isConsoleFullscreen()) return Promise.resolve();
+    const req = panel.requestFullscreen || panel.webkitRequestFullscreen;
+    if (!req) return Promise.reject(new Error('This browser does not support fullscreen for web pages.'));
+    try { return Promise.resolve(req.call(panel)); } catch (e) { return Promise.reject(e); }
+  }
   const consoleFsBtn = panel.querySelector('#gpa-console-fullscreen');
   consoleFsBtn.addEventListener('click', () => {
-    const isConsoleFs = document.fullscreenElement === panel || document.webkitFullscreenElement === panel;
-    if (isConsoleFs) {
+    if (isConsoleFullscreen()) {
       (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     } else {
-      const req = panel.requestFullscreen || panel.webkitRequestFullscreen;
-      if (req) req.call(panel).catch(() => { /* page may block fullscreen */ });
+      requestConsoleFullscreen().catch(() => { /* page may block fullscreen */ });
     }
   });
   function syncConsoleFullscreenLabel() {
-    const active = document.fullscreenElement === panel || document.webkitFullscreenElement === panel;
+    const active = isConsoleFullscreen();
     consoleFsBtn.textContent = active ? '⤢' : '⛶';
     consoleFsBtn.title = active ? 'Exit fullscreen' : 'Fullscreen the whole console';
   }
@@ -5616,6 +5688,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const prevRect = host.getBoundingClientRect(); // capture BEFORE resizing anything below
     isMin = v;
     if (v) stopActiveGame();
+    if (v) { try { eagLeaveTab('minimize'); } catch (e) { /* module not ready */ } }
     body.style.display = v ? 'none' : 'flex';
     headerEl.style.display = v ? 'none' : 'flex';
     minimized.style.display = v ? 'flex' : 'none';
@@ -5772,6 +5845,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       // this never fires from clicking it — only from an actual tab pick.
       if (!panel.classList.contains('gpa-sidebar-hidden')) setSidebarHidden(true);
       if (item.dataset.tab !== 'games') stopActiveGame();
+      // Eaglercraft pauses rather than stops: a world in progress survives a
+      // look at another tab.
+      if (item.dataset.tab !== 'eaglercraft') { try { eagLeaveTab('tab'); } catch (e) { /* module not ready */ } }
+      else { try { eagSync(); } catch (e) { /* module not ready */ } }
       if (item.dataset.tab === 'chat') {
         if (typeof startChatPolling === 'function') startChatPolling();
         if (typeof clearChatUnread === 'function') clearChatUnread();
@@ -6319,14 +6396,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const LANG_KEY = 'gpa_language';
   const NAV_LABELS_EN = {
     welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat', music: 'Music',
-    browser: 'Proxy', games: 'Games', study: 'Study', notes: 'Notes',
+    browser: 'Proxy', eaglercraft: 'Eaglercraft', games: 'Games', study: 'Study', notes: 'Notes',
     humanize: 'Humanize', grammar: 'Grammar', saved: 'Saved', theme: 'Settings'
   };
   const I18N = {
     es: {
       'Welcome': 'Bienvenida',
       'Page Insights': 'Información de la página', 'Ask AI': 'Preguntar a la IA',
-      'Chat': 'Chat', 'Music': 'Música', 'Proxy': 'Proxy', 'Games': 'Juegos',
+      'Chat': 'Chat', 'Music': 'Música', 'Proxy': 'Proxy', 'Eaglercraft': 'Eaglercraft', 'Games': 'Juegos',
       'Study': 'Estudio', 'Notes': 'Notas', 'Humanize': 'Humanizar', 'Grammar': 'Gramática', 'Saved': 'Guardado', 'Settings': 'Ajustes',
       'Agent Console': 'Consola del Agente',
       'Sign in to continue': 'Inicia sesión para continuar',
@@ -9651,6 +9728,542 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (lastDest) proxyUrlInput.value = lastDest;
     proxyGoto(lastDest);
   }
+
+  // ---- Eaglercraft tab --------------------------------------------------------
+  // EaglercraftX 1.8 (Minecraft 1.8 in the browser) in its own tab. The game
+  // never runs in this page. It runs in a frame the worker serves at /eagler/
+  // (eaglercraft/loader/ and handleEagler in worker.js), because:
+  //   * the client finds its container with document.getElementById and
+  //     defines globals (main, eaglercraftXOpts), so it can't live inside this
+  //     shadow root or share the host page's window;
+  //   * singleplayer runs in a Worker started from a blob: URL, and the page
+  //     around the game needs a CSP that allows that while only allowing
+  //     connections back to the worker. The host page's CSP belongs to
+  //     whatever site the console was opened on.
+  // Two ways to launch, both only while the console is fullscreen:
+  //   Here        — the frame goes in this tab's stage.
+  //   about:blank — a new about:blank window. It has this page's origin, so
+  //                 this script builds its document, with the same frame in it.
+  // Leaving fullscreen while playing pauses: the frame lets go of the mouse,
+  // which opens the game's pause menu, and the game is covered until resumed.
+  const EAGLER_WORKER = OPENAI_PROXY;   // the same worker as everything else
+  const eagWorkerBase = () => String(EAGLER_WORKER || '').replace(/\/+$/, '');
+  const eagFrameUrl = () => eagWorkerBase() + '/eagler/';
+  const eagOrigin = () => { try { return new URL(eagFrameUrl()).origin; } catch (e) { return ''; } };
+  const eagRoom = panel.querySelector('.gpx-eagler');
+  const eagFsBtn = panel.querySelector('#gpa-eag-fs');
+  const eagFsChip = panel.querySelector('#gpa-eag-fs-chip');
+  const eagGate = panel.querySelector('#gpa-eag-gate');
+  const eagHereBtn = panel.querySelector('#gpa-eag-here');
+  const eagBlankBtn = panel.querySelector('#gpa-eag-blank');
+  const eagEndBtn = panel.querySelector('#gpa-eag-end');
+  const eagErrorEl = panel.querySelector('#gpa-eag-error');
+  const eagStage = panel.querySelector('#gpa-eag-stage');
+  const eagView = panel.querySelector('#gpa-eag-view');
+  const eagStatusEl = panel.querySelector('#gpa-eag-status');
+  const eagNetList = panel.querySelector('#gpa-eag-net-list');
+  const eagLabel = (btn, text) => { const sp = btn.querySelector('span'); if (sp) sp.textContent = text; };
+  // The running session, or null. state: starting → loading → playing ⇄
+  // paused. mode: 'here' | 'blank'.
+  let eag = null;
+  let eagNote = '';   // last outcome shown on the launcher (stopped, closed…)
+  let eagBusy = false;
+
+  function eagFsSupported() {
+    return !!(document.fullscreenEnabled || document.webkitFullscreenEnabled) && !!(panel.requestFullscreen || panel.webkitRequestFullscreen);
+  }
+  function eagFsRefusedText(e) {
+    const why = (e && e.message) ? ' (' + e.message + ')' : '';
+    if (!eagFsSupported()) return 'This browser doesn’t let web pages go fullscreen here' + (ENV.os === 'ios' ? ' — iPhone Safari has no fullscreen for pages' : '') + ', and Eaglercraft needs fullscreen to play.';
+    return 'The browser didn’t allow fullscreen' + why + '. Click Enter Fullscreen again.';
+  }
+  function eagShowError(text) {
+    eagErrorEl.textContent = text || '';
+    eagErrorEl.style.display = text ? '' : 'none';
+  }
+  function eagSetStatus(text) {
+    if (eagStatusEl.textContent !== text) eagStatusEl.textContent = text;
+    if (eag && eag.child && eag.child.statusEl) eag.child.statusEl.textContent = text;
+  }
+  // The dot and load bar reuse the Proxy stage's states.
+  function eagSetConn(st) { eagRoom.dataset.proxy = st; if (eag && eag.child) eag.child.shell.dataset.proxy = st; }
+
+  // Repaints the launcher and stage from the current state.
+  function eagSync() {
+    const fs = isConsoleFullscreen();
+    const supported = eagFsSupported();
+    const st = eag ? eag.state : 'idle';
+    const here = eag && eag.mode === 'here';
+    const layout = here && (st === 'loading' || st === 'starting' || st === 'playing' || (st === 'paused' && eag.settling)) ? (st === 'playing' ? 'playing' : 'loading') : (eag ? (eag.mode === 'blank' ? 'blank' : 'paused') : 'idle');
+    eagRoom.dataset.eagler = layout;
+    eagStage.style.display = here && layout !== 'paused' ? '' : 'none';
+    eagFsChip.textContent = fs ? 'Fullscreen on' : 'Fullscreen off';
+    eagFsChip.classList.toggle('gpx-chip-accent', fs);
+    eagLabel(eagFsBtn, fs ? 'Exit Fullscreen' : 'Enter Fullscreen');
+    eagFsBtn.classList.toggle('primary', !fs);
+    eagFsBtn.disabled = !supported;
+    eagHereBtn.style.display = '';
+    eagBlankBtn.style.display = '';
+    eagEndBtn.style.display = eag ? '' : 'none';
+    if (!eag) {
+      eagLabel(eagHereBtn, 'Launch Eaglercraft Here');
+      eagLabel(eagBlankBtn, 'Launch in about:blank');
+      eagHereBtn.disabled = eagBlankBtn.disabled = !fs || eagBusy;
+      eagGate.textContent = !supported ? eagFsRefusedText()
+        : fs ? (eagBusy ? 'Checking your Worker…' : 'Fullscreen is on. Launch Eaglercraft here, or in a separate about:blank window.')
+          : 'Eaglercraft requires fullscreen mode. Enter fullscreen, then launch.';
+      if (eagNote && !eagBusy) eagGate.textContent = eagNote + ' ' + eagGate.textContent;
+    } else if (eag.mode === 'blank') {
+      eagLabel(eagBlankBtn, 'Show the about:blank window');
+      eagBlankBtn.disabled = false;
+      eagHereBtn.style.display = 'none';
+      eagGate.textContent = 'Eaglercraft is running in an about:blank window. That window has its own fullscreen requirement.';
+    } else {
+      eagLabel(eagHereBtn, fs ? 'Resume Eaglercraft' : 'Enter Fullscreen to Resume');
+      eagHereBtn.disabled = !supported;
+      eagBlankBtn.style.display = 'none';
+      eagGate.textContent = eag.pausedFor === 'tab'
+        ? 'Eaglercraft is paused while you’re on another tab. Resume to keep playing.'
+        : eag.pausedFor === 'minimize' ? 'Eaglercraft paused when the console was minimized. Resume to keep playing.'
+          : 'Eaglercraft paused because the console left fullscreen. It needs fullscreen to resume.';
+    }
+  }
+
+  // A cover over the game while it loads, is paused or failed, built from
+  // the console's own empty-state block. Buttons: [{ act, label, icon, primary }].
+  function eagCover(view, o, onAct) {
+    let c = view.querySelector(':scope > .gpx-eag-cover');
+    if (!o) { if (c) c.remove(); return; }
+    if (!c) { c = view.ownerDocument.createElement('div'); c.className = 'gpx-eag-cover'; view.appendChild(c); }
+    c.innerHTML = gpxEmpty({
+      icon: o.icon || 'cube', title: escapeHtml(o.title), desc: o.desc ? escapeHtml(o.desc) : '',
+      action: (o.buttons || []).map((b) => `<button class="gpa-btn${b.primary ? ' primary' : ''}" data-act="${b.act}">${gpxLbl(b.icon || 'cube', escapeHtml(b.label))}</button>`).join('')
+    });
+    c.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => onAct && onAct(b.dataset.act)));
+  }
+
+  function eagPost(type) {
+    try { if (eag && eag.frame && eag.frame.contentWindow) eag.frame.contentWindow.postMessage({ eagler: 1, type }, eagOrigin()); } catch (e) { /* frame gone */ }
+  }
+  function eagLockKeys(win) {
+    // Keyboard Lock (Chromium, fullscreen only, top-level pages only): keys
+    // like Esc, Ctrl+W and Ctrl+T reach the game instead of the browser while
+    // playing. Holding Esc still leaves fullscreen.
+    try { const kb = win && win.navigator.keyboard; if (kb && kb.lock) kb.lock().catch(() => { /* not fullscreen / not supported */ }); } catch (e) { /* unsupported */ }
+  }
+  function eagUnlockKeys(win) {
+    try { const kb = win && win.navigator.keyboard; if (kb && kb.unlock) kb.unlock(); } catch (e) { /* unsupported */ }
+  }
+  function eagFocusFrame() {
+    if (!eag || !eag.frame) return;
+    try { eag.frame.focus(); } catch (e) { /* ignore */ }
+    eagPost('focus');
+  }
+
+  // Worker checks before anything is opened, so a missing route or client is
+  // reported in plain words instead of as a blank frame.
+  async function eagPreflight() {
+    if (!eagWorkerBase()) throw new Error('No Worker is set for this console (OPENAI_PROXY is empty), and Eaglercraft only runs through it.');
+    let res;
+    try { res = await fetch(eagWorkerBase() + '/eagler/status', { cache: 'no-store' }); } catch (e) {
+      // This page's own CSP may refuse the request even though the frame
+      // itself would load; the frame's load timeout reports a real failure.
+      return { unknown: true };
+    }
+    let j = null;
+    try { j = await res.json(); } catch (e) { j = null; }
+    if (res.status === 403 || (j && j.enabled === false)) throw new Error('Eaglercraft is turned off by the owner.');
+    if (!res.ok || !j || typeof j.clientConfigured !== 'boolean') throw new Error('Your Worker doesn’t have the Eaglercraft routes yet. Deploy the current worker.js to Cloudflare.');
+    if (!j.clientConfigured) throw new Error('No Eaglercraft client is set up on your Worker yet. The owner points EAGLER_CLIENT at their own EaglercraftX 1.8 build (see eaglercraft/README.md).');
+    return j;
+  }
+
+  function eagMakeFrame(doc, status) {
+    const f = doc.createElement('iframe');
+    f.className = 'gpa-iframe';
+    f.title = 'Eaglercraft';
+    // No sandbox: the game needs scripts, its own origin's storage, workers,
+    // pointer lock and fullscreen. Isolation comes from the frame being a
+    // different origin (the worker's) with its own CSP.
+    f.setAttribute('allow', 'fullscreen; autoplay; gamepad; clipboard-read; clipboard-write' + (status && status.voice ? '; microphone' : ''));
+    f.setAttribute('referrerpolicy', 'no-referrer');
+    f.src = eagFrameUrl();
+    return f;
+  }
+
+  function eagNewSession(mode, status) {
+    return { mode, status, state: 'starting', frame: null, child: null, started: false, settling: false, pausedFor: '', conns: new Map(), peers: new Map(), cleanups: [], loadTimer: 0 };
+  }
+  function eagArmLoadTimer() {
+    clearTimeout(eag.loadTimer);
+    const s = eag;
+    s.loadTimer = setTimeout(() => {
+      if (eag === s && !s.heard) eagFail({ kind: 'frame', message: 'The game frame didn’t load from your Worker. The Worker may be unreachable, or this site’s security policy blocks frames from it.' });
+    }, 20000);
+  }
+
+  async function eagLaunch(mode) {
+    eagShowError('');
+    eagNote = '';
+    if (eag || eagBusy) return;
+    if (!isConsoleFullscreen()) { eagShowError('Enter fullscreen first: Eaglercraft only starts while the console is fullscreen.'); eagSync(); return; }
+    // about:blank must open inside this click, before any await, or the
+    // browser treats it as an unrequested pop-up.
+    let win = null;
+    if (mode === 'blank') {
+      try { win = window.open('about:blank', '_blank'); } catch (e) { win = null; }
+      if (!win) { eagShowError('The browser blocked the about:blank window. Allow pop-ups for this site, then try again.'); return; }
+    }
+    eagBusy = true;
+    eagSync();
+    let status;
+    try { status = await eagPreflight(); } catch (e) {
+      eagBusy = false;
+      if (win) { try { win.close(); } catch (err) { /* already closed */ } }
+      eagShowError(e.message);
+      eagSync();
+      return;
+    }
+    eagBusy = false;
+    eag = eagNewSession(mode, status);
+    eagRenderNet();
+    if (mode === 'here') {
+      if (!isConsoleFullscreen()) { eag = null; eagShowError('Fullscreen ended before Eaglercraft started. Enter fullscreen and launch again.'); eagSync(); return; }
+      eag.state = 'loading';
+      eag.frame = eagMakeFrame(document, status);
+      eagView.appendChild(eag.frame);
+      eagCover(eagView, { icon: 'cube', title: 'Starting Eaglercraft', desc: 'Loading the game through your Worker…' });
+      eagSetConn('connecting');
+      eagSetStatus('Loading through your Worker…');
+      eagArmLoadTimer();
+      eagSync();
+    } else {
+      try { eagBuildChild(win); } catch (e) {
+        const s = eag; eag = null;
+        try { win.close(); } catch (err) { /* ignore */ }
+        s.cleanups.forEach((fn) => { try { fn(); } catch (err) { /* ignore */ } });
+        eagShowError(e.message || String(e));
+        eagSync();
+        return;
+      }
+      eagSetStatus('Waiting for fullscreen in the about:blank window');
+      eagSync();
+    }
+  }
+
+  // Leaving fullscreen, the tab, or minimizing: pause instead of letting the
+  // game run on uncovered or unseen.
+  function eagPause(why) {
+    if (!eag || eag.state === 'paused' || eag.state === 'starting') return;
+    eag.wasState = eag.state;
+    eag.state = 'paused';
+    eag.pausedFor = why;
+    eagPost('pause');
+    eagUnlockKeys(eag.mode === 'blank' && eag.child ? eag.child.win : window);
+    try { eag.frame && eag.frame.blur(); } catch (e) { /* ignore */ }
+    eagSetStatus('Paused');
+    if (eag.mode === 'here') {
+      eagCover(eagView, { icon: 'pause', title: 'Paused', desc: 'Eaglercraft needs fullscreen to keep playing.' });
+      // Give the game a few frames to see the mouse released and open its
+      // pause menu before the stage is hidden, then go back to the launcher.
+      eag.settling = true;
+      const s = eag;
+      setTimeout(() => { if (eag === s) { s.settling = false; eagSync(); } }, 300);
+    } else {
+      eagChildGate();
+    }
+    eagSync();
+  }
+  async function eagResume() {
+    if (!eag || eag.state !== 'paused' || eag.mode !== 'here') return;
+    if (!isConsoleFullscreen()) {
+      try { await requestConsoleFullscreen(); } catch (e) { eagShowError(eagFsRefusedText(e)); return; }
+    }
+    if (!eag || eag.state !== 'paused') return;
+    eagShowError('');
+    eag.state = eag.started ? 'playing' : 'loading';
+    eag.pausedFor = '';
+    eagCover(eagView, eag.started ? null : { icon: 'cube', title: 'Starting Eaglercraft', desc: 'Loading the game through your Worker…' });
+    eagSetStatus(eag.started ? 'Running' : 'Loading through your Worker…');
+    eagSync();
+    if (eag.started) { eagLockKeys(window); requestAnimationFrame(eagFocusFrame); }
+  }
+
+  // Ends the session and removes everything it created. Removing the frame
+  // ends the game's document: its integrated-server Worker, sockets, peer
+  // connections and pointer lock all go with it.
+  function stopEaglercraft(note, keepWindow) {
+    if (!eag) return;
+    const s = eag;
+    eag = null;
+    clearTimeout(s.loadTimer);
+    try { if (s.frame && s.frame.contentWindow) s.frame.contentWindow.postMessage({ eagler: 1, type: 'pause' }, eagOrigin()); } catch (e) { /* gone */ }
+    eagUnlockKeys(window);
+    if (s.child) eagUnlockKeys(s.child.win);
+    if (s.frame) { try { s.frame.src = 'about:blank'; } catch (e) { /* ignore */ } try { s.frame.remove(); } catch (e) { /* ignore */ } }
+    s.cleanups.forEach((fn) => { try { fn(); } catch (e) { /* already gone */ } });
+    if (s.child && s.child.win && !s.child.win.closed && !keepWindow) { try { s.child.win.close(); } catch (e) { /* ignore */ } }
+    eagCover(eagView, null);
+    eagSetConn('idle');
+    eagSetStatus('Not running');
+    eagNote = note || '';
+    eagRenderNet();
+    eagSync();
+  }
+  gpaCleanups.push(() => stopEaglercraft());
+
+  function eagFail(d) {
+    if (!eag) return;
+    const hints = {
+      webgl: 'Turn on hardware acceleration in the browser settings, or try another browser.',
+      'not-configured': 'The owner sets EAGLER_CLIENT on the Worker (see eaglercraft/README.md).',
+      'client-load': 'Check that EAGLER_CLIENT points at a folder with classes.js in it.',
+      csp: 'The frame’s security policy refused it; the console’s Worker setup may need updating.'
+    };
+    const text = (d.message || 'Eaglercraft stopped.') + (d.detail ? ' ' + d.detail : '') + (hints[d.kind] ? ' ' + hints[d.kind] : '');
+    // In the about:blank window the error stays on screen there, where the
+    // player is looking; the session itself ends either way.
+    const child = eag.mode === 'blank' ? eag.child : null;
+    stopEaglercraft('', !!child);
+    if (child && !child.win.closed) {
+      eagCover(child.view, { icon: 'warn', title: 'Eaglercraft couldn’t keep running', desc: text, buttons: [{ act: 'close', label: 'Close this window', icon: 'x' }] }, () => { try { child.win.close(); } catch (e) { /* ignore */ } });
+      child.statusEl.textContent = 'Stopped';
+      child.shell.querySelectorAll('.gpx-browser-bar [data-act]').forEach((b) => { b.disabled = true; });
+    }
+    eagShowError(text);
+  }
+
+  // ---- Messages from the game frame (see eaglercraft/loader/bridge.js) ----
+  function eagOnMessage(e) {
+    if (!eag || !eag.frame || e.source !== eag.frame.contentWindow || e.origin !== eagOrigin()) return;
+    const d = e.data;
+    if (!d || d.eagler !== 1) return;
+    eag.heard = true;
+    if (d.type === 'loading') {
+      clearTimeout(eag.loadTimer);
+      eagSetStatus('Loading the client through your Worker…');
+    } else if (d.type === 'ready') {
+      eag.persisted = !!d.persisted;
+    } else if (d.type === 'started') {
+      eag.started = true;
+      eagSetConn('connected');
+      eagSetStatus('Running');
+      if (eag.state === 'loading') {
+        eag.state = 'playing';
+        if (eag.mode === 'here') { eagCover(eagView, null); eagLockKeys(window); }
+        else { eagCover(eag.child.view, null); eagLockKeys(eag.child.win); }
+        requestAnimationFrame(eagFocusFrame);
+      }
+      eagSync();
+    } else if (d.type === 'error') {
+      eagFail(d);
+    } else if (d.type === 'blocked') {
+      // The frame's CSP refused something. While the client is still loading
+      // its own scripts that's fatal; after that it's one request that tried
+      // to skip the Worker, so it's listed and the game carries on.
+      if (!eag.started && /^(script-src|worker-src|script-src-elem)$/.test(d.directive || '')) {
+        eagFail({ kind: 'csp', message: 'The game frame refused to load ' + (d.target || 'a script') + ' (' + d.directive + ').' });
+      } else {
+        eag.blocked = (eag.blocked || []).concat({ directive: d.directive || '', target: d.target || '' }).slice(-20);
+        eagRenderNet();
+      }
+    } else if (d.type === 'net') {
+      eag.conns.set(d.id, d);
+      eagRenderNet();
+      if (d.state === 'open') eagSetStatus('Connected to ' + d.host + ' through your Worker');
+      else if (d.state === 'error' && !d.allowed) eagSetStatus('Your Worker doesn’t proxy ' + d.host + ' (owner: add it to EAGLER_WS_ALLOW)');
+      else if (d.state === 'closed' && eag.state === 'playing') eagSetStatus('Running');
+    } else if (d.type === 'peer') {
+      eag.peers.set(d.id, d);
+      eagRenderNet();
+    }
+  }
+  onWin('message', eagOnMessage);
+
+  function eagPeerPath(p) {
+    if (p.state !== 'connected') return p.state === 'failed' ? 'Couldn’t connect to the other player.' : 'Connecting to the other player…';
+    const t = [p.local, p.remote];
+    if (t.includes('relay')) return 'Through a TURN relay server, not through your Worker.';
+    if (t.every((x) => x === 'host')) return 'Directly between the two browsers on your network, not through your Worker.';
+    if (t.some((x) => x === 'srflx' || x === 'prflx')) return 'Directly through your routers (NAT), not through your Worker.';
+    return 'Peer-to-peer WebRTC, not through your Worker.';
+  }
+  function eagRenderNet() {
+    const rows = [];
+    if (eag) {
+      eag.conns.forEach((c) => {
+        const what = c.kind === 'relay' ? 'Shared World relay' : 'Server';
+        const st = { connecting: 'connecting', open: 'connected', error: c.allowed ? 'failed' : 'refused by your Worker', closed: 'closed' }[c.state] || c.state;
+        rows.push(`<div class="gpx-eag-net-row"><span class="gpx-chip">${what}</span><b>${escapeHtml(c.host)}</b><span class="gpa-sub">Game → your Worker (${escapeHtml(c.via || '')}) → ${escapeHtml(c.host)} · ${escapeHtml(st)}</span></div>`);
+      });
+      eag.peers.forEach((p) => {
+        const detail = p.state === 'connected' && p.local ? ` (${escapeHtml(p.local)} ↔ ${escapeHtml(p.remote || '?')}${p.protocol ? ', ' + escapeHtml(p.protocol.toUpperCase()) : ''})` : '';
+        rows.push(`<div class="gpx-eag-net-row"><span class="gpx-chip gpx-chip-accent">Shared World player</span><span class="gpa-sub">${escapeHtml(eagPeerPath(p))}${detail}</span></div>`);
+      });
+      (eag.blocked || []).forEach((b) => {
+        rows.push(`<div class="gpx-eag-net-row"><span class="gpx-chip">Blocked</span><b>${escapeHtml(b.target || '(unknown)')}</b><span class="gpa-sub">Would have bypassed your Worker · refused by the game frame (${escapeHtml(b.directive)})</span></div>`);
+      });
+    }
+    eagNetList.innerHTML = rows.length ? rows.join('') : '<p class="gpa-sub">No connections yet.</p>';
+  }
+
+  // ---- about:blank window -------------------------------------------------
+  // The window is about:blank, so it has this page's origin (and this page's
+  // CSP). This script builds its document: the console's own stylesheet and
+  // theme tokens in a shadow root, a bar with status and Stop, and the same
+  // game frame as the tab. The game is still served by the worker, so the
+  // window adds no direct network path. It has its own fullscreen gate.
+  function eagBuildChild(win) {
+    const d = win.document;
+    try { void d.body; } catch (e) { throw new Error('The about:blank window couldn’t be set up.'); }
+    d.title = 'Eaglercraft';
+    const meta = d.createElement('meta');
+    meta.name = 'viewport';
+    meta.content = 'width=device-width, initial-scale=1';
+    d.head.appendChild(meta);
+    try {
+      const font = d.createElement('link');
+      font.rel = 'stylesheet';
+      font.href = 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap';
+      d.head.appendChild(font);
+    } catch (e) { /* falls back to system fonts, like the console */ }
+    d.documentElement.style.cssText = 'height:100%;';
+    d.body.style.cssText = 'margin:0;height:100%;overflow:hidden;';
+    const hostEl = d.createElement('div');
+    hostEl.style.cssText = 'all:initial;position:fixed;inset:0;';
+    d.body.appendChild(hostEl);
+    const sr = hostEl.attachShadow({ mode: 'open' });
+    const css = d.createElement('style');
+    css.textContent = style.textContent;
+    const tokens = d.createElement('style');
+    tokens.textContent = tokenStyle.textContent;
+    sr.append(css, tokens);
+    const shell = d.createElement('div');
+    shell.className = 'gpa-panel gpx-eag-window';
+    shell.dataset.proxy = 'idle';
+    shell.innerHTML = `<div class="gpx-browser-bar"><div class="gpx-eag-state"><span class="gpx-dot"></span><span class="gpx-eag-wstatus">Starting…</span></div>`
+      + `<button class="gpa-btn" data-act="fs">${gpxLbl('panel', 'Fullscreen')}</button>`
+      + `<button class="gpa-btn" data-act="stop">${gpxLbl('x', 'Stop Eaglercraft')}</button></div>`
+      + `<div class="gpx-loadbar" aria-hidden="true"></div><div class="gpx-browser-view"></div>`;
+    sr.appendChild(shell);
+    const child = { win, doc: d, sr, shell, view: shell.querySelector('.gpx-browser-view'), statusEl: shell.querySelector('.gpx-eag-wstatus') };
+    eag.child = child;
+    // The game frame's messages arrive at this window, not ours.
+    win.addEventListener('message', eagOnMessage);
+    // Theme changes (and hover previews) follow into the window.
+    const mo = new MutationObserver(() => { tokens.textContent = tokenStyle.textContent; });
+    mo.observe(tokenStyle, { childList: true, characterData: true, subtree: true });
+    eag.cleanups.push(() => mo.disconnect());
+    const childFs = () => { const el = sr.fullscreenElement || null; return !!el && (el === shell || shell.contains(el)); };
+    child.isFs = childFs;
+    const requestChildFs = () => {
+      const req = shell.requestFullscreen || shell.webkitRequestFullscreen;
+      if (!req || !(d.fullscreenEnabled || d.webkitFullscreenEnabled)) return Promise.reject(new Error('This browser doesn’t allow fullscreen in the about:blank window.'));
+      try { return Promise.resolve(req.call(shell)); } catch (e) { return Promise.reject(e); }
+    };
+    const onAct = (act) => {
+      if (act === 'stop') { stopEaglercraft('Stopped from the about:blank window.'); return; }
+      if (act === 'fs' || act === 'resume') {
+        if (childFs()) { if (act === 'fs') d.exitFullscreen().catch(() => {}); else eagChildStart(); return; }
+        requestChildFs().then(() => eagChildStart(), (e) => {
+          eagCover(child.view, { icon: 'warn', title: 'Fullscreen was refused', desc: (e && e.message) || 'The browser didn’t allow fullscreen in this window.', buttons: [{ act: 'resume', label: 'Try again', icon: 'panel', primary: true }, { act: 'stop', label: 'Close', icon: 'x' }] }, onAct);
+        });
+      }
+    };
+    child.onAct = onAct;
+    shell.querySelectorAll('.gpx-browser-bar [data-act]').forEach((b) => b.addEventListener('click', () => onAct(b.dataset.act)));
+    const onFsChange = () => {
+      const fs = childFs();
+      eagLabel(shell.querySelector('[data-act="fs"]'), fs ? 'Exit Fullscreen' : 'Fullscreen');
+      if (!fs && eag && eag.child === child && (eag.state === 'playing' || eag.state === 'loading')) eagPause('fullscreen');
+    };
+    d.addEventListener('fullscreenchange', onFsChange);
+    d.addEventListener('webkitfullscreenchange', onFsChange);
+    // This page's CSP (inherited by about:blank) can refuse the frame.
+    d.addEventListener('securitypolicyviolation', (e) => {
+      if (String(e.blockedURI || '').startsWith(eagOrigin())) eagFail({ kind: 'frame', message: 'This site’s security policy blocks frames from your Worker, in the about:blank window too.' });
+    });
+    // Closing the window ends the session. pagehide covers a normal close;
+    // the poll covers anything that skips it.
+    const onGone = () => { if (eag && eag.child === child) stopEaglercraft('The about:blank window was closed.'); };
+    win.addEventListener('pagehide', onGone);
+    const poll = setInterval(() => { if (win.closed) onGone(); }, 1000);
+    eag.cleanups.push(() => clearInterval(poll));
+    eagChildGate();
+    try { win.focus(); } catch (e) { /* ignore */ }
+  }
+  // The window's own launcher: shown until it's fullscreen, and again if it
+  // leaves fullscreen while playing.
+  function eagChildGate() {
+    const c = eag && eag.child;
+    if (!c) return;
+    const paused = eag.state === 'paused';
+    eagCover(c.view, {
+      icon: paused ? 'pause' : 'cube',
+      title: paused ? 'Paused' : 'Eaglercraft requires fullscreen mode',
+      desc: paused ? 'This window left fullscreen. Enter fullscreen to resume.' : 'Enter fullscreen in this window to start the game.',
+      buttons: [{ act: 'resume', label: paused ? 'Enter Fullscreen and Resume' : 'Enter Fullscreen', icon: 'panel', primary: true }, { act: 'stop', label: 'Stop Eaglercraft', icon: 'x' }]
+    }, c.onAct);
+    eagSetConn(paused ? 'idle' : eag.started ? 'connected' : 'idle');
+  }
+  // Fullscreen granted in the window: load the frame the first time, resume
+  // after that.
+  function eagChildStart() {
+    const c = eag && eag.child;
+    if (!c || !c.isFs()) return;
+    if (!eag.frame) {
+      eag.state = 'loading';
+      eag.frame = eagMakeFrame(c.doc, eag.status);
+      c.view.appendChild(eag.frame);
+      eagCover(c.view, { icon: 'cube', title: 'Starting Eaglercraft', desc: 'Loading the game through your Worker…' });
+      eagSetConn('connecting');
+      eagSetStatus('Loading through your Worker…');
+      eagArmLoadTimer();
+    } else if (eag.state === 'paused') {
+      eag.state = eag.started ? 'playing' : 'loading';
+      eag.pausedFor = '';
+      eagCover(c.view, eag.started ? null : { icon: 'cube', title: 'Starting Eaglercraft', desc: 'Loading the game through your Worker…' });
+      eagSetConn(eag.started ? 'connected' : 'connecting');
+      eagSetStatus(eag.started ? 'Running' : 'Loading through your Worker…');
+      if (eag.started) { eagLockKeys(c.win); requestAnimationFrame(eagFocusFrame); }
+    }
+    eagSync();
+  }
+
+  // Called by the tab switcher and minimize.
+  function eagLeaveTab(why) {
+    if (eag && eag.mode === 'here' && (eag.state === 'playing' || eag.state === 'loading')) eagPause(why || 'tab');
+  }
+
+  function eagOnFullscreenChange() {
+    if (!isConsoleFullscreen()) {
+      eagUnlockKeys(window);
+      if (eag && eag.mode === 'here' && (eag.state === 'playing' || eag.state === 'loading')) eagPause('fullscreen');
+    }
+    eagSync();
+  }
+  onDoc('fullscreenchange', eagOnFullscreenChange);
+  onDoc('webkitfullscreenchange', eagOnFullscreenChange);
+  // This page's CSP can refuse the frame outright.
+  onDoc('securitypolicyviolation', (e) => {
+    if (eag && eag.mode === 'here' && String(e.blockedURI || '').startsWith(eagOrigin())) {
+      eagFail({ kind: 'frame', message: 'This site’s security policy blocks frames from your Worker, so Eaglercraft can’t load on this page.' });
+    }
+  });
+
+  eagFsBtn.addEventListener('click', () => {
+    eagShowError('');
+    if (isConsoleFullscreen()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+    requestConsoleFullscreen().catch((e) => { eagShowError(eagFsRefusedText(e)); eagSync(); });
+  });
+  eagHereBtn.addEventListener('click', () => { if (eag && eag.mode === 'here') eagResume(); else eagLaunch('here'); });
+  eagBlankBtn.addEventListener('click', () => {
+    if (eag && eag.mode === 'blank') { try { eag.child.win.focus(); } catch (e) { /* ignore */ } return; }
+    eagLaunch('blank');
+  });
+  eagEndBtn.addEventListener('click', () => stopEaglercraft('Eaglercraft was stopped.'));
+  panel.querySelector('#gpa-eag-stop').addEventListener('click', () => stopEaglercraft('Eaglercraft was stopped. Use Save and Quit to Title in the game first to keep every last change.'));
+  eagSync();
 
   // ---- Ask AI tab (general chat) -----------------------------------------
   const chatEl = panel.querySelector('#gpa-chat');
@@ -16208,7 +16821,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // after a tab was already hidden would stay stuck looking at a hidden
   // tab until the next differing poll happened to arrive.
   function refreshTabVisibility() {
-    ['games', 'music', 'browser', 'notes', 'study', 'humanize', 'grammar'].forEach((tab) => {
+    ['games', 'music', 'browser', 'eaglercraft', 'notes', 'study', 'humanize', 'grammar'].forEach((tab) => {
       const on = ownerMode || featureOn(tab);
       const item = panel.querySelector(`.gpa-dropdown-item[data-tab="${tab}"]`);
       if (item) item.style.display = on ? '' : 'none';
@@ -16227,6 +16840,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           if (lbl) lbl.textContent = scanItem.textContent;
         }
         if (tab === 'games') { try { stopActiveGame(); } catch (e) { /* none running */ } }
+        if (tab === 'eaglercraft') { try { stopEaglercraft('The owner turned Eaglercraft off.'); } catch (e) { /* not running */ } }
       }
     });
     // Quiz/tutor can be switched off without hiding the whole tab.
@@ -17573,7 +18187,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     const FLAGS = [
       ['quiz', 'Quiz solver'], ['tutor', 'Tutor mode'], ['games', 'Games'],
-      ['music', 'Music'], ['browser', 'Proxy'], ['notes', 'Notes'], ['study', 'Study'],
+      ['music', 'Music'], ['browser', 'Proxy'], ['eaglercraft', 'Eaglercraft'], ['notes', 'Notes'], ['study', 'Study'],
       ['watch', 'Page watcher'], ['autofill', 'Form auto-fill'], ['research', 'Research mode'], ['selection', 'Selection assistant']
     ];
     let knownFlags = {};
@@ -19400,6 +20014,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         return 'Nothing playing';
       },
       browser() { return (q('#gpa-proxy-status') || {}).textContent || 'Not connected'; },
+      eaglercraft() { return (q('#gpa-eag-status') || {}).textContent || 'Not running'; },
       games() {
         const name = (typeof GAME_LABELS !== 'undefined' && GAME_LABELS[currentGameId]) || 'a game';
         return isGamePaused ? 'Paused · ' + name : 'Playing · ' + name;
@@ -19569,6 +20184,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
     }
     observe(q('#gpa-proxy-status'), { childList: true, characterData: true, subtree: true }, syncProxy);
+
+    // ---- Eaglercraft: running / paused, from the tab's own state ----
+    function syncEagler() {
+      const st = (q('.gpx-eagler') || { dataset: {} }).dataset.eagler || 'idle';
+      setData('eaglercraft', 'playing', st === 'playing' || st === 'blank' ? 1 : 0);
+      setData('eaglercraft', 'paused', st === 'paused' ? 1 : 0);
+      refreshIdle('eaglercraft');
+    }
+    observe(q('#gpa-eag-status'), { childList: true, characterData: true, subtree: true }, syncEagler);
+    observe(q('.gpx-eagler'), { attributes: true, attributeFilter: ['data-eagler'] }, syncEagler);
 
     // ---- Games: current game and pause state ----
     function syncGames() {

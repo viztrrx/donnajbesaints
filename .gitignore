@@ -1,0 +1,4 @@
+# Your own EaglercraftX build, if you keep it in the repo folder. It contains
+# Mojang code and must not be committed (see eaglercraft/README.md).
+eaglercraft/client/
+node_modules/

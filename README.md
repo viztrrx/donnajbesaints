@@ -18,6 +18,7 @@ Every screenshot below comes from the current build on a demo page, with demo ac
 | <img src="docs/screenshots/humanize.png" alt="Humanize" width="420"><br>**Humanize** | <img src="docs/screenshots/grammar.png" alt="Grammar" width="420"><br>**Grammar** |
 | <img src="docs/screenshots/saved.png" alt="Saved" width="420"><br>**Saved** | <img src="docs/screenshots/music.png" alt="Music" width="420"><br>**Music** |
 | <img src="docs/screenshots/proxy.png" alt="Proxy" width="420"><br>**Proxy** | <img src="docs/screenshots/games.png" alt="Games" width="420"><br>**Games** |
+| <img src="docs/screenshots/eaglercraft.png" alt="Eaglercraft" width="420"><br>**Eaglercraft** |  |
 | <img src="docs/screenshots/selection-bubble.png" alt="Selection assistant" width="420"><br>**Selection assistant** | <img src="docs/screenshots/selection-explain.png" alt="Selection answer" width="420"><br>**Selection answer** |
 | <img src="docs/screenshots/selection-more.png" alt="Selection tools menu" width="420"><br>**Selection tools menu** | <img src="docs/screenshots/settings-selection.png" alt="Selection assistant settings" width="420"><br>**Selection assistant settings** |
 | <img src="docs/screenshots/settings-overview.png" alt="Settings" width="420"><br>**Settings** | <img src="docs/screenshots/settings-theme.png" alt="Themes" width="420"><br>**Themes** |
@@ -267,6 +268,19 @@ Three ways to play something:
 
 Playback keeps running while you switch sections — the player stays in the DOM, just hidden.
 
+### Eaglercraft {#eaglercraft}
+
+![The Eaglercraft tab before fullscreen](docs/screenshots/eaglercraft.png)
+
+Minecraft 1.8 in the browser ([EaglercraftX 1.8](eaglercraft/README.md)) in its own tab: singleplayer, servers and Shared Worlds with friends.
+
+- **Fullscreen is required.** The launch buttons unlock only once the browser reports the whole console is fullscreen (the same fullscreen as the ⛶ header button). Leaving fullscreen pauses the game and returns to the launcher, and *Resume* needs fullscreen again.
+- **Launch Eaglercraft Here** plays it in the tab. **Launch in about:blank** opens an `about:blank` window with the same game frame, styled like the console, with its own fullscreen gate.
+- **Everything goes through your Worker:** the game page, its files, and every server and Shared World relay socket. The game frame's security policy refuses any other connection. The one thing a Worker can't carry is WebRTC, so Shared World players connect to each other directly, or through a TURN server. *How it connects* shows each connection's actual path.
+- **On the same Wi-Fi:** start a Shared World from the pause menu (**Invite**), and your friend joins with the code under **Multiplayer → Direct Connect → Join Shared World**.
+
+**The game itself is not in this repository.** EaglercraftX is "All Rights Reserved", and a build contains Mojang's code, so neither can be redistributed. You build it yourself and point the Worker's `EAGLER_CLIENT` at it. Setup, the network path, and browser limits are in [eaglercraft/README.md](eaglercraft/README.md).
+
 ### Games {#games}
 
 ![The Games tab](docs/screenshots/games.png)
@@ -308,18 +322,19 @@ Every tab, every Settings section and every Admin section shows its own version 
 
 To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table and the tables below follow from it.
 
-**Current version: Agent Console `v8.0.0`**, updated Sep 27, 2026, 5:25 AM EDT.
+**Current version: Agent Console `v8.2.0`**, updated Oct 6, 2026, 12:00 PM EDT.
 
 | Part | Version | Last updated |
 | --- | --- | --- |
-| Console shell | `v2.4.0` | Sep 27, 2026, 2:49 AM EDT |
-| Selection assistant | `v2.0.0` | Sep 27, 2026, 5:25 AM EDT |
+| Console shell | `v2.5.1` | Oct 6, 2026, 12:00 PM EDT |
+| Selection assistant | `v2.0.2` | Sep 27, 2026, 7:09 AM EDT |
 | Welcome | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Page Insights | `v3.2.0` | Sep 27, 2026, 2:49 AM EDT |
 | Ask AI | `v2.2.0` | Sep 27, 2026, 2:49 AM EDT |
 | Chat | `v3.2.0` | Sep 27, 2026, 2:49 AM EDT |
 | Music | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Proxy | `v3.1.0` | Sep 27, 2026, 2:49 AM EDT |
+| Eaglercraft | `v1.0.0` | Oct 6, 2026, 12:00 PM EDT |
 | Games | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Study | `v2.2.0` | Sep 27, 2026, 5:25 AM EDT |
 | Notes | `v2.2.0` | Sep 27, 2026, 2:49 AM EDT |
@@ -327,13 +342,16 @@ To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table a
 | Grammar | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Saved | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Settings | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
-| Admin | `v2.3.0` | Sep 27, 2026, 5:25 AM EDT |
+| Admin | `v2.3.1` | Sep 27, 2026, 6:35 AM EDT |
 
 <details>
 <summary>Full release history</summary>
 
 | Version | Date | Change | Commit |
 | --- | --- | --- | --- |
+| `v8.2.0` | Oct 6, 2026, 12:00 PM EDT | Eaglercraft tab: Minecraft 1.8 through your Worker, played in fullscreen, in the tab or an about:blank window | this release |
+| `v8.1.0` | Sep 27, 2026, 7:09 AM EDT | Console shortcuts work inside embedded frames; option to hide the reopen button | `a0a6611` |
+| `v8.0.1` | Sep 27, 2026, 6:35 AM EDT | Shortcuts adapt to your OS and browser and never leak into the page | `e1094de` |
 | `v8.0.0` | Sep 27, 2026, 5:25 AM EDT | Selection assistant rebuilt: personal toolbar, grouped tools, shortcuts, iframes and a phone tray | this release |
 | `v7.2.0` | Sep 27, 2026, 2:49 AM EDT | Version and version history on every tab and section | this release |
 | `v7.1.1` | Sep 27, 2026, 2:49 AM EDT | Selection bubble and answer popup styled and themed again on every page | this release |
@@ -393,6 +411,7 @@ An optional Cloudflare Worker that does two small things the browser can't do on
 
 - **`/v1/*`** — forwards to `api.openai.com` and adds the CORS header. Direct browser → OpenAI calls are frequently blocked by ad blockers, antivirus shields, and network filters, which surface as confusing CORS errors. It also answers `OPTIONS` preflights itself, because forwarding those upstream returns a response that doesn't allow the `Authorization` header, which makes the browser block the real request.
 - **`/read?url=…`** — fetches a page server\-side and returns its HTML, so research mode can read sources the browser isn't allowed to fetch cross\-origin. HTML and plain text only, capped at 3MB.
+- **`/eagler/*`** — the Eaglercraft tab: the game's frame page and loader, your own client build (passed through from `EAGLER_CLIENT`), and a WebSocket proxy for game servers and Shared World relays. Optional; see [eaglercraft/README.md](eaglercraft/README.md) for its variables.
 
 ### Deploying it {#deploying-it}
 
@@ -438,14 +457,17 @@ The panel renders inside a Shadow DOM, so the host page's CSS can't bleed into i
 
 ```
 script.js          The entire assistant: UI, AI calls, games, everything
-worker.js          Cloudflare Worker: OpenAI proxy, accounts, memory, admin API
+worker.js          Cloudflare Worker: OpenAI proxy, accounts, memory, admin API,
+                   and the Eaglercraft routes (/eagler/*)
+eaglercraft/       The Eaglercraft tab's game frame and loader (no game code)
 saints.js          Backup copy of an earlier script.js
 acp.js             Proxy build of the console
-tests/             Worker unit tests (npm test)
+tests/             Worker unit tests (npm test); tests/browser/ holds the
+                   Playwright checks for the Eaglercraft tab and screenshots
 docs/screenshots/  The screenshots used in this README
 ```
 
-No build step, no dependencies, no bundler.
+No build step, no dependencies, no bundler. (The optional browser checks in `tests/browser/` need Playwright and, for the Worker, Miniflare.)
 
 * * *
 

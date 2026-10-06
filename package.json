@@ -28,6 +28,8 @@
   "files": [
     "script.js",
     "worker.js",
+    "eaglercraft/loader/",
+    "eaglercraft/README.md",
     "README.md",
     "LICENSE"
   ],
