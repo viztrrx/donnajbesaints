@@ -680,7 +680,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       console: ['feature', 'One shortcut dispatcher for the page and same-site frames; Hide the reopen button setting'],
       'theme#controls': ['feature', 'Hide the reopen button'], selection: ['fix', 'Frames found on load, not only on focus'] } },
     { at: '2026-10-06T12:00:00-04:00', commit: '', title: 'Eaglercraft tab: Minecraft 1.8 through your Worker, played in fullscreen, in the tab or an about:blank window', parts: {
-      eaglercraft: ['added'], console: ['fix', 'Fullscreen button recognizes the console in fullscreen'] } }
+      eaglercraft: ['added'], console: ['fix', 'Fullscreen button recognizes the console in fullscreen'] } },
+    { at: '2026-10-06T18:00:00-04:00', commit: '', title: 'Eaglercraft checks that your client build is reachable before launching', parts: {
+      eaglercraft: ['fix', 'Says which client file the Worker can’t fetch'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -9875,6 +9877,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (res.status === 403 || (j && j.enabled === false)) throw new Error('Eaglercraft is turned off by the owner.');
     if (!res.ok || !j || typeof j.clientConfigured !== 'boolean') throw new Error('Your Worker doesn’t have the Eaglercraft routes yet. Deploy the current worker.js to Cloudflare.');
     if (!j.clientConfigured) throw new Error('No Eaglercraft client is set up on your Worker yet. The owner points EAGLER_CLIENT at their own EaglercraftX 1.8 build (see eaglercraft/README.md).');
+    // Older Workers don't report reachability (undefined): carry on.
+    if (j.clientReachable === false) {
+      const bad = ((j.client && j.client.files) || []).filter((f) => !f.ok)
+        .map((f) => f.file + (f.status ? ' (HTTP ' + f.status + ')' : ' (unreachable)')).join(', ');
+      throw new Error('Your Worker can’t fetch the Eaglercraft client from ' + ((j.client && j.client.host) || 'EAGLER_CLIENT') + ': ' + (bad || 'files missing')
+        + '. EAGLER_CLIENT must be the URL of the build folder that holds classes.js and assets.epk.');
+    }
     return j;
   }
 

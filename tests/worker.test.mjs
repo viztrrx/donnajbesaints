@@ -405,7 +405,8 @@ globalThis.fetch = async (url, init = {}) => {
   const m = /^https:\/\/(client|loader)\.test\/(.*)$/.exec(u);
   if (m) {
     eaglerFiles.push(m[1] + ':' + m[2]);
-    if (m[2].endsWith('missing.js')) return new Response('nope', { status: 404 });
+    if (m[2].endsWith('missing.js') || m[2].startsWith('gone/')) return new Response('nope', { status: 404 });
+    if (m[2].startsWith('nohead/') && init.method === 'HEAD') return new Response(null, { status: 405 });
     return new Response(`${m[1]} file ${m[2]}`, { status: 200, headers: { 'Content-Type': 'text/plain' } });
   }
   if (/^https?:\/\/(relay|game|10\.0\.0\.5)/.test(u)) {
@@ -498,4 +499,39 @@ test('eagler: owner kill switch and health', async () => {
   const h = await c.call('/health');
   assert.ok(h.data.features.includes('eaglercraft'));
   assert.ok(h.data.routes.includes('/eagler/*'));
+});
+
+test('eagler: status probes the build folder and tells configured from reachable', async () => {
+  const ok = await makeClient(eaglerEnv()).call('/eagler/status');
+  assert.equal(ok.data.clientConfigured, true);
+  assert.equal(ok.data.clientReachable, true);
+  assert.equal(ok.data.client.host, 'client.test');
+  assert.deepEqual(ok.data.client.files.map((f) => [f.file, f.ok, f.status]), [['classes.js', true, 200], ['assets.epk', true, 200]]);
+  assert.equal(typeof ok.data.websocket.available, 'boolean');
+  assert.equal(ok.data.websocket.endpoint, '/eagler/ws');
+  assert.ok(!JSON.stringify(ok.data).includes('/build'), 'the private build path is not published');
+
+  const gone = await makeClient(eaglerEnv({ EAGLER_CLIENT: 'https://client.test/gone/' })).call('/eagler/status');
+  assert.equal(gone.data.clientConfigured, true);
+  assert.equal(gone.data.clientReachable, false);
+  assert.deepEqual(gone.data.client.files.map((f) => f.status), [404, 404]);
+
+  const noHead = await makeClient(eaglerEnv({ EAGLER_CLIENT: 'https://client.test/nohead/' })).call('/eagler/status');
+  assert.equal(noHead.data.clientReachable, true, 'hosts that refuse HEAD are probed with a ranged GET');
+
+  const off = await makeClient(makeEnv()).call('/eagler/status');
+  assert.equal(off.data.clientConfigured, false);
+  assert.equal(off.data.clientReachable, null);
+});
+
+test('eagler: EAGLER_CLIENT may name the folder, its index.html or classes.js', async () => {
+  for (const v of ['https://client.test/b2', 'https://client.test/b2/', 'https://client.test/b2/index.html', 'https://client.test/b2/classes.js']) {
+    eaglerFiles.length = 0;
+    const env = eaglerEnv({ EAGLER_CLIENT: v });
+    const r = await worker.fetch(new Request('https://worker.test/eagler/client/assets.epk'), env, { waitUntil() {} });
+    assert.equal(r.status, 200, v);
+    assert.deepEqual(eaglerFiles, ['client:b2/assets.epk'], v);
+  }
+  const map = await worker.fetch(new Request('https://worker.test/eagler/client/classes.js.map'), eaglerEnv(), { waitUntil() {} });
+  assert.equal(map.headers.get('Content-Type'), 'application/json');
 });

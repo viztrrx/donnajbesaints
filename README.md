@@ -322,7 +322,7 @@ Every tab, every Settings section and every Admin section shows its own version 
 
 To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table and the tables below follow from it.
 
-**Current version: Agent Console `v8.2.0`**, updated Oct 6, 2026, 12:00 PM EDT.
+**Current version: Agent Console `v8.2.1`**, updated Oct 6, 2026, 6:00 PM EDT.
 
 | Part | Version | Last updated |
 | --- | --- | --- |
@@ -334,7 +334,7 @@ To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table a
 | Chat | `v3.2.0` | Sep 27, 2026, 2:49 AM EDT |
 | Music | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Proxy | `v3.1.0` | Sep 27, 2026, 2:49 AM EDT |
-| Eaglercraft | `v1.0.0` | Oct 6, 2026, 12:00 PM EDT |
+| Eaglercraft | `v1.0.1` | Oct 6, 2026, 6:00 PM EDT |
 | Games | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Study | `v2.2.0` | Sep 27, 2026, 5:25 AM EDT |
 | Notes | `v2.2.0` | Sep 27, 2026, 2:49 AM EDT |
@@ -349,7 +349,8 @@ To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table a
 
 | Version | Date | Change | Commit |
 | --- | --- | --- | --- |
-| `v8.2.0` | Oct 6, 2026, 12:00 PM EDT | Eaglercraft tab: Minecraft 1.8 through your Worker, played in fullscreen, in the tab or an about:blank window | this release |
+| `v8.2.1` | Oct 6, 2026, 6:00 PM EDT | Eaglercraft checks that your client build is reachable before launching | this release |
+| `v8.2.0` | Oct 6, 2026, 12:00 PM EDT | Eaglercraft tab: Minecraft 1.8 through your Worker, played in fullscreen, in the tab or an about:blank window | `008a2ea` |
 | `v8.1.0` | Sep 27, 2026, 7:09 AM EDT | Console shortcuts work inside embedded frames; option to hide the reopen button | `a0a6611` |
 | `v8.0.1` | Sep 27, 2026, 6:35 AM EDT | Shortcuts adapt to your OS and browser and never leak into the page | `e1094de` |
 | `v8.0.0` | Sep 27, 2026, 5:25 AM EDT | Selection assistant rebuilt: personal toolbar, grouped tools, shortcuts, iframes and a phone tray | this release |

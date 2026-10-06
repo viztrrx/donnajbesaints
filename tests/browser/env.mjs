@@ -19,15 +19,18 @@ const req = createRequire(path.join(process.env.MINIFLARE_DIR || ROOT, 'package.
 const { Miniflare } = req('miniflare');
 const { WebSocketServer } = req('ws');
 
-const TYPES = { '.js': 'text/javascript', '.html': 'text/html', '.epk': 'application/octet-stream', '.lang': 'text/plain' };
+const TYPES = { '.js': 'text/javascript', '.html': 'text/html', '.epk': 'application/octet-stream', '.lang': 'text/plain', '.map': 'application/json', '.png': 'image/png' };
+export const STUB_CLIENT_DIR = path.join(ROOT, 'tests/browser/fixtures/stub-client');
 export const requests = [];   // every request the file host saw: proves who fetched what
 
-export async function startEnv({ relay = !!process.env.RELAY_JAR, extraEnv = {} } = {}) {
+// clientDir: the folder served as EAGLER_CLIENT. The stand-in by default;
+// real-client.mjs passes a real EaglercraftX build folder.
+export async function startEnv({ relay = !!process.env.RELAY_JAR, extraEnv = {}, clientDir = STUB_CLIENT_DIR } = {}) {
   const files = await serve((rq, rs) => {
     requests.push({ url: rq.url, ua: rq.headers['user-agent'] || '' });
     const u = new URL(rq.url, 'http://x');
     let file = null;
-    if (u.pathname.startsWith('/client/')) file = path.join(ROOT, 'tests/browser/fixtures/stub-client', u.pathname.slice(8));
+    if (u.pathname.startsWith('/client/')) file = path.join(clientDir, decodeURIComponent(u.pathname.slice(8)));
     else if (u.pathname.startsWith('/loader/')) file = path.join(ROOT, 'eaglercraft/loader', u.pathname.slice(8));
     if (!file || file.includes('..') || !fs.existsSync(file)) { rs.statusCode = 404; rs.end('nope'); return; }
     rs.setHeader('Content-Type', TYPES[path.extname(file)] || 'application/octet-stream');
