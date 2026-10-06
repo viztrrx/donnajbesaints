@@ -122,7 +122,7 @@ const jsonResponse = (obj, status) => new Response(JSON.stringify(obj), {
 // per-instance buffers; everything that touches a request lives in
 // handleRequest where it can reuse the existing closures.
 // ============================================================================
-const WORKER_VERSION = '2026.09.27-v2';
+const WORKER_VERSION = '2026.10.06-v3';   // Eaglercraft routes, binary WebSocket fix, Wrangler deploys
 const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs', 'eaglercraft'];
 
 // ---- Permissions ------------------------------------------------------------
