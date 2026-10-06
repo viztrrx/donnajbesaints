@@ -393,3 +393,109 @@ test('metrics, reports, jobs and memory stats use real data', async () => {
   const audit = await c.call('/admin/audit', { headers: owner });
   assert.ok(audit.data.entries.some((e) => e.action === 'memory_view_content' && e.target === 'kim'), 'content access is audited');
 });
+
+// ---- Eaglercraft routes (/eagler/*) ---------------------------------------------
+// The WebSocket proxy itself needs WebSocketPair, which only exists in
+// workerd; tests/browser/eaglercraft.e2e.mjs runs it there. Everything up to
+// the upgrade (validation, allowlists, the SSRF guard) is checked here.
+const eaglerFiles = [];
+const fetchBeforeEagler = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+  const u = String(url);
+  const m = /^https:\/\/(client|loader)\.test\/(.*)$/.exec(u);
+  if (m) {
+    eaglerFiles.push(m[1] + ':' + m[2]);
+    if (m[2].endsWith('missing.js')) return new Response('nope', { status: 404 });
+    return new Response(`${m[1]} file ${m[2]}`, { status: 200, headers: { 'Content-Type': 'text/plain' } });
+  }
+  if (/^https?:\/\/(relay|game|10\.0\.0\.5)/.test(u)) {
+    eaglerFiles.push('ws:' + u + ':' + ((init.headers && init.headers.Upgrade) || ''));
+    return new Response('not a websocket', { status: 200 });   // Node has no webSocket responses
+  }
+  return fetchBeforeEagler(url, init);
+};
+const eaglerEnv = (extra = {}) => ({ ...makeEnv(), EAGLER_CLIENT: 'https://client.test/build', EAGLER_LOADER: 'https://loader.test/loader/', EAGLER_RELAYS: 'wss://relay.test/', EAGLER_SERVERS: 'My server|wss://game.test/play', ...extra });
+const wsUp = { Upgrade: 'websocket' };
+
+test('eagler: status, config and frame page', async () => {
+  const off = makeClient(makeEnv());
+  const s0 = await off.call('/eagler/status');
+  assert.equal(s0.status, 200);
+  assert.equal(s0.data.clientConfigured, false, 'no build is bundled: unconfigured by default');
+  assert.equal(s0.data.relays.length, 3, 'defaults to the official client\'s three relays');
+  assert.equal((await off.call('/eagler/client/classes.js')).status, 503);
+
+  const c = makeClient(eaglerEnv());
+  const s = await c.call('/eagler/status');
+  assert.equal(s.data.clientConfigured, true);
+  assert.deepEqual(s.data.relays, ['wss://relay.test/']);
+  assert.deepEqual(s.data.servers, [{ addr: 'wss://game.test/play', name: 'My server' }]);
+  const conf = await c.call('/eagler/config.js');
+  assert.match(conf.text, /^window\.__eaglerConfig = /);
+  const parsed = JSON.parse(conf.text.replace(/^window\.__eaglerConfig = /, '').replace(/;\s*$/, ''));
+  assert.deepEqual(parsed.allowedHosts.sort(), ['game.test', 'relay.test']);
+  assert.equal(parsed.wsPath, '/eagler/ws');
+
+  const req = new Request('https://worker.test/eagler/');
+  const page = await worker.fetch(req, eaglerEnv(), { waitUntil() {} });
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get('Content-Type'), /^text\/html/);
+  const csp = page.headers.get('Content-Security-Policy');
+  assert.match(csp, /connect-src 'self' blob: data:/, 'the game may only connect back to the worker');
+  assert.match(csp, /worker-src 'self' blob:/, 'singleplayer starts a blob: worker');
+  assert.ok(!/unsafe-eval'/.test(csp.replace("'wasm-unsafe-eval'", '')), 'no JavaScript eval');
+  assert.equal(await page.text(), 'loader file loader/frame.html');
+  const redirect = await worker.fetch(new Request('https://worker.test/eagler'), eaglerEnv(), { waitUntil() {} });
+  assert.equal(redirect.status, 301);
+});
+
+test('eagler: client and loader files pass through with fixed types and safe paths', async () => {
+  const c = makeClient(eaglerEnv());
+  const js = await worker.fetch(new Request('https://worker.test/eagler/client/classes.js'), eaglerEnv(), { waitUntil() {} });
+  assert.equal(js.status, 200);
+  assert.equal(js.headers.get('Content-Type'), 'text/javascript; charset=utf-8', 'type from the extension, not upstream text/plain');
+  assert.equal(js.headers.get('Access-Control-Allow-Origin'), null, 'not readable cross-origin');
+  assert.equal(await js.text(), 'client file build/classes.js');
+  const epk = await worker.fetch(new Request('https://worker.test/eagler/client/assets.epk'), eaglerEnv(), { waitUntil() {} });
+  assert.equal(epk.headers.get('Content-Type'), 'application/octet-stream');
+  assert.equal((await c.call('/eagler/client/lang/en_US.lang')).status, 200);
+  for (const bad of ['/eagler/client/.env', '/eagler/client/a//b.js', '/eagler/client/%2fetc', '/eagler/client/a%5c..%5cb', '/eagler/loader/../x.js', '/eagler/loader/x.exe', '/eagler/loader/sub/x.js']) {
+    const r = await c.call(bad);
+    assert.ok(r.status === 400 || r.status === 404, bad + ' → ' + r.status);
+  }
+  assert.equal((await c.call('/eagler/client/missing.js')).status, 404);
+  assert.ok(eaglerFiles.every((f) => /^(client:build\/|loader:loader\/|ws:)/.test(f)), 'only the configured folders are ever fetched: ' + eaglerFiles.join(', '));
+  assert.equal((await c.call('/eagler/client/classes.js', { method: 'POST', body: 'x' })).status, 405);
+});
+
+test('eagler: WebSocket proxy validates before it upgrades', async () => {
+  const c = makeClient(eaglerEnv());
+  assert.equal((await c.call('/eagler/ws?url=' + encodeURIComponent('wss://relay.test/'))).status, 426, 'plain GET is not an upgrade');
+  assert.equal((await c.call('/eagler/ws?url=https%3A%2F%2Frelay.test%2F', { headers: wsUp })).status, 400, 'ws:// and wss:// only');
+  assert.equal((await c.call('/eagler/ws', { headers: wsUp })).status, 400);
+  const other = await c.call('/eagler/ws?url=' + encodeURIComponent('wss://elsewhere.example/'), { headers: wsUp });
+  assert.equal(other.status, 403, 'hosts the owner did not name are refused');
+  assert.match(other.data.error, /EAGLER_WS_ALLOW/);
+  // Named hosts get as far as the upstream upgrade (Node can't complete it).
+  const named = await c.call('/eagler/ws?url=' + encodeURIComponent('wss://relay.test/'), { headers: { ...wsUp, Origin: 'https://worker.test' } });
+  assert.equal(named.status, 502);
+  assert.ok(eaglerFiles.includes('ws:https://relay.test/:websocket'), 'upstream asked for an upgrade over http(s)');
+
+  const open = makeClient(eaglerEnv({ EAGLER_WS_OPEN: '1' }));
+  assert.equal((await open.call('/eagler/ws?url=' + encodeURIComponent('ws://127.0.0.1:25565/'), { headers: wsUp })).status, 403, 'open mode still refuses private addresses');
+  assert.equal((await open.call('/eagler/ws?url=' + encodeURIComponent('ws://[::ffff:7f00:1]/'), { headers: wsUp })).status, 403);
+  assert.equal((await open.call('/eagler/ws?url=' + encodeURIComponent('ws://metadata.google.internal/'), { headers: wsUp })).status, 403);
+  const allow = makeClient(eaglerEnv({ EAGLER_WS_ALLOW: '10.0.0.5:8081' }));
+  assert.equal((await allow.call('/eagler/ws?url=' + encodeURIComponent('ws://10.0.0.5:8081/'), { headers: wsUp })).status, 502, 'a host the owner named is trusted as given');
+});
+
+test('eagler: owner kill switch and health', async () => {
+  const env = eaglerEnv(); const c = makeClient(env);
+  assert.equal((await c.call('/admin/config', { method: 'POST', headers: owner, body: { features: { eaglercraft: false } } })).status, 200);
+  assert.equal((await c.call('/eagler/status')).data.enabled, false);
+  for (const p of ['/eagler/', '/eagler/config.js', '/eagler/client/classes.js']) assert.equal((await c.call(p)).status, 403, p);
+  assert.equal((await c.call('/eagler/ws?url=' + encodeURIComponent('wss://relay.test/'), { headers: wsUp })).status, 403);
+  const h = await c.call('/health');
+  assert.ok(h.data.features.includes('eaglercraft'));
+  assert.ok(h.data.routes.includes('/eagler/*'));
+});
