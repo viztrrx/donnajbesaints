@@ -3182,7 +3182,7 @@ const EAGLER_DEFAULT_LOADER = 'https://raw.githubusercontent.com/viztrrx/donnajb
 const EAGLER_DEFAULT_RELAYS = ['wss://relay.deev.is/', 'wss://relay.lax1dude.net/', 'wss://relay.shhnowisnottheti.me/'];
 const EAGLER_TYPES = {
   html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8',
-  css: 'text/css; charset=utf-8', json: 'application/json', lang: 'text/plain; charset=utf-8', txt: 'text/plain; charset=utf-8',
+  css: 'text/css; charset=utf-8', json: 'application/json', map: 'application/json', lang: 'text/plain; charset=utf-8', txt: 'text/plain; charset=utf-8',
   epk: 'application/octet-stream', epw: 'application/octet-stream', wasm: 'application/wasm',
   png: 'image/png', jpg: 'image/jpeg', ico: 'image/x-icon', ogg: 'audio/ogg', mp3: 'audio/mpeg', webp: 'image/webp'
 };
@@ -3233,8 +3233,11 @@ function eaglerSettings(env) {
     if (u) hosts.add(u.host.toLowerCase());
   });
   const base = (raw, fallback) => { const v = String(raw || fallback || '').trim(); return v ? v.replace(/\/*$/, '/') : ''; };
+  // EAGLER_CLIENT names the build FOLDER (the one holding classes.js). A URL
+  // to the folder's index.html or classes.js is taken to mean that folder.
+  const clientDir = String(e.EAGLER_CLIENT || '').trim().replace(/\/(index\.html|classes\.js)$/i, '/');
   return {
-    client: base(e.EAGLER_CLIENT, ''),
+    client: base(clientDir, ''),
     loader: base(e.EAGLER_LOADER, EAGLER_DEFAULT_LOADER),
     relays, servers, hosts,
     open: e.EAGLER_WS_OPEN === '1',
@@ -3251,7 +3254,25 @@ async function handleEagler(req, env, url, h) {
   try { const c = await h.getConfig(); enabled = !(c.features && c.features.eaglercraft === false); } catch (e) { /* no KV: on */ }
 
   if (sub === 'status') {
-    return json({ ok: true, enabled, clientConfigured: !!cfg.client, relays: cfg.relays, servers: cfg.servers, openProxy: cfg.open, voice: cfg.voice });
+    // Configured is not the same as working: probe the two files the client
+    // can't start without. lang/ isn't probed; it only holds the non-English
+    // languages, fetched one file at a time when picked.
+    let files = [];
+    let reachable = null;
+    if (cfg.client) {
+      files = await Promise.all(EAGLER_REQUIRED_FILES.map((f) => eaglerProbe(cfg.client + f).then((r) => ({ file: f, ...r }))));
+      reachable = files.every((f) => f.ok);
+    }
+    let clientHost = '';
+    try { clientHost = cfg.client ? new URL(cfg.client).host : ''; } catch (e) { clientHost = '(not a valid URL)'; }
+    return json({
+      ok: true, enabled,
+      clientConfigured: !!cfg.client,
+      clientReachable: reachable,
+      client: { configured: !!cfg.client, host: clientHost, files },
+      websocket: { endpoint: '/eagler/ws', available: typeof WebSocketPair === 'function', openProxy: cfg.open, allowedHosts: [...cfg.hosts] },
+      relays: cfg.relays, servers: cfg.servers, openProxy: cfg.open, voice: cfg.voice
+    });
   }
   if (!enabled) return json({ error: 'Eaglercraft is turned off by the owner.' }, 403);
 
@@ -3291,6 +3312,25 @@ async function handleEagler(req, env, url, h) {
     return eaglerPassThrough(req, cfg.client + path, ext.toLowerCase(), { 'Cache-Control': 'public, max-age=3600' }, json);
   }
   return json({ error: 'not found' }, 404);
+}
+
+// The files a JavaScript build of EaglercraftX 1.8 can't start without.
+const EAGLER_REQUIRED_FILES = ['classes.js', 'assets.epk'];
+// Can the worker fetch this file? HEAD first; hosts that refuse HEAD get a
+// one-byte ranged GET. Never reads the body.
+async function eaglerProbe(src) {
+  const attempt = async (init) => {
+    const r = await fetch(src, { ...init, redirect: 'follow', signal: AbortSignal.timeout(8000) });
+    try { if (r.body) await r.body.cancel(); } catch (e) { /* nothing to cancel */ }
+    return r.status;
+  };
+  try {
+    let status = await attempt({ method: 'HEAD' });
+    if (status === 405 || status === 501) status = await attempt({ method: 'GET', headers: { Range: 'bytes=0-0' } });
+    return { ok: status >= 200 && status < 300, status };
+  } catch (e) {
+    return { ok: false, status: 0, error: String((e && e.message) || e).slice(0, 120) };
+  }
 }
 
 // Streams one static file from an owner-configured origin. The type comes

@@ -312,7 +312,11 @@ await step('crash here', async () => {
   await frame.evaluate(CRASH_JS);
   const msg = await until(() => R(page, (r) => r.querySelector('#gpa-eag-error').style.display !== 'none' && r.querySelector('#gpa-eag-error').textContent));
   check('Runtime crash is detected and explained; game DOM removed', /crashed/.test(msg || '') && /RuntimeException: Test crash/.test(msg || '') && await R(page, (r) => !r.querySelector('#gpa-eag-view iframe') && r.querySelector('.gpx-eagler').dataset.eagler === 'idle'), msg);
-  check('No workers left after the crash', (await workerTargets()) === 0);
+  // Workers end asynchronously after their document goes away.
+  const t0 = Date.now();
+  const gone = await until(async () => (await workerTargets()) === 0, 10000);
+  const left = gone ? [] : (await cdp.send('Target.getTargets')).targetInfos.filter((x) => x.type === 'worker').map((x) => ({ url: x.url.slice(0, 60), attached: x.attached, opener: x.openerId, parent: x.parentFrameId }));
+  check('No workers left after the crash', gone === true, gone ? `gone after ${Date.now() - t0} ms` : left);
 });
 
 // ---- Theme ------------------------------------------------------------------------------
@@ -439,6 +443,22 @@ await step('client not configured', async () => {
   await c.close();
 });
 await env2.close();
+
+const env3 = await startEnv({ relay: false, extraEnv: { EAGLER_CLIENT: 'http://127.0.0.1:9/no-build-here/' } });
+await step('client unreachable', async () => {
+  const st = await (await fetch(env3.workerUrl + '/eagler/status')).json();
+  check('/eagler/status: configured but not reachable', st.clientConfigured === true && st.clientReachable === false, st.client);
+  const c = await newContext();
+  const p = await openConsole(c, HOST, { patch: (code) => code.split('https://donnajbe.viztrrx.workers.dev').join(env3.workerUrl) });
+  await openTab(p, 'eaglercraft');
+  await p.click('#gpa-eag-fs');
+  await until(() => R(p, (r) => !r.querySelector('#gpa-eag-here').disabled));
+  await p.click('#gpa-eag-here');
+  const msg = await until(() => R(p, (r) => r.querySelector('#gpa-eag-error').textContent), 15000);
+  check('Unreachable client files: clear error naming the files, nothing loaded', /can’t fetch the Eaglercraft client/.test(msg || '') && /classes\.js/.test(msg || '') && !(await R(p, (r) => !!r.querySelector('#gpa-eag-view iframe'))), msg);
+  await c.close();
+});
+await env3.close();
 
 await step('worker unreachable', async () => {
   const c = await newContext();

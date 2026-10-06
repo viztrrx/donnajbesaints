@@ -75,20 +75,58 @@ Worker routes and the tests. It contains no Eaglercraft or Minecraft code, and
 accident. Whether you may build and host a client for yourself is between you
 and those licenses. Don't put a build in a public repository.
 
+## What the build must contain
+
+`CompileLatestClient` (JavaScript build) writes these into the output folder
+you pick. They come from `buildtools/.../CompileLatestClientGUI.java`:
+
+| File | Needed? | Used for |
+| --- | --- | --- |
+| `classes.js` | **Required** | The client (TeaVM). The loader loads it and starts `main()`. Singleplayer also re-reads it to start the integrated server as a Worker. |
+| `assets.epk` | **Required** | Game resources. The loader sets `assetsURI` to it. |
+| `lang/` | Recommended | One `<code>.lang` per language (e.g. `lang/de_DE.lang`), fetched only when a language other than English is picked. English is inside `assets.epk`. |
+| `classes.js.map` | Optional | Source map for debugging. Served as `application/json`. |
+| `index.html`, `favicon.png` | Not used | The official launch page. `eaglercraft/loader/frame.html` replaces it and sets the same options. Harmless to leave in. |
+| `EaglercraftX_1.8_Offline_*.html` | **Not supported** | Single-file builds with everything inlined. Use the folder files above instead. |
+
+What the loader sets in `window.eaglercraftXOpts`, the same as the build's own
+`index.html`:
+
+| Option | Value |
+| --- | --- |
+| `container` | `"game_frame"` (a `<div id="game_frame">` in `frame.html`) |
+| `assetsURI` | `https://<worker>/eagler/client/assets.epk` |
+| `localesURI` | `https://<worker>/eagler/client/lang/` |
+| `worldsDB` | `"worlds"` (IndexedDB, under the Worker's origin) |
+| `servers` | from `EAGLER_SERVERS` |
+| `relays` | from `EAGLER_RELAYS` (default: the official three) |
+
+It also sets `window.eaglercraftXClientScriptURL` to
+`https://<worker>/eagler/client/classes.js`, so singleplayer finds the
+client. Every `ws://` or `wss://` address the game opens is rewritten to
+`wss://<worker>/eagler/ws?url=<address>`.
+
+The Worker serves the folder file by file at `/eagler/client/<path>`, and
+sets the type from the extension: `.js` text/javascript, `.epk`
+application/octet-stream, `.lang` text/plain, `.map` application/json.
+
 ## Setting it up
 
 1. **Build the client** from the EaglercraftX 1.8 source with Java 11+
-   (`CompileLatestClient.sh` / `.bat`). Use the JavaScript output folder:
-   `classes.js`, `assets.epk` and `lang/`.
-2. **Host that folder somewhere private that the Worker can fetch**, for
-   example a private R2 bucket with a public URL, or any static host you
-   control.
+   (`CompileLatestClient.sh` / `.bat`, JavaScript build). Keep the output
+   folder; [the table above](#what-the-build-must-contain) lists what it
+   needs.
+2. **Upload that folder, as is, to a static host the Worker can fetch over
+   HTTPS**, for example a Cloudflare R2 bucket with a public URL, or any
+   static web host you control. Keep the file names and the `lang/`
+   subfolder. Don't put it in a public GitHub repository: the build contains
+   Mojang's code.
 3. **Configure the Worker** (Cloudflare dashboard → your Worker → Settings →
    Variables). Only `EAGLER_CLIENT` is required:
 
    | Variable | Meaning |
    | --- | --- |
-   | `EAGLER_CLIENT` | URL of the folder from step 2 (it must hold `classes.js`). |
+   | `EAGLER_CLIENT` | URL of the **folder** from step 2, e.g. `https://example.com/eaglercraft-client/`. `<that URL>classes.js` must download the file. A trailing `index.html` or `classes.js` is stripped, so the folder is still used. |
    | `EAGLER_LOADER` | Where `eaglercraft/loader/` is served from. Default: this repository on `raw.githubusercontent.com`. |
    | `EAGLER_RELAYS` | Comma-separated Shared World relays. Default: the three public relays the official client ships with. |
    | `EAGLER_SERVERS` | Comma-separated `Name\|wss://host/` entries for the Multiplayer screen. |
@@ -103,8 +141,20 @@ and those licenses. Don't put a build in a public repository.
 5. **Optional:** the owner can turn the tab off for everyone with the
    `eaglercraft` switch in Admin. The Worker enforces that switch too.
 
-To check the setup, open `https://<your-worker>/eagler/status`. It should say
-`"clientConfigured": true`.
+To check the setup, open `https://<your-worker>/eagler/status`. Read it like
+this:
+
+| You see | Meaning |
+| --- | --- |
+| The page doesn't load | The Worker isn't deployed or the URL is wrong. |
+| `{"error":"not found"}` | The Worker is older than the Eaglercraft routes. Redeploy `worker.js`. |
+| `"enabled": false` | The owner switched Eaglercraft off in Admin. |
+| `"clientConfigured": false` | `EAGLER_CLIENT` isn't set. |
+| `"clientReachable": false` | It's set, but the Worker can't download the files. `client.files` shows each file's HTTP status: `404` means a wrong folder URL, `403` means the host refuses, `0` means the host can't be reached. |
+| `"clientReachable": true` | Ready. |
+| `"websocket": { "available": true }` | The Worker can proxy WebSockets. `allowedHosts` lists where it will connect. |
+
+The tab runs the same check before launching, and shows the same reasons.
 
 ## Playing
 
@@ -208,6 +258,13 @@ provide for free.
   gate, both launch modes, pause and resume, input and pointer lock, cleanup,
   storage, CSP enforcement, error states and a two-browser Shared World over
   the real relay JAR. The header of that file explains how to run it.
+
+- `tests/browser/real-client.mjs` checks **your real build**:
+  `EAGLER_CLIENT_DIR=/path/to/build MINIFLARE_DIR=… node tests/browser/real-client.mjs`.
+  It serves that folder through `worker.js` (in workerd), opens the tab in
+  fullscreen, launches the game and confirms it started and drew without
+  crashing. It also saves a screenshot of the title screen. It refuses the
+  stand-in client.
 
 These tests have never run against a real EaglercraftX build: none can be
 fetched or built where they were written, since Mojang's download servers
