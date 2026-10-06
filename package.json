@@ -37,7 +37,9 @@
   "private": false,
   "scripts": {
     "start": "echo \"Paste the snippet from README.md into your browser console.\" && exit 0",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler preview"
   },
   "engines": {
     "node": ">=18"
