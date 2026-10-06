@@ -1,0 +1,28 @@
+// Cloudflare deployment for worker.js (the "donnajbe" Worker).
+// Cloudflare Workers Builds runs `npx wrangler deploy` on every push to main.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "donnajbe",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-01",
+
+  // Serves https://donnajbe.viztrrx.workers.dev (the URL script.js uses).
+  "workers_dev": true,
+
+  // Plain-text variables set in the dashboard (OWNER, EAGLER_CLIENT and the
+  // other EAGLER_* settings, ALLOW_QUERY_TOKEN) are kept on deploy instead of
+  // being wiped. Secrets (ADMIN_TOKEN, COADMIN_TOKEN, OWNER_CODE) are always
+  // kept by `wrangler deploy`; set them in the dashboard, never here.
+  "keep_vars": true,
+
+  // Accounts, sessions, AI memory, chat, moderation, telemetry and the admin
+  // console all store their data here (env.TELEMETRY in worker.js). This is
+  // the existing namespace; a deploy without it would drop the binding.
+  "kv_namespaces": [
+    { "binding": "TELEMETRY", "id": "cebe1a618cba45278f6784bd53f0d59f" }
+  ]
+
+  // No "triggers": the daily cron (worker.js `scheduled`, documented as
+  // "0 5 * * *") stays managed in the dashboard. Wrangler leaves dashboard
+  // cron triggers alone when this file doesn't list any.
+}

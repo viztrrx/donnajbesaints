@@ -322,7 +322,7 @@ Every tab, every Settings section and every Admin section shows its own version 
 
 To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table and the tables below follow from it.
 
-**Current version: Agent Console `v8.2.1`**, updated Oct 6, 2026, 6:00 PM EDT.
+**Current version: Agent Console `v8.2.2`**, updated Oct 6, 2026, 10:30 PM EDT.
 
 | Part | Version | Last updated |
 | --- | --- | --- |
@@ -334,7 +334,7 @@ To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table a
 | Chat | `v3.2.0` | Sep 27, 2026, 2:49 AM EDT |
 | Music | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Proxy | `v3.1.0` | Sep 27, 2026, 2:49 AM EDT |
-| Eaglercraft | `v1.0.1` | Oct 6, 2026, 6:00 PM EDT |
+| Eaglercraft | `v1.0.2` | Oct 6, 2026, 10:30 PM EDT |
 | Games | `v2.1.0` | Sep 27, 2026, 2:49 AM EDT |
 | Study | `v2.2.0` | Sep 27, 2026, 5:25 AM EDT |
 | Notes | `v2.2.0` | Sep 27, 2026, 2:49 AM EDT |
@@ -349,7 +349,8 @@ To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table a
 
 | Version | Date | Change | Commit |
 | --- | --- | --- | --- |
-| `v8.2.1` | Oct 6, 2026, 6:00 PM EDT | Eaglercraft checks that your client build is reachable before launching | this release |
+| `v8.2.2` | Oct 6, 2026, 10:30 PM EDT | Worker deploys from GitHub with Wrangler; game traffic stays binary through the proxy | this release |
+| `v8.2.1` | Oct 6, 2026, 6:00 PM EDT | Eaglercraft checks that your client build is reachable before launching | `875426e` |
 | `v8.2.0` | Oct 6, 2026, 12:00 PM EDT | Eaglercraft tab: Minecraft 1.8 through your Worker, played in fullscreen, in the tab or an about:blank window | `008a2ea` |
 | `v8.1.0` | Sep 27, 2026, 7:09 AM EDT | Console shortcuts work inside embedded frames; option to hide the reopen button | `a0a6611` |
 | `v8.0.1` | Sep 27, 2026, 6:35 AM EDT | Shortcuts adapt to your OS and browser and never leak into the page | `e1094de` |
@@ -416,7 +417,15 @@ An optional Cloudflare Worker that does two small things the browser can't do on
 
 ### Deploying it {#deploying-it}
 
-Cloudflare dashboard → **Workers & Pages** → your worker → **Edit code** → replace everything with `worker.js` → **Deploy**.
+Deploys are automatic. Cloudflare **Workers Builds** is connected to this repository: every push to `main` runs `npx wrangler deploy`, which deploys `worker.js` as the `donnajbe` Worker at `https://donnajbe.viztrrx.workers.dev`. The settings are in [`wrangler.jsonc`](wrangler.jsonc):
+
+- **KV:** the `TELEMETRY` namespace, which holds accounts, memory, chat, moderation and admin data.
+- **Variables:** `keep_vars`, so the plain variables you set in the dashboard (`OWNER`, `EAGLER_*`) survive each deploy.
+- **Cron:** no cron triggers, so the daily one stays managed in the dashboard.
+
+Secrets (`ADMIN_TOKEN`, `COADMIN_TOKEN`, `OWNER_CODE`) live only in the dashboard and are kept on every deploy.
+
+Don't edit the code in the dashboard any more: the next push to `main` replaces it. To deploy by hand, run `npm install`, then `npx wrangler deploy` (it asks you to log in to Cloudflare).
 
 Then point the script at it by setting `OPENAI_PROXY` near the top of `script.js` to your Worker URL. Set it to `''` to call OpenAI directly instead.
 
@@ -428,7 +437,7 @@ If you deploy the Worker publicly, anyone who knows the URL can route their own 
 
 > **Deploy `worker.js` first, or together with `script.js`.** The Command Center, server accounts and memory need the new Worker routes; with an older Worker the console keeps working and those features say the Worker needs updating. No new bindings or secrets are required: sessions are signed with a key derived from `ADMIN_TOKEN`, and everything is stored in the existing `TELEMETRY` KV namespace.
 >
-> **`script.js` and `worker.js` have to be deployed together.** The Worker isn't pulled from this repo at runtime — you paste it into the Cloudflare dashboard by hand. If you update one and not the other, the key channel they agree on can drift apart and every request comes back `401`.
+> **`script.js` and `worker.js` ship together from `main`.** The bookmarklet loads `script.js` from `main`, and every push to `main` deploys `worker.js`, so the two stay in step. If a Worker build fails, the old Worker keeps running while `script.js` is already new. Check the build under **Workers & Pages → donnajbe → Deployments**: if the two drift apart, the key channel they agree on can change and every request comes back `401`.
 
 * * *
 
@@ -468,7 +477,7 @@ tests/             Worker unit tests (npm test); tests/browser/ holds the
 docs/screenshots/  The screenshots used in this README
 ```
 
-No build step, no dependencies, no bundler. (The optional browser checks in `tests/browser/` need Playwright and, for the Worker, Miniflare.)
+No build step and no runtime dependencies. Wrangler is a dev dependency, used to deploy `worker.js` and to run it for the browser checks in `tests/browser/` (which also need Playwright).
 
 * * *
 

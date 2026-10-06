@@ -682,7 +682,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-06T12:00:00-04:00', commit: '', title: 'Eaglercraft tab: Minecraft 1.8 through your Worker, played in fullscreen, in the tab or an about:blank window', parts: {
       eaglercraft: ['added'], console: ['fix', 'Fullscreen button recognizes the console in fullscreen'] } },
     { at: '2026-10-06T18:00:00-04:00', commit: '', title: 'Eaglercraft checks that your client build is reachable before launching', parts: {
-      eaglercraft: ['fix', 'Says which client file the Worker can’t fetch'] } }
+      eaglercraft: ['fix', 'Says which client file the Worker can’t fetch'] } },
+    { at: '2026-10-06T22:30:00-04:00', commit: '', title: 'Worker deploys from GitHub with Wrangler; game traffic stays binary through the proxy', parts: {
+      eaglercraft: ['fix', 'Servers and Shared Worlds receive binary data intact'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',

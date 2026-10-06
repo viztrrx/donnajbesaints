@@ -3,8 +3,8 @@
 // fixtures/stub-client (same page contract as EaglercraftX 1.8, no Minecraft
 // code), because a real build can't be redistributed or fetched here.
 //
-//   MINIFLARE_DIR=/path/with/miniflare+ws [RELAY_JAR=EaglerSPRelay.jar] \
-//     node tests/browser/eaglercraft.e2e.mjs [outDir]
+//   npm install    # once: Wrangler, which runs worker.js from wrangler.jsonc
+//   [RELAY_JAR=EaglerSPRelay.jar] node tests/browser/eaglercraft.e2e.mjs [outDir]
 //
 // Prints one line per check and exits non-zero if any failed.
 import fs from 'node:fs';
@@ -218,6 +218,16 @@ await step('proxy path', async () => {
     ws.onopen = () => ws.send('ping');
   }), env.echoPort);
   check('Server WebSocket round-trips through the Worker', reply.data === 'echo:ping', reply);
+  // Game and relay traffic is binary: bytes must arrive as bytes, both ways.
+  const bin = await frame.evaluate((port) => new Promise((res) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/`);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => ws.send(new Uint8Array([0, 1, 2, 127, 128, 255]));
+    ws.onmessage = (e) => { res(typeof e.data === 'string' ? 'text: ' + e.data : [...new Uint8Array(e.data)]); ws.close(); };
+    ws.onerror = () => res('error');
+    setTimeout(() => res('timeout'), 5000);
+  }), env.echoPort);
+  check('Binary WebSocket data passes through the Worker unchanged', JSON.stringify(bin) === '[0,1,2,127,128,255]', bin);
   check('Socket URL was rewritten to the Worker (/eagler/ws?url=…)', reply.url.startsWith(env.workerUrl.replace('http', 'ws') + '/eagler/ws?url='), reply.url);
   // The socket was closed right after the reply, so the row may already say
   // "closed"; what matters is that it recorded the path through the Worker.

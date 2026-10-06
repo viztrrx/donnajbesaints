@@ -135,9 +135,11 @@ application/octet-stream, `.lang` text/plain, `.map` application/json.
    | `EAGLER_REAL_IP` | `1` sends the player's IP to relays as `X-Real-IP`. Only for a relay you run with `enable-real-ip-header: true` (see [same Wi-Fi](#same-wi-fi-shared-worlds)). |
    | `EAGLER_VOICE` | `1` enables the game's WebRTC voice chat (off by default because it exposes IP addresses to other players). |
 
-4. **Deploy `worker.js` and `script.js` together.** `script.js` uses the same
-   Worker as everything else (`OPENAI_PROXY`). With an older Worker, the tab
-   says the routes are missing.
+4. **Deploy** by pushing to `main`: Cloudflare Workers Builds runs
+   `npx wrangler deploy` (see `wrangler.jsonc` and the main README).
+   `EAGLER_*` variables set in the dashboard are kept on every deploy.
+   `script.js` uses the same Worker as everything else (`OPENAI_PROXY`).
+   With an older Worker, the tab says the routes are missing.
 5. **Optional:** the owner can turn the tab off for everyone with the
    `eaglercraft` switch in Admin. The Worker enforces that switch too.
 
@@ -147,7 +149,7 @@ this:
 | You see | Meaning |
 | --- | --- |
 | The page doesn't load | The Worker isn't deployed or the URL is wrong. |
-| `{"error":"not found"}` | The Worker is older than the Eaglercraft routes. Redeploy `worker.js`. |
+| `{"error":"not found"}` | The Worker is older than the Eaglercraft routes. Check the latest build under Workers & Pages → donnajbe → Deployments. |
 | `"enabled": false` | The owner switched Eaglercraft off in Admin. |
 | `"clientConfigured": false` | `EAGLER_CLIENT` isn't set. |
 | `"clientReachable": false` | It's set, but the Worker can't download the files. `client.files` shows each file's HTTP status: `404` means a wrong folder URL, `403` means the host refuses, `0` means the host can't be reached. |
@@ -252,7 +254,7 @@ provide for free.
 - `npm test` covers the `/eagler/*` routes in Node: validation, allowlists,
   the SSRF guard, the CSP and the kill switch.
 - `tests/browser/eaglercraft.e2e.mjs` runs Chromium against `worker.js` in
-  workerd (Miniflare). It uses a **stand-in client**
+  workerd, started by Wrangler from `wrangler.jsonc`. It uses a **stand-in client**
   (`tests/browser/fixtures/stub-client`, no Minecraft code) that follows the
   same page contract and the real relay protocol. It covers the fullscreen
   gate, both launch modes, pause and resume, input and pointer lock, cleanup,
@@ -260,7 +262,7 @@ provide for free.
   the real relay JAR. The header of that file explains how to run it.
 
 - `tests/browser/real-client.mjs` checks **your real build**:
-  `EAGLER_CLIENT_DIR=/path/to/build MINIFLARE_DIR=… node tests/browser/real-client.mjs`.
+  `EAGLER_CLIENT_DIR=/path/to/build node tests/browser/real-client.mjs` (after `npm install`).
   It serves that folder through `worker.js` (in workerd), opens the tab in
   fullscreen, launches the game and confirms it started and drew without
   crashing. It also saves a screenshot of the title screen. It refuses the
