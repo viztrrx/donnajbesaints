@@ -2,3 +2,5 @@
 # Mojang code and must not be committed (see eaglercraft/README.md).
 eaglercraft/client/
 node_modules/
+# Wrangler local state
+.wrangler/

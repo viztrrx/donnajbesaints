@@ -3,8 +3,8 @@
 // folder (the one CompileLatestClient produced, holding classes.js,
 // assets.epk and lang/).
 //
-//   EAGLER_CLIENT_DIR=/path/to/your/build MINIFLARE_DIR=/path/with/miniflare+ws \
-//     node tests/browser/real-client.mjs [outDir]
+//   npm install    # once: Wrangler, which runs worker.js locally
+//   EAGLER_CLIENT_DIR=/path/to/your/build node tests/browser/real-client.mjs [outDir]
 //
 // It serves that folder as EAGLER_CLIENT through worker.js in workerd, opens
 // the console, enters fullscreen, launches the game in the tab and waits for
@@ -25,7 +25,7 @@ const missing = need.filter((f) => !fs.existsSync(path.join(dir, f)));
 if (missing.length) { console.error(`${dir} is missing ${missing.join(', ')}. Use the build OUTPUT folder, not the source repository.`); process.exit(2); }
 if (!fs.existsSync(path.join(dir, 'lang'))) console.warn('Note: no lang/ folder. English works without it; other languages need it.');
 fs.mkdirSync(OUT, { recursive: true });
-// Loaded only now, so a wrong folder is reported before Miniflare is needed.
+// Loaded only now, so a wrong folder is reported before Wrangler starts.
 const { startEnv } = await import('./env.mjs');
 
 const results = [];

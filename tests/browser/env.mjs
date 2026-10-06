@@ -2,21 +2,21 @@
 //   * a file host for the stand-in client (fixtures/stub-client) and this
 //     repo's eaglercraft/loader/, playing the part of EAGLER_CLIENT and
 //     EAGLER_LOADER;
-//   * worker.js running in workerd (Cloudflare's runtime) through Miniflare;
+//   * worker.js running in workerd (Cloudflare's runtime), started by
+//     Wrangler from wrangler.jsonc;
 //   * a WebSocket echo server standing in for an Eaglercraft server;
 //   * optionally the official Shared World relay (EaglerSPRelay.jar from the
 //     EaglercraftX sources' relay_download.zip) when RELAY_JAR points at it.
-// Miniflare isn't a dependency of this repo; set MINIFLARE_DIR to a folder
-// where `npm i miniflare ws` was run.
+// Needs `npm install` (Wrangler is a dev dependency) and Playwright.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { serve, ROOT } from './harness.mjs';
 
-const req = createRequire(path.join(process.env.MINIFLARE_DIR || ROOT, 'package.json'));
-const { Miniflare } = req('miniflare');
+const req = createRequire(path.join(ROOT, 'package.json'));
 const { WebSocketServer } = req('ws');
 
 const TYPES = { '.js': 'text/javascript', '.html': 'text/html', '.epk': 'application/octet-stream', '.lang': 'text/plain', '.map': 'application/json', '.png': 'image/png' };
@@ -41,7 +41,7 @@ export async function startEnv({ relay = !!process.env.RELAY_JAR, extraEnv = {},
   const echo = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise((r) => echo.on('listening', r));
   echo.peers = [];
-  echo.on('connection', (ws, rq) => { echo.peers.push(rq.socket.remotePort); ws.on('message', (m) => ws.send('echo:' + m)); });
+  echo.on('connection', (ws, rq) => { echo.peers.push(rq.socket.remotePort); ws.on('message', (m, isBinary) => ws.send(isBinary ? m : 'echo:' + m)); });
   const echoPort = echo.address().port;
 
   let relayProc = null, relayPort = 0;
@@ -59,14 +59,17 @@ export async function startEnv({ relay = !!process.env.RELAY_JAR, extraEnv = {},
     for (let i = 0; i < 100 && !/Listening on/i.test(relayProc.log); i++) await new Promise((r) => setTimeout(r, 100));
   }
 
-  const mf = new Miniflare({
-    modules: true,
-    scriptPath: path.join(ROOT, 'worker.js'),
-    compatibilityDate: '2024-09-23',
-    kvNamespaces: ['TELEMETRY'],
-    host: '127.0.0.1',
+  // worker.js started by Wrangler from wrangler.jsonc, the same config
+  // `npx wrangler deploy` uses (local mode: KV is simulated, nothing remote).
+  const { unstable_dev } = await import(pathToFileURL(req.resolve('wrangler')).href);
+  const mf = await unstable_dev(path.join(ROOT, 'worker.js'), {
+    config: path.join(ROOT, 'wrangler.jsonc'),
+    ip: '127.0.0.1',
     port: 0,
-    bindings: {
+    local: true,
+    logLevel: 'error',
+    experimental: { disableExperimentalWarning: true },
+    vars: {
       EAGLER_CLIENT: `http://127.0.0.1:${files.port}/client/`,
       EAGLER_LOADER: `http://127.0.0.1:${files.port}/loader/`,
       EAGLER_RELAYS: relay ? `ws://127.0.0.1:${relayPort}/` : 'wss://relay.example.invalid/',
@@ -74,11 +77,11 @@ export async function startEnv({ relay = !!process.env.RELAY_JAR, extraEnv = {},
       ...extraEnv
     }
   });
-  const workerUrl = String(await mf.ready).replace(/\/$/, '');
+  const workerUrl = `http://${mf.address}:${mf.port}`;
   return {
     files, filesPort: files.port, echo, echoPort, relayPort, relayProc, mf, workerUrl,
     async close() {
-      await mf.dispose();
+      await mf.stop();
       await files.close();
       echo.close();
       if (relayProc) relayProc.kill();

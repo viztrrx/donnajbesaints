@@ -3401,6 +3401,11 @@ async function eaglerWebSocket(req, url, cfg, h) {
   const client = pair[0];
   const server = pair[1];
   server.accept();
+  // Game and relay traffic is binary. From the websocket_standard_binary_type
+  // compatibility date on, workerd hands binary messages over as Blobs, and
+  // send(blob) would forward the text "[object Blob]". Ask for ArrayBuffers,
+  // which send() passes through as bytes, whatever the compatibility date.
+  for (const ws of [server, upstream]) { try { ws.binaryType = 'arraybuffer'; } catch (e) { /* older runtime: already ArrayBuffer */ } }
   eaglerPipe(server, upstream);
   eaglerPipe(upstream, server);
   const resHeaders = {};
