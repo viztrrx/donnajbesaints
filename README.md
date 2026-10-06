@@ -470,6 +470,8 @@ script.js          The entire assistant: UI, AI calls, games, everything
 worker.js          Cloudflare Worker: OpenAI proxy, accounts, memory, admin API,
                    and the Eaglercraft routes (/eagler/*)
 eaglercraft/       The Eaglercraft tab's game frame and loader (no game code)
+scripts/           build-eaglercraft.sh: builds the real EaglercraftX client into build/
+                   (git-ignored) with the official build tool
 saints.js          Backup copy of an earlier script.js
 acp.js             Proxy build of the console
 tests/             Worker unit tests (npm test); tests/browser/ holds the

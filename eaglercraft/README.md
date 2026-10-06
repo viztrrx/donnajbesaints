@@ -112,10 +112,23 @@ application/octet-stream, `.lang` text/plain, `.map` application/json.
 
 ## Setting it up
 
-1. **Build the client** from the EaglercraftX 1.8 source with Java 11+
-   (`CompileLatestClient.sh` / `.bat`, JavaScript build). Keep the output
-   folder; [the table above](#what-the-build-must-contain) lists what it
-   needs.
+1. **Build the client** with `npm run build:eaglercraft`
+   (`scripts/build-eaglercraft.sh`). It runs EaglercraftX's own headless
+   `CompileLatestClient` on the pinned source (u35) and writes the client to
+   `build/eaglercraft-client/`, which is git-ignored. You need Java 11+
+   (17+ recommended), git, curl, node, ffmpeg and network access to Mojang
+   and Maven Central, plus three inputs in `build/eaglercraft-inputs/`:
+   - `1.8.8.jar` (the Minecraft 1.8.8 client) and `1.8.json` (its asset
+     index). The script downloads both from Mojang's official version
+     manifest and checks their SHA-1.
+   - `mcp918.zip` (Mod Coder Pack 9.18), which **you supply**. The build
+     uses it to decompile the jar and map the names the patches refer to,
+     and it has no official download host any more.
+
+   The build also fetches the game's sounds from
+   `resources.download.minecraft.net` and TeaVM 0.9.2 from Maven Central.
+   Building by hand with the GUI (`CompileLatestClient.sh` / `.bat` in the
+   EaglercraftX source) works too.
 2. **Upload that folder, as is, to a static host the Worker can fetch over
    HTTPS**, for example a Cloudflare R2 bucket with a public URL, or any
    static web host you control. Keep the file names and the `lang/`

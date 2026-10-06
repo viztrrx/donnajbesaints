@@ -4,3 +4,6 @@ eaglercraft/client/
 node_modules/
 # Wrangler local state
 .wrangler/
+# Real EaglercraftX build (scripts/build-eaglercraft.sh): inputs, work files and
+# the generated client. Mojang-derived; never commit.
+build/

@@ -39,7 +39,8 @@
     "start": "echo \"Paste the snippet from README.md into your browser console.\" && exit 0",
     "test": "node --test tests/*.test.mjs",
     "deploy": "wrangler deploy",
-    "preview": "wrangler preview"
+    "preview": "wrangler preview",
+    "build:eaglercraft": "bash scripts/build-eaglercraft.sh"
   },
   "engines": {
     "node": ">=18"
