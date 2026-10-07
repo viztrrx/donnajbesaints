@@ -684,7 +684,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-06T18:00:00-04:00', commit: '', title: 'Eaglercraft checks that your client build is reachable before launching', parts: {
       eaglercraft: ['fix', 'Says which client file the Worker can’t fetch'] } },
     { at: '2026-10-06T22:30:00-04:00', commit: '', title: 'Worker deploys from GitHub with Wrangler; game traffic stays binary through the proxy', parts: {
-      eaglercraft: ['fix', 'Servers and Shared Worlds receive binary data intact'] } }
+      eaglercraft: ['fix', 'Servers and Shared Worlds receive binary data intact'] } },
+    { at: '2026-10-07T00:03:08-04:00', commit: '', title: 'Keyboard input works in the separate Eaglercraft window', parts: {
+      eaglercraft: ['fix', 'The game canvas can receive keyboard focus in about:blank'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -9893,6 +9895,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const f = doc.createElement('iframe');
     f.className = 'gpa-iframe';
     f.title = 'Eaglercraft';
+    // Keep the game frame keyboard-focusable, including when it lives in the
+    // separate about:blank window. Some browsers otherwise leave focus on the
+    // opener after the fullscreen gate closes.
+    f.tabIndex = 0;
     // No sandbox: the game needs scripts, its own origin's storage, workers,
     // pointer lock and fullscreen. Isolation comes from the frame being a
     // different origin (the worker's) with its own CSP.

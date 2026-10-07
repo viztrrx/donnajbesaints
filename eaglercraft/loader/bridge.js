@@ -55,7 +55,13 @@
     } else if (d.type === 'focus') {
       try { window.focus(); } catch (err) { /* ignore */ }
       var c = document.querySelector('#game_frame canvas');
-      if (c) { try { c.focus(); } catch (err) { /* ignore */ } }
+      if (c) {
+        // The game reads text and key presses from its canvas. In a popup's
+        // about:blank window some browsers won't focus a canvas unless it has
+        // an explicit tab index, so the username editor appears unresponsive.
+        if (!c.hasAttribute('tabindex')) c.setAttribute('tabindex', '0');
+        try { c.focus({ preventScroll: true }); } catch (err) { try { c.focus(); } catch (ignored) { /* ignore */ } }
+      }
     }
   });
 
