@@ -170,6 +170,7 @@
     assetsURI: base + 'assets.epk',
     localesURI: base + 'lang/',
     worldsDB: 'worlds',
+    resourcePacksDB: 'resourcePacks',
     servers: cfg.servers || [],
     relays: (cfg.relays || []).map(function (addr, i) { return { addr: addr, comment: new URL(addr).host, primary: i === relayPick }; }),
     allowVoiceClient: !!cfg.voice,
@@ -227,7 +228,20 @@
   function load() {
     var s = document.createElement('script');
     s.src = window.eaglercraftXClientScriptURL;
-    s.onload = start;
+    s.onload = function () {
+      // Install into u35's native pack list before the game reads it. This
+      // never edits the selected packs or video settings. Failure is optional:
+      // the game still starts and the launcher reports how to retry.
+      Promise.resolve().then(function () {
+        if (typeof window.eaglerPreloadResourcePacks !== 'function') throw new Error('Pack installer unavailable');
+        return window.eaglerPreloadResourcePacks(window.eaglercraftXOpts.resourcePacksDB);
+      }).then(function (state) {
+        post('resourcepack', { state: state });
+      }, function (error) {
+        console.warn('Chromebox Lite preload skipped:', error);
+        post('resourcepack', { state: 'unavailable' });
+      }).then(start);
+    };
     s.onerror = function () {
       fail('client-load', 'Could not load the Eaglercraft client (classes.js) from the worker.');
     };

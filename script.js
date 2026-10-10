@@ -686,7 +686,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-06T22:30:00-04:00', commit: '', title: 'Worker deploys from GitHub with Wrangler; game traffic stays binary through the proxy', parts: {
       eaglercraft: ['fix', 'Servers and Shared Worlds receive binary data intact'] } },
     { at: '2026-10-07T00:03:08-04:00', commit: '', title: 'Keyboard input works in the separate Eaglercraft window', parts: {
-      eaglercraft: ['fix', 'The game canvas can receive keyboard focus in about:blank'] } }
+      eaglercraft: ['fix', 'The game canvas can receive keyboard focus in about:blank'] } },
+    { at: '2026-10-10T00:00:00-04:00', commit: '', title: 'Chromebox Lite is available automatically in Eaglercraft resource packs', parts: {
+      eaglercraft: ['feature', 'Optional 8×8 pack preloaded at launch, preserving existing pack choices'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -2918,6 +2920,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <section class="gpa-card gpx-card gpx-eag-launcher">
             <div class="gpx-card-head">${GPS_ICONS.cube}<div class="gpa-card-title">Play</div><span id="gpa-eag-fs-chip" class="gpx-chip">Fullscreen off</span></div>
             <p id="gpa-eag-gate" class="gpa-sub">Eaglercraft requires fullscreen mode. Enter fullscreen, then launch.</p>
+            <p id="gpa-eag-pack" class="gpa-sub" role="status">Chromebox Lite 8×8 is added automatically when the game starts. Choose it in Options → Resource Packs; no upload needed. Using it is optional.</p>
             <div class="gpa-row">
               <button id="gpa-eag-here" class="gpa-btn primary" disabled>${gpxLbl('cube', 'Launch Eaglercraft Here')}</button>
               <button id="gpa-eag-blank" class="gpa-btn" disabled>${gpxLbl('external', 'Launch in about:blank')}</button>
@@ -10072,6 +10075,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         requestAnimationFrame(eagFocusFrame);
       }
       eagSync();
+    } else if (d.type === 'resourcepack') {
+      const packNote = panel.querySelector('#gpa-eag-pack');
+      if (packNote) packNote.textContent = d.state === 'unavailable'
+        ? 'Chromebox Lite could not be preloaded. You can still play; restart Eaglercraft to retry. Browser storage must be available.'
+        : 'Chromebox Lite 8×8 is available in Options → Resource Packs. Select it whenever you want; your current selection is kept.';
     } else if (d.type === 'error') {
       eagFail(d);
     } else if (d.type === 'blocked') {

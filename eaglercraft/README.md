@@ -285,3 +285,63 @@ These tests have never run against a real EaglercraftX build: none can be
 fetched or built where they were written, since Mojang's download servers
 were unreachable. Real gameplay (menus, world generation, saves inside the
 real client, a real server) still needs checking with your own build.
+
+## Bundled Chromebox Lite resource pack
+
+The loader automatically installs the original Chromebox Lite 8x artwork into
+Eaglercraft's native resource-pack list **before `main()` starts**. Users select
+it in **Options → Resource Packs**; it is available but not forced on. Their
+selected packs and video settings are not changed. Both launcher modes use the
+same frame and installer. Installation happens on game launch, not account
+creation, and follows the game's existing per-browser/per-site storage model.
+It is not account-cloud synchronization.
+
+This adapter targets the actual R2 JavaScript client, EaglercraftX 1.8 u35
+(`classes.js` SHA-256
+`9eda96f469d7e7365b73905e3642b2c1b38ca2f4b36034de3fad12aa319aa234`).
+Its native IndexedDB is
+`_net_lax1dude_eaglercraft_v1_8_internal_PlatformFilesystem_1_8_8_resourcePacks`,
+version 1, store `filesystem`, compound key path `["path"]`, rows containing
+`path` and an ArrayBuffer `data`. The adapter merges
+`resourcepacks/manifest.json` using the folder/name/timestamp/domains schema
+read by `EaglerFolderResourcePack`. It neither accesses the worlds database nor
+writes the game's selected-resource-packs options.
+
+- `loader/chromebox-lite.js`: generated, unpacked original artwork with a
+  content revision. Loaded through `/eagler/loader/`, like the existing bridge.
+- `loader/resource-packs.js`: atomic installation, revision checks, preservation
+  of other manifest entries, bounded storage wait, and graceful failure.
+- A repeat launch does not duplicate or rewrite a current installation. Pack
+  updates keep its folder identity, so the user's selection persists. Removing
+  the bundled pack makes it available again on the next launch; deselect it to
+  stop using it. Clearing browser storage reinstalls it on the next launch.
+- Malformed manifests and unknown storage schemas are left untouched. Storage
+  failure does not prevent gameplay; the launcher reports the optional pack as
+  unavailable. The existing ZIP remains available for manual import.
+
+Rebuild the ZIP and loader bundle with
+`python3 resource-packs/chromebox-lite/build.py`. The generated loader file must
+be committed/deployed with `frame.html`, `bridge.js`, `resource-packs.js`, and
+`script.js`. With the default EAGLER_LOADER, publishing those files to the
+repository's main branch makes them available through the existing Worker
+route. No R2 upload, new Worker route, variable, or client rebuild is required.
+If EAGLER_LOADER points elsewhere, publish the loader files there instead.
+Existing game sessions must be stopped and relaunched; upstream caches may
+briefly retain older loader files.
+
+Validation commands:
+
+- `npm test`
+- `node tests/browser/resource-packs.mjs` (Chromium IndexedDB regression checks)
+- `node tests/browser/resource-packs-integration.mjs` (both launch modes and
+  storage-denied fallback, using the stand-in client)
+- `EAGLER_CLIENT_DIR=build/eaglercraft-client node tests/browser/real-client.mjs`
+
+These checks do not measure FPS on a Chromebox.
+
+The exact u35 build above was also opened in Chromium: Chromebox Lite appeared
+under Available Resource Packs without importing a ZIP, could be selected, and
+completed its resource reload with a rebuilt texture atlas. See
+`docs/screenshots/eaglercraft-bundled-pack.png` for the native available-pack
+screen. This verifies menu availability and activation, not world gameplay or
+hardware performance.
