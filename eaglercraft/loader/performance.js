@@ -3,6 +3,8 @@
 (function () {
   'use strict';
   var preset = {
+    // u35 stores FOV normalized: degrees = value * 40 + 70. 1 = Quake Pro (110°).
+    fov: '1.0',
     renderDistance: '2', maxFps: '60', fancyGraphics: 'false', ao: '0',
     renderClouds: 'false', particles: '2', mipmapLevels: '0',
     enableVsyncEag: 'false', fxaa: '2', shaders: 'false',

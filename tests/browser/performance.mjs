@@ -16,11 +16,11 @@ try {
   };
   const decode = async key => new Response(new Blob([Uint8Array.from(atob(localStorage.getItem(key)), c => c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
   await eaglerApplyPerformancePreset('fresh'); const fresh = await decode('fresh.g');
-  const original = await encode('renderDistance:12\nmaxFps:260\nshaders:true\nfxaa:1\nresourcePacks:["my-pack"]\nkey_key.forward:17\nlang:es_ES\nsoundCategory_music:0.2\ncustom:value:with:colons\n');
+  const original = await encode('fov:0.0\nrenderDistance:12\nmaxFps:260\nshaders:true\nfxaa:1\nresourcePacks:["my-pack"]\nkey_key.forward:17\nlang:es_ES\nsoundCategory_music:0.2\ncustom:value:with:colons\n');
   localStorage.setItem('existing.g', original);
   await eaglerApplyPerformancePreset('existing'); const merged = await decode('existing.g');
   const backup = localStorage.getItem('existing.agent-console.performance-original');
-  localStorage.setItem('existing.g', await encode(merged.replace('renderDistance:2', 'renderDistance:8')));
+  localStorage.setItem('existing.g', await encode(merged.replace('renderDistance:2', 'renderDistance:8').replace('fov:1.0', 'fov:0.5')));
   await eaglerApplyPerformancePreset('existing'); const repeated = await decode('existing.g');
   localStorage.setItem('bad.g', 'not valid gzip');
   const bad = await eaglerApplyPerformancePreset('bad').then(() => false, () => true);
@@ -34,6 +34,7 @@ try {
   Storage.prototype.setItem = set;
   return { fresh, merged, repeated, backup, original, bad, badValue: localStorage.getItem('bad.g'), unsupported, unsupportedValue:localStorage.getItem('unsupported.g'), quota, freshAfter: await decode('fresh.g') };
  });
+ for (const settings of [r.fresh, r.merged, r.repeated]) { assert.match(settings, /(?:^|\n)fov:1\.0\n/); assert.equal(settings.split('fov:').length, 2); }
  assert.match(r.fresh, /renderDistance:2\n/); assert.match(r.fresh, /maxFps:60\n/); assert.match(r.fresh, /fxaa:2\n/); assert.match(r.fresh, /shaders:false\n/);
  for (const line of ['resourcePacks:["my-pack"]', 'key_key.forward:17', 'lang:es_ES', 'soundCategory_music:0.2', 'custom:value:with:colons']) assert.ok(r.merged.includes(line));
  assert.equal(r.backup,r.original); assert.match(r.repeated,/renderDistance:2\n/);assert.equal(r.repeated.split('renderDistance:').length,2);

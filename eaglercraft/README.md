@@ -355,6 +355,7 @@ but the listed values reset next launch:
 
 | Setting | Value |
 | --- | --- |
+| Field of view | Quake Pro (110°), reapplied every launch |
 | Render distance | 2 chunks |
 | Maximum FPS | 60 |
 | Graphics | Fast |
