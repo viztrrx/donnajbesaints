@@ -483,6 +483,10 @@ No build step and no runtime dependencies. Wrangler is a dev dependency, used to
 
 * * *
 
+## Credits {#credits}
+
+OpenAI Codex provided AI-assisted development for the Chromebox Lite 8×8 texture pack, its automatic Eaglercraft preload integration, and the accompanying tests and documentation.
+
 ## License {#license}
 
 MIT — see [LICENSE](LICENSE).
