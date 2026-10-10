@@ -171,6 +171,7 @@
     localesURI: base + 'lang/',
     worldsDB: 'worlds',
     resourcePacksDB: 'resourcePacks',
+    localStorageNamespace: '_eaglercraftX',
     servers: cfg.servers || [],
     relays: (cfg.relays || []).map(function (addr, i) { return { addr: addr, comment: new URL(addr).host, primary: i === relayPick }; }),
     allowVoiceClient: !!cfg.voice,
@@ -240,6 +241,16 @@
       }, function (error) {
         console.warn('Chromebox Lite preload skipped:', error);
         post('resourcepack', { state: 'unavailable' });
+      }).then(function () {
+        return Promise.resolve().then(function () {
+          if (typeof window.eaglerApplyPerformancePreset !== 'function') throw new Error('Performance preset unavailable');
+          return window.eaglerApplyPerformancePreset(window.eaglercraftXOpts.localStorageNamespace);
+        }).then(function () {
+          post('performance', { state: 'applied' });
+        }, function (error) {
+          console.warn('Chromebox performance preset skipped:', error);
+          post('performance', { state: 'unavailable' });
+        });
       }).then(start);
     };
     s.onerror = function () {

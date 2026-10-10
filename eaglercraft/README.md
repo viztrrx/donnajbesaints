@@ -345,3 +345,38 @@ completed its resource reload with a rebuilt texture atlas. See
 `docs/screenshots/eaglercraft-bundled-pack.png` for the native available-pack
 screen. This verifies menu availability and activation, not world gameplay or
 hardware performance.
+
+## Automatic Chromebox performance preset
+
+`loader/performance.js` applies a conservative Chromebox Micro (Celeron N4500,
+8 GB RAM) preset before the game starts, in both launch modes. It applies on
+**every launch for all users of this loader**. In-session video changes work,
+but the listed values reset next launch:
+
+| Setting | Value |
+| --- | --- |
+| Render distance | 2 chunks |
+| Maximum FPS | 60 |
+| Graphics | Fast |
+| Smooth lighting, clouds, shaders, dynamic lights, entity shadows | Off |
+| Particles | Minimal |
+| Mipmap levels | 0 |
+| FXAA, anaglyph, VSync | Off |
+
+This targets consistent performance; it does not guarantee 40+ FPS. The loader
+cannot change ChromeOS display resolution. Use 1280×720 in the OS display
+settings if available and needed.
+
+The u35 settings record is `_eaglercraftX.g` in localStorage: base64-encoded gzip
+text. The adapter preserves all other settings lines, including selected packs,
+key bindings, language and audio. It keeps the first existing record at
+`_eaglercraftX.agent-console.performance-original` as a backup. It does not
+access worlds, account credentials, or profile data. A corrupt record, blocked
+storage, unsupported browser compression API or timeout leaves settings intact
+and reports a nonfatal preset failure in the launcher. A concurrent save from
+another game window is not overwritten.
+
+Run `node tests/browser/performance.mjs` for preset/merge/failure checks and
+`node tests/browser/resource-packs-integration.mjs` for both launch modes and
+storage-denied startup. Publish `performance.js`, `frame.html`, `bridge.js` and
+`script.js` together, using the same GitHub loader deployment as the pack.

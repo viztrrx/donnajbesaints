@@ -688,7 +688,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-07T00:03:08-04:00', commit: '', title: 'Keyboard input works in the separate Eaglercraft window', parts: {
       eaglercraft: ['fix', 'The game canvas can receive keyboard focus in about:blank'] } },
     { at: '2026-10-10T00:00:00-04:00', commit: '', title: 'Chromebox Lite is available automatically in Eaglercraft resource packs', parts: {
-      eaglercraft: ['feature', 'Optional 8×8 pack preloaded at launch, preserving existing pack choices'] } }
+      eaglercraft: ['feature', 'Optional 8×8 pack preloaded at launch, preserving existing pack choices'] } },
+    { at: '2026-10-10T01:00:00-04:00', commit: '', title: 'Chromebox performance settings apply whenever Eaglercraft starts', parts: {
+      eaglercraft: ['feature', 'Low graphics preset with 2 chunks and a 60 FPS cap; controls and resource-pack choices are preserved'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -2921,6 +2923,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div class="gpx-card-head">${GPS_ICONS.cube}<div class="gpa-card-title">Play</div><span id="gpa-eag-fs-chip" class="gpx-chip">Fullscreen off</span></div>
             <p id="gpa-eag-gate" class="gpa-sub">Eaglercraft requires fullscreen mode. Enter fullscreen, then launch.</p>
             <p id="gpa-eag-pack" class="gpa-sub" role="status">Chromebox Lite 8×8 is added automatically when the game starts. Choose it in Options → Resource Packs; no upload needed. Using it is optional.</p>
+            <p id="gpa-eag-performance" class="gpa-sub" role="status">Chromebox performance settings apply on every launch: 2 chunks, Fast graphics, 60 FPS limit, minimal particles, and shaders and extra lighting off. You can adjust them during play; they reset next launch.</p>
             <div class="gpa-row">
               <button id="gpa-eag-here" class="gpa-btn primary" disabled>${gpxLbl('cube', 'Launch Eaglercraft Here')}</button>
               <button id="gpa-eag-blank" class="gpa-btn" disabled>${gpxLbl('external', 'Launch in about:blank')}</button>
@@ -10075,6 +10078,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         requestAnimationFrame(eagFocusFrame);
       }
       eagSync();
+    } else if (d.type === 'performance') {
+      const note = panel.querySelector('#gpa-eag-performance');
+      if (note) note.textContent = d.state === 'applied'
+        ? 'Chromebox preset applied: 2 chunks, Fast graphics, 60 FPS limit, minimal particles, shaders and extra lighting off. Changes during play reset next launch.'
+        : 'Chromebox preset could not be applied. Your saved settings are kept; you can change Video Settings in the game.';
     } else if (d.type === 'resourcepack') {
       const packNote = panel.querySelector('#gpa-eag-pack');
       if (packNote) packNote.textContent = d.state === 'unavailable'
