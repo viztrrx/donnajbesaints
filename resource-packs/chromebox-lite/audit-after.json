@@ -1,0 +1,20 @@
+{
+  "version": "2.0.0",
+  "revision": "2ee1c5facee6da5fd422fd2ee118f2b8a991cd8f0d9f54108353cc1884682f87",
+  "files": 389,
+  "images": 377,
+  "block_images": 373,
+  "archive_bytes": 109506,
+  "uncompressed_bytes": 45016,
+  "dimensions": {
+    "8x8": 272,
+    "16x16": 102,
+    "64x64": 1,
+    "32x32": 2
+  },
+  "decoded_rgba_bytes": 198656,
+  "animation_metadata": 9,
+  "duplicate_image_groups": 47,
+  "loader_bundle_bytes": 75324,
+  "coverage": "All 373 Minecraft 1.8.8 block PNG names; 147 previous names redesigned (packed_ice corrected to ice_packed)."
+}

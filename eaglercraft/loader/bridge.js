@@ -231,12 +231,24 @@
     s.src = window.eaglercraftXClientScriptURL;
     s.onload = function () {
       // Install into u35's native pack list before the game reads it. This
-      // never edits the selected packs or video settings. Failure is optional:
+      // preserves other packs. Selection is optional and only follows a
+      // successful install/cache check. Failure is optional:
       // the game still starts and the launcher reports how to retry.
+      var packAvailable = false;
+      var packConfig = window.__eaglerPackConfig || {};
+      var autoPack = packConfig.autoSelect !== false;
+      var prefKey = window.eaglercraftXOpts.localStorageNamespace + '.agent-console.auto-pack';
+      var launchPref = new URLSearchParams(location.search).get('autoPack');
+      try {
+        if (launchPref === '0' || launchPref === '1') localStorage.setItem(prefKey, launchPref);
+        else autoPack = localStorage.getItem(prefKey) !== '0' && autoPack;
+      } catch (_) { /* storage may be unavailable */ }
+      if (launchPref === '0' || launchPref === '1') autoPack = launchPref === '1';
       Promise.resolve().then(function () {
         if (typeof window.eaglerPreloadResourcePacks !== 'function') throw new Error('Pack installer unavailable');
         return window.eaglerPreloadResourcePacks(window.eaglercraftXOpts.resourcePacksDB);
       }).then(function (state) {
+        packAvailable = true;
         post('resourcepack', { state: state });
       }, function (error) {
         console.warn('Chromebox Lite preload skipped:', error);
@@ -244,12 +256,15 @@
       }).then(function () {
         return Promise.resolve().then(function () {
           if (typeof window.eaglerApplyPerformancePreset !== 'function') throw new Error('Performance preset unavailable');
-          return window.eaglerApplyPerformancePreset(window.eaglercraftXOpts.localStorageNamespace);
+          return window.eaglerApplyPerformancePreset(window.eaglercraftXOpts.localStorageNamespace,
+            packAvailable ? { folder: packConfig.folder, autoSelect: autoPack } : null);
         }).then(function () {
           post('performance', { state: 'applied' });
+          if (packAvailable) post('resourcepack', { state: autoPack ? 'selected' : 'manual' });
         }, function (error) {
           console.warn('Chromebox performance preset skipped:', error);
           post('performance', { state: 'unavailable' });
+          if (packAvailable) post('resourcepack', { state: 'selection-failed' });
         });
       }).then(start);
     };

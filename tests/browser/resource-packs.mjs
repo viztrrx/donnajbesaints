@@ -5,16 +5,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { launch, serve, ROOT } from './harness.mjs';
 const host = await serve((req, res) => {
-  const name = req.url.slice(1);
-  if (['resource-packs.js', 'chromebox-lite.js'].includes(name)) {
+  const name = new URL(req.url, 'http://localhost').pathname.split('/').pop();
+  if (['resource-packs.js', 'pack-config.js'].includes(name)) {
     res.setHeader('Content-Type', 'text/javascript');
     res.end(fs.readFileSync(path.join(ROOT, 'eaglercraft/loader', name)));
-  } else res.end('<script src="/chromebox-lite.js"></script><script src="/resource-packs.js"></script>');
+  } else res.end('<script src="/eagler/loader/pack-config.js"></script><script src="/eagler/loader/resource-packs.js"></script>');
 });
 const browser = await launch();
+const bundle = JSON.parse(fs.readFileSync(path.join(ROOT, 'eaglercraft/loader/chromebox-lite.json'), 'utf8'));
 try {
   const page = await browser.newPage();
-  await page.goto(`http://127.0.0.1:${host.port}`);
+  await page.goto(`http://127.0.0.1:${host.port}/eagler/`);
+  await page.evaluate(b => { window.__testBundle = b; window.__fetches=0; window.fetch = async () => { window.__fetches++; if (window.__fetchFail) return new Response('nope', {status:503}); return new Response(JSON.stringify(window.__testBundle), {headers:{'Content-Type':'application/json'}}); }; }, bundle);
   const results = await page.evaluate(async () => {
     const DB = '_net_lax1dude_eaglercraft_v1_8_internal_PlatformFilesystem_1_8_8_';
     const MANIFEST = 'resourcepacks/manifest.json';
@@ -47,9 +49,11 @@ try {
     let rows = await read('fresh');
     result.manifest = JSON.parse(text(rows, MANIFEST));
     result.fileCount = rows.length;
-    result.expectedCount = Object.keys(__eaglerBundledPack.files).length + 2;
+    result.expectedCount = Object.keys(__testBundle.files).length + 2;
     result.repeat = await eaglerPreloadResourcePacks('fresh');
     result.repeatCount = (await read('fresh')).length;
+    result.repeatFetches = window.__fetches;
+    window.__fetchFail=true;result.failedDownload = await eaglerPreloadResourcePacks('download-fail').then(()=>false,()=>true);window.__fetchFail=false;result.failedDownloadRows=(await read('download-fail')).length;
     const other = { folder: 'my-pack', name: 'My custom pack', timestamp: 5, domains: ['minecraft'] };
     await write('existing', [[MANIFEST, JSON.stringify({ resourcePacks: [other], keep: 'yes' })], ['resourcepacks/my-pack/pack.mcmeta', 'custom'], ['unrelated', 'retain']]);
     await eaglerPreloadResourcePacks('existing');
@@ -57,7 +61,7 @@ try {
     result.existing = JSON.parse(text(rows, MANIFEST));
     result.otherFile = text(rows, 'resourcepacks/my-pack/pack.mcmeta');
     result.unrelated = text(rows, 'unrelated');
-    __eaglerBundledPack.revision = 'f'.repeat(64);
+    __testBundle.revision = __eaglerPackConfig.revision = 'f'.repeat(64);
     result.update = await eaglerPreloadResourcePacks('existing');
     result.updated = JSON.parse(text(await read('existing'), marker)).revision;
     await write('bad', [[MANIFEST, '{broken']]);
@@ -88,6 +92,7 @@ try {
   assert.equal(results.fileCount, results.expectedCount);
   assert.equal(results.repeat, 'available');
   assert.equal(results.repeatCount, results.fileCount);
+  assert.equal(results.repeatFetches,1);assert.equal(results.failedDownload,true);assert.equal(results.failedDownloadRows,0);
   assert.equal(results.existing.resourcePacks.length, 2);
   assert.equal(results.existing.resourcePacks[0].name, 'My custom pack');
   assert.equal(results.existing.keep, 'yes');

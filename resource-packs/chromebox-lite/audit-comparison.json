@@ -1,0 +1,11 @@
+{
+  "common_images": 147,
+  "changed_common_images": 147,
+  "common_png_bytes_before": 16650,
+  "common_png_bytes_after": 13649,
+  "common_decoded_rgba_before": 53760,
+  "common_decoded_rgba_after": 44544,
+  "removed_names": [
+    "assets/minecraft/textures/blocks/packed_ice.png"
+  ]
+}

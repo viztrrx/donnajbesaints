@@ -3295,10 +3295,13 @@ async function handleEagler(req, env, url, h) {
       headers: { ...CORS_HEADERS, ...SECURITY_HEADERS, 'Content-Type': EAGLER_TYPES.js }
     });
   }
-  let m = /^loader\/([A-Za-z0-9_-]+\.(js|css|html))$/.exec(sub);
+  let m = /^loader\/([A-Za-z0-9_-]+\.(js|css|html|json))$/.exec(sub);
   if (m) {
     const extra = m[2] === 'html' ? { 'Content-Security-Policy': EAGLER_FRAME_CSP } : {};
-    return eaglerPassThrough(req, cfg.loader + m[1], m[2], { ...extra, 'Cache-Control': 'no-cache' }, json);
+    const version = url.searchParams.get('v') || '';
+    const versioned = m[2] === 'json' && /^[a-f0-9]{64}$/.test(version);
+    const source = cfg.loader + m[1] + (versioned ? '?v=' + version : '');
+    return eaglerPassThrough(req, source, m[2], { ...extra, 'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : 'no-cache' }, json);
   }
   m = /^client\/(.+)$/.exec(sub);
   if (m) {

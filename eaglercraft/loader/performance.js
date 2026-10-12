@@ -10,7 +10,7 @@
     enableVsyncEag: 'false', fxaa: '2', shaders: 'false',
     enableDynamicLights: 'false', entityShadows: 'false', anaglyph3d: 'false'
   };
-  window.eaglerApplyPerformancePreset = async function (namespace) {
+  window.eaglerApplyPerformancePreset = async function (namespace, packSelection) {
     var key = namespace + '.g';
     var original = localStorage.getItem(key);
     var active = true;
@@ -26,10 +26,23 @@
       }
       // Preserve every unrecognized field, including controls, selected packs,
       // language and audio. Remove duplicate preset keys before appending them.
-      var lines = text.split(/\r\n|\n|\r/).filter(function (line) {
+      var sourceLines = text.split(/\r\n|\n|\r/);
+      var selected = null;
+      if (packSelection && packSelection.autoSelect && packSelection.folder === 'agent-console-chromebox-lite-8x') {
+        var selections = sourceLines.filter(function (line) { return line.startsWith('resourcePacks:'); });
+        selected = selections.length ? JSON.parse(selections[selections.length - 1].slice(14)) : [];
+        if (!Array.isArray(selected) || selected.some(function (p) { return typeof p !== 'string'; })) throw new Error('Invalid selected resource-pack list');
+        // u35 loads low priority first. Keep other entries/order and append
+        // our pack once so it appears at the top of the native selected list.
+        selected = selected.filter(function (p) { return p !== packSelection.folder; });
+        selected.push(packSelection.folder);
+      }
+      var lines = sourceLines.filter(function (line) {
+        if (selected && line.startsWith('resourcePacks:')) return false;
         return line && !Object.prototype.hasOwnProperty.call(preset, line.split(':', 1)[0]);
       });
       Object.keys(preset).forEach(function (name) { lines.push(name + ':' + preset[name]); });
+      if (selected) lines.push('resourcePacks:' + JSON.stringify(selected));
       var compressed = new Uint8Array(await new Response(
         new Blob([lines.join('\n') + '\n']).stream().pipeThrough(new CompressionStream('gzip'))
       ).arrayBuffer());

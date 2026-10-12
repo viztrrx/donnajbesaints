@@ -13,20 +13,23 @@ try {
   await openTab(page, 'eaglercraft');
   await page.click('#gpa-eag-fs');
   await page.click('#gpa-eag-here');
-  await page.waitForFunction(() => /is available in Options/.test(document.getElementById('gpa-root-host').shadowRoot.querySelector('#gpa-eag-pack').textContent));
+  await page.waitForFunction(() => /is active/.test(document.getElementById('gpa-root-host').shadowRoot.querySelector('#gpa-eag-pack').textContent));
   const frame = page.frames().find(f => f.url().startsWith(env.workerUrl + '/eagler/'));
   await frame.waitForFunction(() => window.__stub && window.__stub.started);
   assert.match(await page.locator('#gpa-eag-performance').textContent(), /preset applied/);
   assert.deepEqual(page._errors || [], []);
   await page.click('#gpa-eag-stop');
+  await page.click('#gpa-eag-auto-pack');
+  assert.equal(await page.locator('#gpa-eag-auto-pack').getAttribute('aria-pressed'),'false');
   const [popup] = await Promise.all([ctx.waitForEvent('page'), page.click('#gpa-eag-blank')]);
-  await popup.locator('.gpx-empty .gpa-btn.primary').click();
-  await popup.waitForEvent('framenavigated', { predicate: f => f.url().startsWith(env.workerUrl + '/eagler/') }).catch(() => {});
+  await Promise.all([popup.waitForEvent('framenavigated', { predicate: f => f.url().startsWith(env.workerUrl + '/eagler/') }), popup.locator('.gpx-empty .gpa-btn.primary').click()]);
   const pf = popup.frames().find(f => f.url().startsWith(env.workerUrl + '/eagler/'));
   await pf.waitForFunction(() => window.__stub && window.__stub.started);
   assert.match(await page.locator('#gpa-eag-performance').textContent(), /preset applied/);
   const state = await pf.evaluate(() => window.eaglerPreloadResourcePacks('resourcePacks'));
   assert.equal(state, 'available');
+  assert.equal(new URL(pf.url()).searchParams.get('autoPack'),'0');
+  assert.match(await page.locator('#gpa-eag-pack').textContent(), /Automatic selection is off/);
   assert.deepEqual(page._errors || [], []);
   await popup.close();
   console.log('PASS bundled pack available in both launch modes, no launcher page errors');
@@ -47,6 +50,19 @@ try {
   await ff.waitForFunction(() => window.__stub && window.__stub.started);
   assert.equal(await failure.evaluate(() => window.__packMessages.some(m => m.type === 'performance' && m.state === 'unavailable')), true);
   console.log('PASS storage denied: client still starts and parent receives pack-unavailable message');
+  const corrupt = await ctx.newPage();
+  await corrupt.addInitScript(() => {
+    window.__packMessages = [];
+    window.addEventListener('message', e => { if (e.data?.type === 'resourcepack') window.__packMessages.push(e.data); });
+    if (location.pathname.startsWith('/eagler/')) localStorage.setItem('_eaglercraftX.g', 'broken');
+  });
+  await corrupt.goto(`http://127.0.0.1:${host.port}/`);
+  await corrupt.evaluate(url => { const f = document.createElement('iframe'); f.src = url; document.body.appendChild(f); }, env.workerUrl + '/eagler/?autoPack=1');
+  await corrupt.waitForFunction(() => window.__packMessages.some(m => m.state === 'selection-failed'));
+  const cf = corrupt.frames().find(f => f.url().startsWith(env.workerUrl + '/eagler/'));
+  await cf.waitForFunction(() => window.__stub && window.__stub.started);
+  assert.equal(await cf.evaluate(() => localStorage.getItem('_eaglercraftX.g')), 'broken');
+  console.log('PASS corrupt selection settings: installed pack remains available, previous record kept, client starts');
 } finally {
   await browser.close(); await env.close(); await host.close();
 }

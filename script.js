@@ -690,7 +690,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-10T00:00:00-04:00', commit: '', title: 'Chromebox Lite is available automatically in Eaglercraft resource packs', parts: {
       eaglercraft: ['feature', 'Optional 8×8 pack preloaded at launch, preserving existing pack choices'] } },
     { at: '2026-10-10T01:00:00-04:00', commit: '', title: 'Chromebox performance settings apply whenever Eaglercraft starts', parts: {
-      eaglercraft: ['feature', 'Low graphics preset with 2 chunks and a 60 FPS cap; controls and resource-pack choices are preserved'] } }
+      eaglercraft: ['feature', 'Low graphics preset with 2 chunks and a 60 FPS cap; controls and resource-pack choices are preserved'] } },
+    { at: '2026-10-12T12:00:00-04:00', commit: '', title: 'Minimalist Chromebox Lite covers every 1.8 block texture and loads by default', parts: {
+      eaglercraft: ['redesign', '373 clean block textures, lighter effects, cached versioned installation and an automatic-selection switch'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -2922,7 +2924,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <section class="gpa-card gpx-card gpx-eag-launcher">
             <div class="gpx-card-head">${GPS_ICONS.cube}<div class="gpa-card-title">Play</div><span id="gpa-eag-fs-chip" class="gpx-chip">Fullscreen off</span></div>
             <p id="gpa-eag-gate" class="gpa-sub">Eaglercraft requires fullscreen mode. Enter fullscreen, then launch.</p>
-            <p id="gpa-eag-pack" class="gpa-sub" role="status">Chromebox Lite 8×8 is added automatically when the game starts. Choose it in Options → Resource Packs; no upload needed. Using it is optional.</p>
+            <div class="gpa-row"><button id="gpa-eag-auto-pack" class="gps-switch primary" aria-pressed="true" aria-label="Automatically select Chromebox Lite on launch">Automatically select Chromebox Lite on launch</button><span class="gpa-sub">Automatically use Chromebox Lite</span></div>
+            <p id="gpa-eag-pack" class="gpa-sub" role="status">The minimalist Chromebox Lite pack loads automatically. Turn the switch off to keep your own pack selection on future launches.</p>
             <p id="gpa-eag-performance" class="gpa-sub" role="status">Chromebox performance settings apply on every launch: Quake Pro FOV, 2 chunks, Fast graphics, 60 FPS limit, minimal particles, and shaders and extra lighting off. You can adjust them during play; they reset next launch.</p>
             <div class="gpa-row">
               <button id="gpa-eag-here" class="gpa-btn primary" disabled>${gpxLbl('cube', 'Launch Eaglercraft Here')}</button>
@@ -9760,7 +9763,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // which opens the game's pause menu, and the game is covered until resumed.
   const EAGLER_WORKER = OPENAI_PROXY;   // the same worker as everything else
   const eagWorkerBase = () => String(EAGLER_WORKER || '').replace(/\/+$/, '');
-  const eagFrameUrl = () => eagWorkerBase() + '/eagler/';
+  const EAGLER_AUTO_PACK_KEY = 'gpa_eagler_auto_pack';
+  let eagAutoPack = true;
+  try { eagAutoPack = localStorage.getItem(EAGLER_AUTO_PACK_KEY) !== '0'; } catch (_) { /* use default */ }
+  const eagFrameUrl = () => eagWorkerBase() + '/eagler/?autoPack=' + (eagAutoPack ? '1' : '0');
   const eagOrigin = () => { try { return new URL(eagFrameUrl()).origin; } catch (e) { return ''; } };
   const eagRoom = panel.querySelector('.gpx-eagler');
   const eagFsBtn = panel.querySelector('#gpa-eag-fs');
@@ -9774,6 +9780,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const eagView = panel.querySelector('#gpa-eag-view');
   const eagStatusEl = panel.querySelector('#gpa-eag-status');
   const eagNetList = panel.querySelector('#gpa-eag-net-list');
+  const eagAutoPackBtn = panel.querySelector('#gpa-eag-auto-pack');
+  function eagSyncAutoPack() {
+    eagAutoPackBtn.classList.toggle('primary', eagAutoPack);
+    eagAutoPackBtn.setAttribute('aria-pressed', String(eagAutoPack));
+  }
+  eagSyncAutoPack();
+  eagAutoPackBtn.addEventListener('click', () => {
+    eagAutoPack = !eagAutoPack;
+    try { localStorage.setItem(EAGLER_AUTO_PACK_KEY, eagAutoPack ? '1' : '0'); } catch (_) { /* session preference */ }
+    eagSyncAutoPack();
+    panel.querySelector('#gpa-eag-pack').textContent = eagAutoPack
+      ? 'Chromebox Lite will be selected on your next launch. You can change packs during play.'
+      : 'Automatic selection is off. Your selected packs will be kept on future launches; Chromebox Lite remains available in Options → Resource Packs.';
+  });
   const eagLabel = (btn, text) => { const sp = btn.querySelector('span'); if (sp) sp.textContent = text; };
   // The running session, or null. state: starting → loading → playing ⇄
   // paused. mode: 'here' | 'blank'.
@@ -10087,7 +10107,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const packNote = panel.querySelector('#gpa-eag-pack');
       if (packNote) packNote.textContent = d.state === 'unavailable'
         ? 'Chromebox Lite could not be preloaded. You can still play; restart Eaglercraft to retry. Browser storage must be available.'
-        : 'Chromebox Lite 8×8 is available in Options → Resource Packs. Select it whenever you want; your current selection is kept.';
+        : d.state === 'selection-failed'
+          ? 'Chromebox Lite is installed, but automatic selection could not be saved. Your previous settings are kept; choose the pack in Options → Resource Packs.'
+        : d.state === 'selected'
+          ? 'Chromebox Lite is active. You can select another pack in Options → Resource Packs; turn automatic selection off here to keep that choice next launch.'
+          : d.state === 'manual'
+            ? 'Automatic selection is off. Chromebox Lite is available in Options → Resource Packs, and your selected packs are kept.'
+            : 'Chromebox Lite is installed. Preparing your selected packs…';
     } else if (d.type === 'error') {
       eagFail(d);
     } else if (d.type === 'blocked') {

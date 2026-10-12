@@ -1,86 +1,102 @@
-# Chromebox Lite 8x — EaglercraftX / Minecraft 1.8
+# Chromebox Lite 2.0.0 — minimalist EaglercraftX 1.8 pack
 
-An original, deliberately simple resource pack for low-powered machines. Uses
-8x8 block textures, recognizable ore colors, opaque leaves, and single-frame
-water, lava, fire, portal, prismarine and sea lantern textures. Disables the
-Eaglercraft title-screen panorama blur. No shaders, extra models or sounds.
-Unreplaced textures, items, mobs and interfaces use your existing default assets.
+Original artwork designed for clear, quiet-looking Minecraft worlds on a
+low-powered Lenovo Chromebox Micro. No sampled Mojang artwork, shaders, custom
+models, sounds, fonts, or runtime libraries are included.
 
-## Install on your Lenovo Chromebox
+## Coverage and style
 
-1. Save `Chromebox-Lite-8x-1.8.zip` to the Chromebox. Keep it zipped.
-2. In Eaglercraft open Options > Resource Packs, then use the import/open control
-   to select the ZIP. The button wording can vary between client builds.
-3. Move Chromebox Lite to the selected/active side and put it above other packs.
-4. Click Done and let the game reload its resources.
+All 147 previous block textures have been redesigned; the unused `packed_ice`
+name is corrected to the actual 1.8 `ice_packed` name. Coverage now includes all
+373 block PNG names in the local Minecraft 1.8.8 build. `block-catalog.json`
+records the audited names, original dimensions and animation flags, so building
+this pack does not require the game JAR.
 
-Eaglercraft documents ZIP imports here:
-https://github.com/3kh0/eaglercraft-1.8#resource-packs
+- Flat, restrained terrain colors; clean dirt, grass sides/overlay, snow and sand.
+- Coherent wood tones, broad log bands, simple planks and opaque tinted leaves.
+- Clear ore deposits, distinct colored wool/glass/clay and simple stone variants.
+- Recognizable flowers, saplings, crops at each growth stage, grass, ferns,
+  vines, mushrooms, reeds, cactus and double-height plants.
+- Readable crafting tables, furnaces, doors, beds, ladders, brewing/enchanting
+  blocks, pistons, hoppers, rails, redstone, utility faces and dimension blocks.
+- Static water, lava, portal, fire, prismarine and sea-lantern frames.
+- Progressive breaking cracks; a smaller particle sheet, footprints and
+  explosion sheet with their native UV grids retained. Damage/critical, heart,
+  bubble, flame and smoke feedback remains visible.
 
-## Chromebox Micro: target 40+ FPS
+The previous pack had no item, armor, mob, chest-entity or game-GUI replacements.
+Those categories retain the game's default assets. The pack icon is redesigned;
+the existing title-screen blur opt-out is retained. Concrete and stripped logs
+are not part of Minecraft 1.8 and are not invented here.
 
-Working hardware assumption: Intel Celeron N4500, Intel UHD integrated graphics,
-8 GB RAM, matching Lenovo's Chromebox Micro specifications:
-https://news.lenovo.com/pressroom/press-releases/chromebox-micro-for-digital-and-interactive-display-solutions/
+## Automatic use in this project's launcher
 
-This is a suggested manual configuration, not a benchmark or an automatic
-preset. Importing a texture pack does not change these game/system settings.
-Use the following options where your client exposes them:
+On launch, the game frame installs/updates this pack in u35's native IndexedDB
+resource-pack folder, then merges its folder name into the verified compressed
+settings record before the game starts. It adds the pack at highest priority,
+retaining other selected pack names and all non-graphics settings.
 
-| Setting | Starting value |
-| --- | --- |
-| Actual display/game render resolution | 1280x720 at 60 Hz |
-| Render distance | 2 chunks |
-| Graphics | Fast |
-| Shaders, dynamic lights, ambient occlusion/smooth lighting | Off |
-| Clouds, entity shadows | Off |
-| Particles | Minimal |
-| Mipmap levels | 0 |
-| Antialiasing and anisotropic filtering | Off |
-| VSync | Off initially |
-| Maximum framerate | 60 FPS |
-| Field of view | 70 / Normal |
-| Other resource packs | Disable during testing |
+The Eaglercraft launcher has an **Automatically use Chromebox Lite** switch,
+on by default. Turn it off to retain your own selection on subsequent launches.
+You can also switch packs in the game's Options > Resource Packs during play.
+With automatic use enabled, Chromebox Lite is reapplied next launch. Preferences
+are local to the browser/site, consistent with the existing game's storage.
 
-Change actual display resolution in ChromeOS display settings if available;
-changing browser zoom or the text/display-size slider is not the same as
-lowering render resolution. If 720p is unavailable, use the closest lower
-16:9 resolution offered. Keep the monitor at 60 Hz when available.
+Only the small `loader/pack-config.js` version record loads each launch. The
+versioned same-origin JSON artwork payload is fetched when its installed
+revision is absent/outdated. Repeated launches do not re-import current artwork.
+An interrupted download, invalid manifest or blocked storage is nonfatal: the
+game still starts, and its previously selected packs are kept.
 
-Close unused tabs, video playback and other busy apps. Keep the fanless box
-uncovered with room around it to dissipate heat. Let chunks finish loading.
-Test for ten minutes in a typical world, including walking and turning.
+The ZIP remains usable in any compatible 1.8 client: keep it zipped, import it
+from Options > Resource Packs and select it. The standalone ZIP does not itself
+change graphics settings.
 
-If the game holds 60 comfortably, try 3 then 4 chunks. If it fluctuates between
-40 and 60, try a 50 FPS cap if offered to reduce load and peak FPS swings.
-A cap cannot raise minimum FPS. If it drops below 40 at 2 chunks, try a lower
-actual resolution such as 960x540 if supported. If that makes little difference,
-world simulation or chunk generation may be the limit; avoid dense entity areas
-and generating new terrain while evaluating steady-state performance.
+## Graphics settings and performance limits
 
-40+ FPS is a target, not a guaranteed minimum. A 60 FPS cap preserves room above
-40 without unlimited rendering; on a 60 Hz monitor, stable 60 gives more even
-frame delivery than 40 or 50. VSync off can cause tearing, so try enabling it
-only after verifying the game can sustain 60.
+The project separately applies its existing conservative launch preset:
+2 chunks, Fast graphics, 60 FPS cap, minimal particles, no shaders/smooth
+lighting/dynamic lights/clouds/entity shadows/FXAA/mipmaps/VSync, and the user's
+requested Quake Pro FOV. This adapter uses confirmed u35 settings; it does not
+change gameplay mechanics or invent texture-pack performance options.
 
-## What to expect
+50+ FPS during ordinary play is a target, not a measured Lenovo guarantee.
+The target Chromebox is not available here. Texture colors/detail alone do not
+reduce geometry, draw calls, entity work, particle generation or terrain
+simulation. Native atlas packing can also erase per-image memory savings.
+The loader cannot change ChromeOS display resolution; try actual 1280x720 in
+display settings if available, close busy tabs and leave room around the
+fanless box for cooling.
 
-8x8 has one quarter the pixels of 16x16 per replaced tile. This does NOT mean
-one quarter of total GPU memory or four times the FPS: unchanged textures,
-atlas packing, mipmaps, geometry, lighting and game simulation still cost work.
-The pack removes multi-frame animation from the replaced effects. Water and
-fire remain visible, but no longer animate; leaves look solid. It does not
-reduce chunk geometry, particle count, server lag or world-generation work.
-Texture simplicity alone does not guarantee faster rendering.
+### Manual Lenovo comparison
 
-Compare the default pack and this pack in the same location, same direction,
-and same video settings. Wait for chunks to load before comparing FPS and
-stutters. The exact Lenovo model, CPU, RAM and resolution determine the result.
-No real-client gameplay or hardware benchmark has been performed for this pack.
+1. Use the same world, position, camera direction, render resolution and game
+   settings for both packs. Let chunks finish loading for at least a minute.
+2. Compare default/previous pack against this pack. Watch FPS while standing,
+   turning, walking near foliage/water and visiting your ordinary play areas.
+3. Play each for ten minutes, noting typical FPS, long stalls and terrain-loading
+   dips. Avoid comparing a menu to gameplay or warmed terrain to fresh terrain.
+4. If below 50, compare 720p against your current resolution. If FPS barely
+   changes, CPU/world simulation is more likely limiting than texture fill cost.
+   Keep 2 chunks; avoid dense mob farms while testing.
 
-## Files and rebuilding
+## Build, audit and preview
 
-`preview.png` shows every replacement in rows; `preview-index.txt` lists their
-names in the same order. Run `python3 build.py` to reproduce the ZIP and preview.
-All replacement artwork is procedurally drawn from scratch. No original game
-textures are included. This is a partial performance-oriented resource pack.
+Run `python3 resource-packs/chromebox-lite/build.py` from the repo root. It uses
+Python's standard library and `artwork.py`; no image downloads or dependencies.
+It generates the existing ZIP filename, versioned JSON payload, pack-config.js,
+full contact sheet/index, selected style preview and `audit-after.json`.
+
+Most solid blocks are 8x8. Plants, rails, wire, thin silhouettes and breaking
+cracks use 16x16 for legibility; flow tiles retain twice the base tile width.
+The particle sheet is 64x64 (16x16 UV cells), explosion sheet 32x32 (4x4 frames),
+and icon 32x32. PNG palettes use the smallest lossless legal bit depth with alpha
+preserved. Animation metadata has one valid frame and interpolation disabled.
+Required duplicate names are retained because models bind them independently.
+
+The builder checks CRCs, palette indexes, decoded scanline sizes, animation
+frames, ZIP integrity and complete block-name coverage. The audit JSON files
+separate old/new total sizes from the shared-asset comparison. The expanded ZIP
+is larger overall; the shared original image set is smaller, not a claim of a
+proportional FPS gain. Runtime browser results are described in the repository's
+`eaglercraft/README.md`.

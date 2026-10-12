@@ -535,3 +535,16 @@ test('eagler: EAGLER_CLIENT may name the folder, its index.html or classes.js', 
   const map = await worker.fetch(new Request('https://worker.test/eagler/client/classes.js.map'), eaglerEnv(), { waitUntil() {} });
   assert.equal(map.headers.get('Content-Type'), 'application/json');
 });
+
+test('eagler: versioned pack JSON is same-origin, typed and cacheable', async () => {
+  const revision = 'a'.repeat(64);
+  const r = await worker.fetch(new Request('https://worker.test/eagler/loader/chromebox-lite.json?v=' + revision), eaglerEnv(), { waitUntil() {} });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('Content-Type'), 'application/json');
+  assert.equal(r.headers.get('Access-Control-Allow-Origin'), null);
+  assert.match(r.headers.get('Cache-Control'), /immutable/);
+  assert.equal(await r.text(), 'loader file loader/chromebox-lite.json?v=' + revision);
+  const c = makeClient(eaglerEnv());
+  assert.equal((await c.call('/eagler/loader/pack-config.js')).status, 200);
+  assert.equal((await c.call('/eagler/loader/sub/bundle.json')).status, 404);
+});

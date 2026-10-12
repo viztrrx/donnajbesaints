@@ -1,101 +1,115 @@
-"""Generate original 8px Minecraft 1.8 textures using only Python's standard library."""
+"""Build the original minimalist 1.8 pack and versioned loader bundle. No dependencies."""
 from pathlib import Path
-import json, struct, zlib, zipfile, hashlib, base64
-ROOT = Path(__file__).resolve().parent
-files = {}
-textures = {}
-def png(w, h, pixels):
-    def chunk(t, b):
-        return struct.pack('>I', len(b)) + t + b + struct.pack('>I', zlib.crc32(t+b)&0xffffffff)
-    raw = b''.join(b'\0'+bytes(sum(pixels[y*w:(y+1)*w], ())) for y in range(h))
-    return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,6,0,0,0))+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b'')
-def rgba(c): return tuple(c)+(255,) if len(c)==3 else tuple(c)
-def shade(c,d): return tuple(max(0,min(255,v+d)) for v in c[:3])+(rgba(c)[3],)
-def make(name,c,kind='grain',accent=None,animated=False):
-    seed=int.from_bytes(hashlib.sha256(name.encode()).digest()[:4],'big')
-    p=[]
+from collections import Counter
+import json, struct, zlib, zipfile, hashlib, base64, math
+from artwork import Canvas, block, particles, DARK, GREEN, DIRT, TRANSPARENT, rgba
+ROOT=Path(__file__).resolve().parent
+LOADER=ROOT.parent.parent/'eaglercraft'/'loader'
+VERSION='2.0.0'
+FOLDER='agent-console-chromebox-lite-8x'
+CATALOG=json.loads((ROOT/'block-catalog.json').read_text())
+files={};images={}
+
+def png(canvas):
+    """Lossless indexed PNG: smallest legal palette bit depth, alpha retained."""
+    def chunk(t,b):return struct.pack('>I',len(b))+t+b+struct.pack('>I',zlib.crc32(t+b)&0xffffffff)
+    colors=list(dict.fromkeys(canvas.pixels));assert len(colors)<=256
+    bits=next(b for b in (1,2,4,8) if len(colors)<=2**b)
+    indexes={c:i for i,c in enumerate(colors)};raw=bytearray()
+    for y in range(canvas.size):
+        raw.append(0);byte=0;used=0
+        for c in canvas.pixels[y*canvas.size:(y+1)*canvas.size]:
+            byte=(byte<<bits)|indexes[c];used+=bits
+            if used==8:raw.append(byte);byte=0;used=0
+        if used:raw.append(byte<<(8-used))
+    out=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',canvas.size,canvas.size,bits,3,0,0,0))
+    out+=chunk(b'PLTE',bytes(v for c in colors for v in c[:3]))
+    if any(c[3]!=255 for c in colors):out+=chunk(b'tRNS',bytes(c[3] for c in colors))
+    return out+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b'')
+
+def add(path,canvas):
+    files[path]=png(canvas);images[path]=canvas
+
+for name,meta in CATALOG.items():
+    path='assets/minecraft/textures/blocks/'+name+'.png'
+    add(path,block(name))
+    if meta['animated']:files[path+'.mcmeta']=b'{"animation":{"frametime":1,"frames":[0],"interpolate":false}}'
+add('assets/minecraft/textures/particle/particles.png',particles())
+add('assets/minecraft/textures/particle/footprint.png',Canvas().rect(3,2,10,12,(211,217,211,90)))
+# Preserve the explosion's separate 4x4 animation UV grid, reduce each frame
+# from 32x32 to 8x8. Each logical frame is a simple shrinking impact diamond.
+a=Canvas(size=32)
+for cell in range(16):
+    r=max(1,3-cell//5);cx=(cell%4)*8+3;cy=(cell//4)*8+3
     for y in range(8):
         for x in range(8):
-            d=(((x*13+y*7+seed)%11)==0)*7-(((x*7+y*11+seed)%13)==0)*7
-            v=shade(c,d)
-            if kind=='brick': v=shade(c,-28 if y%4==0 or (x+(4 if y>=4 else 0))%8==0 else d)
-            if kind=='plank': v=shade(c,-22 if y%4==3 else (-12 if x==(2 if y<4 else 6) else d))
-            if kind=='log': v=shade(c,-20 if x%3==0 else d)
-            if kind=='rings': v=shade(c,-25 if max(abs(x-3.5),abs(y-3.5)) in (1.5,3.5) else d)
-            if kind=='ore' and (x,y) in [(1,1),(2,1),(1,2),(5,4),(6,4),(5,5),(2,6)]: v=rgba(accent)
-            if kind=='edge': v=shade(c,-20 if x in (0,7) or y in (0,7) else d)
-            if kind=='glass': v=rgba(c) if x in (0,7) or y in (0,7) else ((220,242,250,100) if (x,y) in [(2,2),(3,3)] else (0,0,0,0))
-            if kind=='grass_side': v=shade((113,143,70) if y<2+(x%3==0) else c,d)
-            if kind=='overlay': v=shade((185,185,185),d) if y<2+(x%3==0) else (0,0,0,0)
-            if kind=='fire': v=(255,180 if y<4 else 103,28,255) if y>=((x*3)%5)+1 else (0,0,0,0)
-            p.append(v)
-    textures[name]=p
-    path='assets/minecraft/textures/blocks/'+name+'.png'
-    files[path]=png(8,8,p)
-    if animated: files[path+'.mcmeta']=json.dumps({'animation':{'frametime':1,'frames':[0]}}).encode()
-base={'stone':(126,128,131),'dirt':(133,96,65),'coarse_dirt':(115,83,57),'grass_top':(177,177,177),'sand':(218,205,153),'red_sand':(186,108,56),'gravel':(139,133,127),'bedrock':(65,65,69),'snow':(238,245,249),'clay':(155,165,180),'netherrack':(114,49,48),'soul_sand':(86,65,52),'end_stone':(217,219,164),'obsidian':(38,29,54),'ice':(144,184,230,170),'packed_ice':(135,179,226),'hardened_clay':(156,95,65),'mycelium_top':(123,103,122),'sponge':(193,190,74),'sponge_wet':(145,153,52),'stone_granite':(155,112,95),'stone_diorite':(194,194,189),'stone_andesite':(137,140,136),'prismarine_rough':(87,151,140),'prismarine_dark':(52,94,79)}
-for n,c in base.items(): make(n,c,animated=n=='prismarine_rough')
-for n,c in [('grass_side',(133,96,65)),('grass_side_overlay',(177,177,177))]: make(n,c,'overlay' if n.endswith('overlay') else 'grass_side')
-for n,c in [('cobblestone',(119,121,124)),('cobblestone_mossy',(103,121,89)),('stonebrick',(126,129,132)),('stonebrick_mossy',(110,127,97)),('stonebrick_cracked',(106,109,112)),('brick',(161,87,67)),('nether_brick',(57,31,37)),('prismarine_bricks',(100,160,146))]: make(n,c,'brick')
-for wood,c in {'oak':(169,133,79),'spruce':(111,80,48),'birch':(205,191,142),'jungle':(164,114,79),'acacia':(177,94,58),'big_oak':(77,52,33)}.items():
-    make('planks_'+wood,c,'plank')
-    make('log_'+wood,(210,208,193) if wood=='birch' else shade(c,-35),'log')
-    make('log_'+wood+'_top',c,'rings')
-    make('leaves_'+wood,(150,150,150) if wood not in ('spruce','birch') else ((79,111,77) if wood=='spruce' else (128,167,85)))
-for n,c in {'coal':(38,39,42),'iron':(211,173,145),'gold':(247,208,64),'diamond':(76,221,221),'emerald':(48,207,111),'redstone':(221,45,40),'lapis':(49,83,187),'quartz':(235,218,204)}.items():
-    make(n+'_ore',(114,49,48) if n=='quartz' else (126,128,131),'ore',c)
-    if n!='quartz': make(n+'_block',c,'edge')
-colors={'white':(225,226,220),'orange':(221,125,45),'magenta':(178,81,186),'light_blue':(96,166,209),'yellow':(230,200,57),'lime':(121,189,51),'pink':(224,148,165),'gray':(69,72,74),'silver':(153,158,157),'cyan':(44,137,155),'purple':(124,65,174),'blue':(59,76,161),'brown':(109,76,49),'green':(80,111,41),'red':(174,53,47),'black':(32,33,37)}
-for n,c in colors.items():
-    make('wool_colored_'+n,c)
-    make('hardened_clay_stained_'+n,tuple((v*2+b)//3 for v,b in zip(c,(140,89,64))))
-    make('glass_'+n,c,'glass')
-make('glass',(193,220,227),'glass')
-for n,c in [('sandstone',(216,203,157)),('red_sandstone',(185,104,53))]:
-    for suffix,kind in [('top','grain'),('bottom','grain'),('normal','brick'),('smooth','grain'),('carved','rings')]:make(n+'_'+suffix,c,kind)
-for n,c in [('quartz_block_top',(232,229,220)),('quartz_block_bottom',(217,214,205)),('quartz_block_side',(232,229,220)),('glowstone',(211,173,94)),('redstone_lamp_off',(102,73,44)),('redstone_lamp_on',(222,172,91)),('sea_lantern',(189,222,214))]:make(n,c,'edge',animated=n=='sea_lantern')
-for n,c in [('water_still',(170,185,205,180)),('water_flow',(170,185,205,180)),('lava_still',(242,109,21)),('lava_flow',(242,109,21)),('portal',(125,52,179,195)),('fire_layer_0',(255,133,20)),('fire_layer_1',(255,133,20))]:make(n,c,'fire' if n.startswith('fire') else 'grain',animated=True)
-files['pack.mcmeta']=json.dumps({'pack':{'pack_format':1,'description':'Chromebox Lite 8x | Simple blocks + static effects | 1.8'}},indent=2).encode()
+            if abs(x-3)+abs(y-3)<=r:a.pixels[((cell//4)*8+y)*32+(cell%4)*8+x]=(229,229,212,255)
+add('assets/minecraft/textures/entity/explosion.png',a)
+# Pack UI icon only; game GUI/model UVs continue using defaults.
+add('pack.png',Canvas(DARK,32).rect(3,3,10,4,GREEN).rect(3,7,10,6,DIRT))
+files['pack.mcmeta']=json.dumps({'pack':{'pack_format':1,'description':f'Chromebox Lite {VERSION} | Clean blocks, plants + light effects | 1.8'}},separators=(',',':')).encode()
 files['assets/minecraft/textures/gui/title/background/enable_blur.txt']=b'enable_blur=0\n'
-# Original pack icon and a contact sheet, scaled with nearest-neighbor pixels.
-icon=[]
-for y in range(64):
-    for x in range(64): icon.append((99,174,105,255) if 12<=x<52 and 12<=y<27 else ((139,101,66,255) if 12<=x<52 and 27<=y<52 else (26,36,44,255)))
-files['pack.png']=png(64,64,icon)
-# A trusted, unpacked bundle avoids shipping a ZIP parser in the game loader.
-# Only this original artwork is published; no client/game assets are copied.
-payload = {name: base64.b64encode(data).decode('ascii') for name, data in sorted(files.items())}
-revision = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-bundle = {'format': 1, 'folder': 'agent-console-chromebox-lite-8x',
-          'name': 'Chromebox Lite 8x', 'revision': revision, 'files': payload}
-loader = ROOT.parent.parent / 'eaglercraft' / 'loader'
-(loader / 'chromebox-lite.js').write_text('// Generated by resource-packs/chromebox-lite/build.py. Original artwork only.\n'
-    + 'window.__eaglerBundledPack = ' + json.dumps(bundle, separators=(',', ':')) + ';\n')
+payload={p:base64.b64encode(b).decode() for p,b in sorted(files.items())}
+revision=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+bundle={'format':1,'folder':FOLDER,'name':'Chromebox Lite 8x','version':VERSION,'revision':revision,'files':payload}
+(LOADER/'chromebox-lite.json').write_text(json.dumps(bundle,separators=(',',':'))+'\n')
+config={'format':1,'folder':FOLDER,'name':bundle['name'],'version':VERSION,'revision':revision,
+        'url':'loader/chromebox-lite.json?v='+revision,'autoSelect':True}
+(LOADER/'pack-config.js').write_text('// Generated by resource-packs/chromebox-lite/build.py.\nwindow.__eaglerPackConfig = '+json.dumps(config,separators=(',',':'))+';\n')
+# Same filename/folder preserves existing download links and pack identity.
 files['README.txt']=(ROOT/'README.md').read_bytes()
 archive=ROOT/'Chromebox-Lite-8x-1.8.zip'
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
-    for name,data in sorted(files.items()):
-        info=zipfile.ZipInfo(name,(2026,10,9,0,0,0));info.compress_type=zipfile.ZIP_DEFLATED
-        z.writestr(info,data)
-# 12-column preview of every replacement, labels supplied in a matching index.
-names=list(textures);cols=12;cell=48;rows=(len(names)+cols-1)//cols
-pixels=[]
-for y in range(rows*cell):
-    for x in range(cols*cell):
-        i=(y//cell)*cols+x//cell;px=x%cell;py=y%cell
-        v=(26,36,44,255)
-        if i<len(names) and 4<=px<44 and 4<=py<44:
-            t=textures[names[i]][((py-4)//5)*8+(px-4)//5]
-            a=t[3]/255;v=tuple(round(t[k]*a+v[k]*(1-a)) for k in range(3))+(255,)
-        pixels.append(v)
-(ROOT/'preview.png').write_bytes(png(cols*cell,rows*cell,pixels))
-(ROOT/'preview-index.txt').write_text('\n'.join(' | '.join(names[i:i+cols]) for i in range(0,len(names),cols))+'\n')
-with zipfile.ZipFile(archive) as z:
-    assert z.testzip() is None
-    assert json.loads(z.read('pack.mcmeta'))['pack']['pack_format']==1
-    for n in z.namelist():
-        if n.endswith('.png'):
-            b=z.read(n);assert b[:8]==b'\x89PNG\r\n\x1a\n'
-            w,h=struct.unpack('>II',b[16:24]);assert w==h and w in (8,64)
-        if n.endswith('.mcmeta'):json.loads(z.read(n))
-print(f'{archive}\n{len(textures)} block textures; {archive.stat().st_size:,} bytes; ZIP integrity and metadata passed.')
+    for p,data in sorted(files.items()):
+        info=zipfile.ZipInfo(p,(2026,10,12,0,0,0));info.compress_type=zipfile.ZIP_DEFLATED;z.writestr(info,data)
+
+def preview(paths,cols,path,cell=48):
+    rows=math.ceil(len(paths)/cols)
+    # Non-square contact sheets have their own PNG writer below.
+    w,h=cols*cell,rows*cell;pixels=[]
+    for y in range(h):
+        for x in range(w):
+            idx=y//cell*cols+x//cell;px,py=x%cell,y%cell;c=rgba(DARK)
+            if idx<len(paths) and 4<=px<cell-4 and 4<=py<cell-4:
+                img=images[paths[idx]];sx=(px-4)*img.size//(cell-8);sy=(py-4)*img.size//(cell-8)
+                p=img.pixels[sy*img.size+sx];alpha=p[3]/255
+                c=tuple(round(p[k]*alpha+c[k]*(1-alpha)) for k in range(3))+(255,)
+            pixels.append(c)
+    def chunk(t,b):return struct.pack('>I',len(b))+t+b+struct.pack('>I',zlib.crc32(t+b)&0xffffffff)
+    raw=b''.join(b'\0'+bytes(v for c in pixels[y*w:(y+1)*w] for v in c) for y in range(h))
+    path.write_bytes(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,6,0,0,0))+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b''))
+
+paths=list(images);preview(paths,12,ROOT/'preview.png')
+(ROOT/'preview-index.txt').write_text('\n'.join(' | '.join(p.rsplit('/',1)[-1] for p in paths[i:i+12]) for i in range(0,len(paths),12))+'\n')
+show=['grass_top','grass_side','dirt','stone','cobblestone','gravel','sand','clay','planks_oak','log_oak','leaves_oak','diamond_ore','flower_rose','flower_blue_orchid','fern','wheat_stage_7','crafting_table_top','furnace_front_on','rail_normal','redstone_dust_cross','glass','water_still','lava_still','fire_layer_0']
+preview(['assets/minecraft/textures/blocks/'+n+'.png' for n in show],8,ROOT/'style-preview.png',80)
+
+# Verify PNG CRCs, palette row lengths, pixel indexes and archive references.
+for path,im in images.items():
+    data=files[path];offset=8;chunks={};compressed=b''
+    while offset<len(data):
+        length=struct.unpack('>I',data[offset:offset+4])[0];kind=data[offset+4:offset+8];body=data[offset+8:offset+8+length]
+        assert zlib.crc32(kind+body)&0xffffffff==struct.unpack('>I',data[offset+8+length:offset+12+length])[0],path
+        if kind==b'IDAT':compressed+=body
+        else:chunks[kind]=body
+        offset+=length+12
+    w,h,bits,ct,*_=struct.unpack('>IIBBBBB',chunks[b'IHDR']);assert (w,h)==(im.size,im.size) and ct==3
+    raw=zlib.decompress(compressed);stride=math.ceil(w*bits/8)+1;assert len(raw)==h*stride
+    for y in range(h):
+        assert raw[y*stride]==0
+        for x in range(w):
+            index=(raw[y*stride+1+x*bits//8]>>(8-bits-(x*bits%8)))&((1<<bits)-1)
+            assert index<len(chunks[b'PLTE'])//3
+    if path+'.mcmeta' in files:
+        meta=json.loads(files[path+'.mcmeta']);assert meta['animation']['frames']==[0] and w==h
+assert len([p for p in images if '/blocks/' in p])==373
+with zipfile.ZipFile(archive) as z:assert z.testzip() is None and 'pack.mcmeta' in z.namelist()
+stats={'version':VERSION,'revision':revision,'files':len(files),'images':len(images),'block_images':len(CATALOG),
+       'archive_bytes':archive.stat().st_size,'uncompressed_bytes':sum(map(len,files.values())),
+       'dimensions':dict(Counter(f'{a.size}x{a.size}' for a in images.values())),
+       'decoded_rgba_bytes':sum(a.size*a.size*4 for a in images.values()),'animation_metadata':9,
+       'duplicate_image_groups':sum(n>1 for n in Counter(hashlib.sha256(files[p]).hexdigest() for p in images).values()),
+       'loader_bundle_bytes':(LOADER/'chromebox-lite.json').stat().st_size,
+       'coverage':'All 373 Minecraft 1.8.8 block PNG names; 147 previous names redesigned (packed_ice corrected to ice_packed).'}
+(ROOT/'audit-after.json').write_text(json.dumps(stats,indent=2)+'\n')
+print(json.dumps(stats,indent=2))
