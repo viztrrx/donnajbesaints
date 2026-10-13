@@ -1,6 +1,10 @@
+import { webApp } from './web/handler.js';
+import { validateMutation } from './mobile/backend/validation.js';
+import { AdminMobileState, stateCall, digest, randomToken, validSource, relayCall, queueEvent } from './mobile/backend/state.js';
+export { AdminMobileState };
 // Agent Console — Cloudflare Worker proxy
-// Deploy: Cloudflare dashboard → Workers & Pages → donnajbesaints → Edit code →
-// replace ALL of the code with this file → Deploy.
+// Deploy through the repository Wrangler build: npx wrangler deploy.
+// Mobile helpers are bundled imports; do not paste this file alone in the dashboard.
 //
 // What it does:
 //   OPTIONS            — answers CORS preflights itself. Browsers send one
@@ -97,7 +101,7 @@
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key, X-GPA-User, X-GPA-Owner, X-GPA-Session',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key, X-GPA-User, X-GPA-Owner, X-GPA-Session, X-GPA-Mobile, X-Operation-ID',
   'Access-Control-Max-Age': '86400'
 };
 // Applied to every response this worker generates itself. no-store keeps admin
@@ -122,8 +126,8 @@ const jsonResponse = (obj, status) => new Response(JSON.stringify(obj), {
 // per-instance buffers; everything that touches a request lives in
 // handleRequest where it can reuse the existing closures.
 // ============================================================================
-const WORKER_VERSION = '2026.10.06-v3';   // Eaglercraft routes, binary WebSocket fix, Wrangler deploys
-const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs', 'eaglercraft'];
+const WORKER_VERSION = '2026.10.12-web-v1';   // Eaglercraft routes, binary WebSocket fix, Wrangler deploys
+const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs', 'eaglercraft', 'mobile-admin', 'home-screen-admin'];
 
 // ---- Permissions ------------------------------------------------------------
 // The single source of truth for who may do what. Roles come from a verified
@@ -146,8 +150,8 @@ const ROLE_RANK_V2 = { user: 0, moderator: 1, admin: 2, owner: 3 };
 const permsFor = (role) => ROLE_PERMS[role] || [];
 const can = (principal, perm) => {
   if (!principal || !principal.role) return false;
-  const p = permsFor(principal.role);
-  return p.includes('*') || p.includes(perm);
+  const p = permsFor(principal.role), scoped = principal.mobilePerms;
+  return (p.includes('*') || p.includes(perm)) && (!scoped || scoped.includes('*') || scoped.includes(perm));
 };
 
 // ---- Encoding helpers ---------------------------------------------------------
@@ -400,6 +404,7 @@ export default {
       // the full error is recoverable server-side even though the response
       // deliberately carries only a short message.
       console.error('Worker error:', err);
+      queueEvent(env,ctx,'backend',3);
       return jsonResponse({
         error: {
           message: 'The worker hit an unexpected error handling this request.',
@@ -426,13 +431,14 @@ export default {
     // can show the schedule and compute the next run.
     ctx.waitUntil((async () => {
       try { await kv.put('job:cron', JSON.stringify({ cron: event.cron || null, ts: Date.now() })); } catch (e) { /* best-effort */ }
-      await runJob(kv, 'chat-cleanup', 'cron');
-      await runJob(kv, 'memory-maintenance', 'cron');
+      for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron');if(!r.ok) queueEvent(env,ctx,'jobs',3);}
     })());
   }
 };
 
-async function handleRequest(req, env, ctx) {
+async function handleRequest(req, env, ctx, operationReserved = false) {
+    const web = await webApp(req, env, ctx, handleRequest);
+    if (web) return web;
     const cors = CORS_HEADERS;
     const json = jsonResponse;
 
@@ -543,6 +549,15 @@ async function handleRequest(req, env, ctx) {
           : { kind: 'token', role: 'moderator', actor: 'coadmin-token', user: null };
         return principalMemo;
       }
+      const mobileToken = req.headers.get('X-GPA-Mobile');
+      if (mobileToken) {
+        if(!url.pathname.startsWith('/admin/')) {principalMemo=null;return null;}
+        if (!env.ADMIN_MOBILE || !/^[a-f0-9]{64}$/.test(mobileToken)) { principalMemo=null; return null; }
+        const {session} = await stateCall(env, 'resolve', {hash:await digest(mobileToken)});
+        if (!session || !(await validSource(env,session))) { principalMemo=null;return null; }
+        principalMemo={kind:'mobile',role:session.role,actor:session.actor,user:session.user,sid:session.id,mobilePerms:session.perms.filter(x=>permsFor(session.role).includes('*') || permsFor(session.role).includes(x)),mobile:session};
+        return principalMemo;
+      }
       const st = req.headers.get('X-GPA-Session') || bodySessionToken;
       if (st) {
         const p = await verifySessionToken(st);
@@ -637,12 +652,16 @@ async function handleRequest(req, env, ctx) {
       pendingSec.set(k, cur);
       pendingCount++;
       scheduleFlush();
+      if (/lockout|owner_claim|identity_mismatch/.test(type)) queueEvent(env,ctx,'security',3);
     };
     const noteUsage = (user, delta) => {
       const k = `usage:${dayKey()}:${String(user || 'anonymous').toLowerCase().slice(0, 80)}`;
       pendingUsage.set(k, addUsage(pendingUsage.get(k) || emptyUsage(), delta));
       pendingCount++;
       scheduleFlush();
+      const aggregate = pendingUsage.get(k);
+      if(aggregate?.fail>=5) queueEvent(env,ctx,'ai',2);
+      if(aggregate?.rl>=5) queueEvent(env,ctx,'usage',2);
     };
 
     // Single gate for every admin route. `need` is a permission name, or one
@@ -718,12 +737,14 @@ async function handleRequest(req, env, ctx) {
           admin: entry.admin == null ? (p ? p.role : null) : entry.admin,
           actor: entry.actor || (p ? (p.actor || p.user) : null),
           role: p ? p.role : (entry.admin || null),
+          device: p && p.kind === 'mobile' ? p.sid : undefined,
           result: entry.result || 'ok',
           meta: entry.meta ? redactMeta(entry.meta) : undefined,
           ray: req.headers.get('cf-ray') || undefined,
           ts
         };
         await kv.put(`audit:${String(ts).padStart(13, '0')}:${rand}`, JSON.stringify(rec), { expirationTtl: AUDIT_TTL });
+        if (rec.result === 'ok' && !['diagnostics','key_test','auth_failed','forbidden'].includes(rec.action)) queueEvent(env,ctx,'audit',2);
       } catch (e) { /* auditing must never block the real action */ }
     };
     // Global, owner-controlled settings pushed to every client on its next
@@ -962,6 +983,14 @@ async function handleRequest(req, env, ctx) {
     const ADMIN_ROUTES = {
       // Original routes (the 'coadmin' / 'owner' requirements map onto the
       // moderator / owner roles; their permission names are below).
+      '/admin/mobile/pair': {method:'POST',perm:'owner'},
+      '/admin/mobile/devices': {method:'GET',perm:'coadmin'},
+      '/admin/mobile/revoke': {method:'POST',perm:'coadmin'},
+      '/admin/mobile/preferences': {method:'POST',perm:'coadmin'},
+      '/admin/mobile/register': {method:'POST',perm:'coadmin'},
+      '/admin/mobile/test': {method:'POST',perm:'coadmin'},
+      '/admin/mobile/inbox': {method:'GET',perm:'coadmin'},
+      '/admin/mobile/operation': {method:'GET',perm:'coadmin'},
       '/admin/summary':        { method: 'GET',  perm: 'users.view' },
       '/admin/moderate':       { method: 'POST', perm: 'moderation.manage' },
       '/admin/setunlock':      { method: 'POST', perm: 'moderation.manage' },
@@ -993,6 +1022,21 @@ async function handleRequest(req, env, ctx) {
       '/admin/memory/user':    { method: 'POST', perm: 'memory.content', v2: true },
       '/admin/danger':         { method: 'POST', perm: 'danger.execute', v2: true }
     };
+    if (url.pathname === '/mobile/health' && req.method === 'GET') {
+      try { if(!env.TELEMETRY) return json({ok:false},503);await env.TELEMETRY.get('config');return json({ok:true,version:WORKER_VERSION}); }
+      catch {return json({ok:false},503);}
+    }
+    if (url.pathname === '/mobile/pair' && req.method === 'POST') {
+      if(!env.ADMIN_MOBILE || !env.TELEMETRY || !env.ADMIN_TOKEN) return json({error:'Mobile pairing not configured'},503);
+      let body;try {const raw=await req.text();if(raw.length>1024) throw 0;body=JSON.parse(raw);}catch{return json({error:'Invalid pairing request'},400);}
+      if(!body || Array.isArray(body) || typeof body!=='object') return json({error:'Invalid pairing request'},400);
+      if(!/^[A-Fa-f0-9]{64}$/.test(body.code || '') || typeof body.name!=='string' || !body.name.trim() || body.name.length>60) return json({error:'Enter the full pairing code and device name'},400);
+      const token=randomToken();
+      try {
+        const r=await stateCall(env,'pair-redeem',{hash:await digest(body.code.toLowerCase()),ip:await digest(clientIp(req) || 'unknown'),id:crypto.randomUUID(),tokenHash:await digest(token),name:body.name.trim()});
+        queueEvent(env,ctx,'sessions',2);return json({...r,token});
+      } catch(e) {return json({error:e.message},e.status || 503);}
+    }
     if (url.pathname.startsWith('/admin/')) {
       const spec = Object.prototype.hasOwnProperty.call(ADMIN_ROUTES, url.pathname)
         ? ADMIN_ROUTES[url.pathname] : null;
@@ -1000,6 +1044,59 @@ async function handleRequest(req, env, ctx) {
       if (req.method !== spec.method) return json({ error: 'method not allowed' }, 405);
       const denied = await guard(req, url, env, spec.perm);
       if (denied) return denied;
+    }
+
+    // Mobile credentials are accepted ONLY on admin routes. All mutations
+    // reserve an ID atomically before dispatching the existing handler.
+    if(url.pathname.startsWith('/admin/') && req.headers.has('X-GPA-Mobile') && req.method==='POST' && !operationReserved) {
+      const p=await resolvePrincipal(), id=req.headers.get('X-Operation-ID') || '';
+      if(!/^[a-f0-9-]{36}$/i.test(id)) return json({error:'A UUID operation ID is required'},400);
+      const raw=await req.text();if(raw.length>2000000) return json({error:'Request too large'},413);
+      let payload;try{payload=JSON.parse(raw);}catch{return json({error:'Invalid JSON'},400);}
+      const invalid=validateMutation(url.pathname,payload);if(invalid) return json({error:invalid},400);
+      const fingerprint=await digest(url.pathname+'\n'+raw);
+      try {
+        const b=await stateCall(env,'operation-begin',{sid:p.sid,id,fingerprint});
+        if(!b.created) return b.operation.state==='completed' ? json(b.operation.body,b.operation.status) : json({error:'Operation is pending or outcome is unknown. Inspect state before creating another ID.',operationId:id},409);
+        const response=await handleRequest(new Request(req.url,{method:'POST',headers:req.headers,body:raw}),env,ctx,true);
+        const text=await response.clone().text();let body;try{body=JSON.parse(text);}catch{body={error:'Non-JSON operation response'};}
+        await stateCall(env,'operation-finish',{sid:p.sid,id,fingerprint,status:response.status,body:text.length<64000 ? body : {ok:response.ok,note:'Result too large to cache; refresh the affected screen'}});
+        return response;
+      } catch(e) {return json({error:'Operation outcome may be unknown; inspect state before repeating.',operationId:id},e.status || 503);}
+    }
+    if(url.pathname.startsWith('/admin/mobile/')) {
+      if(!env.ADMIN_MOBILE || !env.TELEMETRY) return json({error:'Mobile state binding not configured'},503);
+      const p=await resolvePrincipal(), kv=env.TELEMETRY;
+      let body={};if(req.method==='POST') {try {const raw=await req.text();if(raw.length>8192) throw 0;body=JSON.parse(raw);if(!body || Array.isArray(body) || typeof body!=='object') throw 0;}catch{return json({error:'Invalid JSON request'},400);}}
+      try {
+        if(url.pathname==='/admin/mobile/pair') {
+          if(p.kind==='mobile') return json({error:'Pair new devices from an authenticated web owner session'},403);
+          const role=body.role || p.role;if(!['owner','admin','moderator'].includes(role)) return json({error:'Invalid role'},400);
+          const cfg=await getConfig(kv),code=randomToken(),expiresAt=Date.now()+300000;
+          const record={role,perms:permsFor(role),actor:p.actor,user:p.user,sourceRole:p.role,sourceUser:p.kind==='session' ? p.user : null,accountEpoch:p.acct?.epoch || 0,globalEpoch:cfg.sessionEpoch || 0,generation:await digest(env.ADMIN_TOKEN),expiresAt};
+          await stateCall(env,'pair-create',{hash:await digest(code),record});
+          await logAudit(kv,{route:url.pathname,action:'mobile_pair_created',meta:{role}});return json({ok:true,code,expiresAt,role});
+        }
+        if(url.pathname==='/admin/mobile/devices') return json(await stateCall(env,'devices',{owner:p.role==='owner',id:p.sid}));
+        if(url.pathname==='/admin/mobile/revoke') {
+          if(typeof body.id!=='string' || !/^[a-f0-9-]{36}$/i.test(body.id)) return json({error:'Invalid device ID'},400);
+          const r=await stateCall(env,'revoke',{target:body.id,owner:p.role==='owner',id:p.sid});await logAudit(kv,{route:url.pathname,action:'mobile_revoked',target:body.id});queueEvent(env,ctx,'sessions',2);return json(r);
+        }
+        if(p.kind!=='mobile') return json({error:'Use a paired mobile session for this operation'},403);
+        if(url.pathname==='/admin/mobile/operation') {const id=url.searchParams.get('id') || '';if(!/^[a-f0-9-]{36}$/i.test(id)) return json({error:'Invalid operation ID'},400);return json(await stateCall(env,'operation-get',{sid:p.sid,id}));}
+        if(url.pathname==='/admin/mobile/inbox') return json(await stateCall(env,'inbox',{owner:p.role==='owner',id:p.sid,perms:p.mobilePerms}));
+        if(url.pathname==='/admin/mobile/preferences') return json(await stateCall(env,'preferences',{id:p.sid,preferences:body}));
+        if(url.pathname==='/admin/mobile/register') {
+          if(body.remove!==true && (!/^[a-f0-9]{64,200}$/i.test(body.token || '') || body.token.length%2!==0 || !['sandbox','production'].includes(body.environment))) return json({error:'Invalid APNs token or environment'},400);
+          return json(await stateCall(env,'push-register',{id:p.sid,push:body.remove===true ? null : {token:body.token.toLowerCase(),environment:body.environment}}));
+        }
+        if(url.pathname==='/admin/mobile/test') {
+          const r=await stateCall(env,'push-test',{id:p.sid}),a=await relayCall(env,'/push',{...r.push,eventId:crypto.randomUUID()});
+          if(a.status===410 || ['BadDeviceToken','DeviceTokenNotForTopic'].includes(a.reason)) await stateCall(env,'push-register',{id:p.sid,push:null});
+          await stateCall(env,'test-log',{id:p.sid,attempt:{ok:a.ok,status:a.status,reason:a.reason || a.error || null,ts:Date.now()}});
+          return json({ok:a.ok,accepted:a.ok,deliveryConfirmed:false,error:a.ok ? undefined : (a.reason || a.error),apnsStatus:a.status},a.ok ? 200 : 502);
+        }
+      }catch(e){return json({error:e.status ? e.message : 'Mobile service unavailable'},e.status || 503);}
     }
 
     // ======================================================================
@@ -2018,6 +2115,7 @@ async function handleRequest(req, env, ctx) {
         id, reporter: p.user, room: access.id, msgTs: msg.ts, msgUser: msg.u, msgText: String(msg.t).slice(0, 500),
         reason: String(body.reason || '').slice(0, 200), status: 'open', createdAt: Date.now()
       }), { expirationTtl: 60 * 60 * 24 * 30 });
+      queueEvent(env,ctx,'moderation',2);
       return json({ ok: true });
     }
 
@@ -2101,7 +2199,7 @@ async function handleRequest(req, env, ctx) {
 
       if (url.pathname === '/admin/whoami') {
         return json({ ok: true, role: principal.role, kind: principal.kind, actor: principal.actor, user: principal.user || null,
-          perms: permsFor(principal.role), owner: OWNER, version: WORKER_VERSION, features: WORKER_FEATURES });
+          perms: principal.mobilePerms || permsFor(principal.role), device:principal.kind==='mobile' ? {id:principal.sid,expiresAt:principal.mobile.expiresAt,name:principal.mobile.name,preferences:principal.mobile.preferences} : null, owner: OWNER, version: WORKER_VERSION, features: WORKER_FEATURES });
       }
 
       if (url.pathname === '/admin/config/view') {
@@ -2449,6 +2547,7 @@ async function handleRequest(req, env, ctx) {
         const job = JOBS.find((j) => j.id === id);
         if (!job) return json({ error: 'unknown job' }, 400);
         const rec = await runJob(kv, id, 'manual');
+        if(!rec.ok) queueEvent(env,ctx,'jobs',3);
         await logAudit(kv, { route: url.pathname, action: 'job_run', target: id, result: rec.ok ? 'ok' : 'failed', meta: { detail: rec.detail } });
         return json({ ok: true, run: rec });
       }
@@ -2479,6 +2578,7 @@ async function handleRequest(req, env, ctx) {
       if (url.pathname === '/admin/memory/user') {
         const body = await readJson();
         const u = String(body.u || '').toLowerCase().slice(0, 40);
+        if(!u || String(body.reason || '').trim().length<5) return json({error:'A reason of at least five characters is required'},400);
         const doc = await kv.get('mem:u:' + u, 'json');
         await logAudit(kv, { route: url.pathname, action: 'memory_view_content', target: u, meta: { reason: String(body.reason || '').slice(0, 200) } });
         if (!doc) return json({ ok: true, items: [] });

@@ -1,0 +1,9 @@
+// MERGE these fields into the existing wrangler.jsonc. Preserve every existing
+// binding, variable, migration and dashboard-managed cron. This file is NOT a
+// standalone deploy configuration. Deployment requires explicit approval.
+{
+  "durable_objects": {
+    "bindings": [{ "name": "ADMIN_MOBILE", "class_name": "AdminMobileState" }]
+  },
+  "migrations": [{ "tag": "admin-mobile-v1", "new_sqlite_classes": ["AdminMobileState"] }]
+}

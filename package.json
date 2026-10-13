@@ -40,12 +40,14 @@
     "test": "node --test tests/*.test.mjs",
     "deploy": "wrangler deploy",
     "preview": "wrangler preview",
-    "build:eaglercraft": "bash scripts/build-eaglercraft.sh"
+    "build:eaglercraft": "bash scripts/build-eaglercraft.sh",
+    "build:web": "node web/scripts/build.mjs",
+    "test:runtime": "node tests/mobile-runtime.mjs"
   },
   "engines": {
     "node": ">=18"
   },
   "devDependencies": {
-    "wrangler": "^4.147.0"
+    "wrangler": "4.149.0"
   }
 }

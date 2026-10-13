@@ -17451,6 +17451,49 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           + card('Worker', `<ul class="gac-health"><li class="ok"><i></i><span>Version</span><em>${esc(d.version)}</em></li><li class="ok"><i></i><span>Edge location</span><em>${esc(d.colo || '—')}</em></li><li class="${d.config.maintenance && d.config.maintenance.on ? 'bad' : 'ok'}"><i></i><span>Maintenance</span><em>${d.config.maintenance && d.config.maintenance.on ? 'On' : 'Off'}</em></li><li class="ok"><i></i><span>Features</span><em>${esc(d.features.join(', '))}</em></li></ul>`, 'panel')
           + `<div id="gac-legacy-system"></div></aside></div>`;
         placeLegacy('system');
+        if (isOwner()) {
+          const mobile = document.createElement('div');
+          mobile.innerHTML = card('iPhone & Home Screen devices', '<p class="gps-hint">Create a code here, then paste it into Saints Command on your iPhone. Each code works once and expires in five minutes. Only an authenticated owner can create codes.</p>'
+            + '<p class="gps-hint">Open https://donnajbe.viztrrx.workers.dev/app/ in Safari, add it to your Home Screen, and open the new icon before pairing.</p><label for="gac-mobile-role">Device role</label> <select id="gac-mobile-role"><option value="owner">Owner</option><option value="admin">Admin</option><option value="moderator">Moderator (co-admin)</option></select> '
+            + '<button class="gps-btn gps-btn-primary" id="gac-mobile-pair">Create pairing code</button> <button class="gps-btn" id="gac-mobile-copy" disabled>Copy pairing code</button><pre class="gac-pre" id="gac-mobile-code" aria-label="Single-use pairing code"></pre>'
+            + '<button class="gps-btn" id="gac-mobile-refresh">Refresh devices</button><div id="gac-mobile-devices"></div><p class="gps-hint" id="gac-mobile-error" role="status" aria-live="polite"></p>', 'advanced');
+          b.prepend(mobile);
+          const err = mobile.querySelector('#gac-mobile-error');
+          let currentCode = '', expiresAt = 0, expiryTimer;
+          const copyButton = mobile.querySelector('#gac-mobile-copy');
+          copyButton.onclick = async () => {
+            if (!currentCode || Date.now() >= expiresAt) { err.textContent = 'Code expired. Create a new one.'; copyButton.disabled = true; return; }
+            try { await navigator.clipboard.writeText(currentCode); err.textContent = 'Pairing code copied. Paste it into Saints Command on your iPhone.'; }
+            catch (e) { err.textContent = 'Clipboard access is unavailable on this page. Select and copy the displayed code manually.'; }
+          };
+          async function devices() {
+            try {
+              const result = await api('/admin/mobile/devices');
+              const list = mobile.querySelector('#gac-mobile-devices'); list.replaceChildren();
+              (result.devices || []).forEach((d) => {
+                const row = document.createElement('div'); row.className = 'gps-row';
+                const label = document.createElement('span');label.textContent = d.name + ' · ' + d.role + ' · expires ' + when(d.expiresAt) + (d.revoked ? ' · revoked' : '');row.appendChild(label);
+                if (!d.revoked) { const revoke = document.createElement('button');revoke.className = 'gps-btn';revoke.textContent = 'Revoke';
+                  revoke.onclick = async () => {if (!confirm('Revoke admin access for ' + d.name + '?')) return;revoke.disabled = true;
+                    try {await api('/admin/mobile/revoke', {method:'POST',body:{id:d.id}});await devices();}catch(e){err.textContent=e.message;revoke.disabled=false;}};row.appendChild(revoke); }
+                list.appendChild(row);
+              });
+              err.textContent = (result.devices || []).length ? '' : 'No paired devices.';
+            } catch(e) {err.textContent=e.message;}
+          }
+          mobile.querySelector('#gac-mobile-refresh').onclick = devices;
+          mobile.querySelector('#gac-mobile-pair').onclick = async (event) => {
+            const button=event.currentTarget;button.disabled=true;
+            try {const r=await api('/admin/mobile/pair',{method:'POST',body:{role:mobile.querySelector('#gac-mobile-role').value}});
+              if (!/^[a-f0-9]{64}$/i.test(r.code || '') || !Number.isFinite(r.expiresAt)) throw new Error('The Worker returned an invalid pairing code.');
+              currentCode = r.code; expiresAt = r.expiresAt; copyButton.disabled = false;
+              const output=mobile.querySelector('#gac-mobile-code');output.textContent=currentCode + '\nExpires ' + when(expiresAt);err.textContent='';
+              clearTimeout(expiryTimer);
+              expiryTimer = setTimeout(() => { currentCode = ''; copyButton.disabled = true; if(output.isConnected) output.textContent='Pairing code expired. Create a new one.'; },Math.max(0,expiresAt-Date.now()));
+            }catch(e){err.textContent=e.message;}finally{button.disabled=false;}
+          };
+          devices();
+        }
       },
       async automation() {
         const d = await api('/admin/jobs');

@@ -490,3 +490,22 @@ OpenAI Codex provided AI-assisted development for the Chromebox Lite 8×8 textur
 ## License {#license}
 
 MIT — see [LICENSE](LICENSE).
+
+## Pair Saints Command on your iPhone
+
+In the desktop Admin Command Center, connect with an owner credential, then open
+**System → iPhone & Home Screen devices**. Select the device role and choose
+**Create pairing code**, then **Copy pairing code**. Only owners can create codes.
+
+Open https://donnajbe.viztrrx.workers.dev/app/ in Safari and add it to your Home
+Screen. Open that icon, enter a device name, paste the full code and tap
+**Pair device**. Codes expire after five minutes and work once. The resulting
+device session expires after seven days and can be revoked from the same System
+card. The console PIN alone does not authenticate an owner. Do not share tokens
+or pairing codes in chat or commit them to Git.
+
+The native app is maintained separately at https://github.com/viztrrx/saints-command.
+This repository includes the deployed web app and backend helpers so its
+Cloudflare Builds deployment retains `/app/` and the ADMIN_MOBILE binding.
+Edit `web/public/`, run `npm run build:web`, then verify `npm test` and
+`npm run test:runtime` before deployment. See [web app documentation](web/README.md).
