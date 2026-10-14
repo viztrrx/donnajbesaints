@@ -2812,7 +2812,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             desc: 'Messages in this room appear here as soon as the console reaches the chat server. Pick another room or join a private one with a code.' })}
           <div class="gpa-row gpx-composer gpx-composer-dock">
             <input id="gpa-chat-input" class="gpa-input" placeholder="Message…" maxlength="500" autocomplete="off" aria-label="Chat message" />
+            <button id="gpa-chat-attach" class="gpa-btn gpx-icon-btn" type="button" title="Attach a photo (up to 5 MB)" aria-label="Choose a chat photo">📷</button>
             <button id="gpa-chat-send" class="gpa-btn primary">Send</button>
+          </div>
+          <input id="gpa-chat-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none" aria-label="Choose a photo from your gallery" />
+          <div class="gpa-row" style="align-items:center;flex-wrap:wrap;">
+            <span id="gpa-chat-file-label" class="gpa-sub" role="status" aria-live="polite"></span>
+            <button id="gpa-chat-remove-photo" type="button" style="display:none">Remove photo</button>
           </div>
         </div>
       </div>
@@ -4798,6 +4804,31 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-chat-msg .when { font-size: 10px; color: var(--gpa-sub); font-variant-numeric: tabular-nums; }
       .gpa-chat-msg .body { line-height: 1.5; overflow-wrap: anywhere; }
       .gpa-chat-empty { color: var(--gpa-sub); font-size: 12px; text-align: center; padding: 16px 0; }
+      /* Gallery photos are small in chat and expand only on tap. */
+      .gpa-chat-thumb-button { display: block; max-width: 100%; width: fit-content; margin-top: 7px; padding: 0;
+        background: transparent; border: 1px solid var(--gpa-border); border-radius: 11px; overflow: hidden;
+        cursor: zoom-in; line-height: 0; }
+      .gpa-chat-thumb-button img { display: block; width: auto; height: auto; max-width: min(190px, 100%);
+        max-height: 150px; object-fit: contain; }
+      .gpa-chat-thumb-button:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 3px; }
+      #gpa-chat-file-label { display: block; margin: 2px 8px 0; overflow-wrap: anywhere; }
+      #gpa-chat-remove-photo { border: 0; background: transparent; color: var(--gpa-accent); cursor: pointer;
+        text-decoration: underline; font-size: 11px; padding: 4px 8px; }
+      .gpa-chat-image-viewer { position: fixed; inset: 0; width: 100vw; height: 100vh;
+        display: flex; align-items: center; justify-content: center; padding: 18px; box-sizing: border-box;
+        background: rgba(0,0,0,0.88); z-index: 2147483646; }
+      .gpa-chat-image-viewer[hidden] { display: none !important; }
+      .gpa-chat-image-frame { position: relative; display: flex; flex-direction: column; align-items: center;
+        max-width: calc(100vw - 36px); max-height: calc(100vh - 36px); padding: 44px 12px 12px;
+        box-sizing: border-box; background: var(--gpa-panel, #171a22); color: var(--gpa-text, #fff);
+        border: 1px solid var(--gpa-border, #777); border-radius: 16px; box-shadow: 0 20px 80px #000a; }
+      .gpa-chat-image-frame img { display: block; width: auto; height: auto; max-width: min(850px, calc(100vw - 60px));
+        max-height: calc(100vh - 138px); object-fit: contain; border-radius: 8px; }
+      .gpa-chat-image-caption { color: var(--gpa-sub, #ccc); font: 12px/1.4 system-ui, sans-serif;
+        margin: 9px 0 0; text-align: center; }
+      .gpa-chat-image-close { position: absolute; top: 7px; right: 9px; border: 1px solid var(--gpa-border, #666);
+        border-radius: 10px; background: var(--gpa-field, #333); color: var(--gpa-text, #fff); cursor: pointer;
+        font: 700 20px/1 system-ui, sans-serif; min-width: 34px; min-height: 32px; }
       /* ---- Announcement modal ---- */
       .gpa-ann-backdrop {
         position: absolute; inset: 0; z-index: 2147482000; display: flex;
@@ -10540,7 +10571,42 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const chatRoomSel = panel.querySelector('#gpa-chat-room');
   const chatLog = panel.querySelector('#gpa-chat-log');
   const chatInput = panel.querySelector('#gpa-chat-input');
+  const chatFileInput = panel.querySelector('#gpa-chat-file');
+  const chatAttach = panel.querySelector('#gpa-chat-attach');
+  const chatRemoveFile = panel.querySelector('#gpa-chat-remove-photo');
+  const chatFileLabel = panel.querySelector('#gpa-chat-file-label');
   const chatNote = panel.querySelector('#gpa-chat-note');
+  let chatSending = false;
+  // Viewer belongs to the same shadow root; the host page cannot restyle it.
+  const chatImageViewer = document.createElement('div');
+  chatImageViewer.className = 'gpa-chat-image-viewer';
+  chatImageViewer.hidden = true;
+  chatImageViewer.setAttribute('role', 'dialog');
+  chatImageViewer.setAttribute('aria-modal', 'true');
+  chatImageViewer.setAttribute('aria-label', 'Full-size chat photo');
+  chatImageViewer.innerHTML = '<div class="gpa-chat-image-frame"><button type="button" class="gpa-chat-image-close" aria-label="Close photo viewer">×</button><img alt="Expanded chat photo"><p class="gpa-chat-image-caption"></p></div>';
+  root.appendChild(chatImageViewer);
+  const chatViewerImg = chatImageViewer.querySelector('img');
+  let chatViewerOpener = null;
+  function closeChatImageViewer() {
+    chatImageViewer.hidden = true;
+    chatViewerImg.removeAttribute('src');
+    if (chatViewerOpener && chatViewerOpener.isConnected) chatViewerOpener.focus();
+    chatViewerOpener = null;
+  }
+  function openChatImageViewer(src, caption, opener) {
+    chatViewerOpener = opener;
+    chatViewerImg.src = src;
+    chatImageViewer.querySelector('.gpa-chat-image-caption').textContent = caption;
+    chatImageViewer.hidden = false;
+    chatImageViewer.querySelector('.gpa-chat-image-close').focus();
+  }
+  chatImageViewer.addEventListener('click', (event) => {
+    if (event.target === chatImageViewer || event.target.closest('.gpa-chat-image-close')) closeChatImageViewer();
+  });
+  chatImageViewer.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { event.preventDefault(); closeChatImageViewer(); }
+  });
   const chatBadge = panel.querySelector('#gpa-chat-badge');
   let chatRoom = 'public';
   let chatSince = 0;
@@ -10637,7 +10703,27 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     head.appendChild(who); head.appendChild(when);
     const body = document.createElement('div');
     body.className = 'body';
-    body.textContent = m.t;
+    body.textContent = m.t || '';
+    if (m.media && typeof m.media.id === 'string' &&
+        /^[a-f0-9-]{36}$/.test(m.media.id) &&
+        ['image/jpeg','image/png','image/webp','image/gif'].includes(m.media.type)) {
+      const imageUrl = telemetryEndpoint() + '/chat/media/' + m.media.id;
+      const thumbButton = document.createElement('button');
+      thumbButton.type = 'button';
+      thumbButton.className = 'gpa-chat-thumb-button';
+      thumbButton.title = 'Tap to view photo';
+      thumbButton.setAttribute('aria-label', 'View full-size chat photo from ' + m.u);
+      const image = document.createElement('img');
+      image.src = imageUrl;
+      image.alt = 'Photo shared by ' + m.u;
+      image.loading = 'lazy';
+      image.addEventListener('load', () => {
+        if (chatIsOpenAndVisible()) chatLog.scrollTop = chatLog.scrollHeight;
+      });
+      thumbButton.appendChild(image);
+      thumbButton.addEventListener('click', () => openChatImageViewer(imageUrl, 'Photo shared by ' + m.u, thumbButton));
+      body.appendChild(thumbButton);
+    }
     col.appendChild(head); col.appendChild(body);
     div.appendChild(avatar); div.appendChild(col);
     return div;
@@ -10671,11 +10757,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       chatPollFailures = 0;
       chatNote.textContent = '';
-      const atBottom = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 40;
       const visible = chatIsOpenAndVisible();
       let added = 0;
       (data.messages || []).forEach((m) => {
-        const id = m.ts + '|' + m.u + '|' + m.t;
+        const id = m.ts + '|' + m.u + '|' + (m.t || '') + '|' + (m.media?.id || '');
         if (chatSeen.has(id)) return;
         chatSeen.add(id);
         chatLog.appendChild(chatMsgEl(m));
@@ -10690,9 +10775,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const empty = chatLog.querySelector('.gpa-chat-empty');
       if (chatLog.children.length && empty) empty.remove();
       if (!chatLog.children.length) chatLog.innerHTML = '<div class="gpa-chat-empty">No messages yet — say something.</div>';
-      // Only auto-scroll if they were already at the bottom, so reading back
-      // through history isn't yanked away by an incoming message.
-      if (added && atBottom && visible) chatLog.scrollTop = chatLog.scrollHeight;
+      // Opening a room or receiving any message follows the newest message.
+      if (added && (visible || wasBootstrap)) {
+        chatLog.scrollTop = chatLog.scrollHeight;
+        requestAnimationFrame(() => { if (chatLog.isConnected) chatLog.scrollTop = chatLog.scrollHeight; });
+      }
       if (added) updateChatBadge();
     } catch (e) {
       chatPollFailures++;
@@ -10738,35 +10825,91 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     scheduleChatPoll();
   }
 
+  function updateChatFileLabel() {
+    const file = chatFileInput.files && chatFileInput.files[0];
+    chatFileLabel.textContent = file ? '📷 ' + file.name + ' (' + (file.size / 1048576).toFixed(1) + ' MB)' : '';
+    chatRemoveFile.style.display = file ? '' : 'none';
+  }
+  chatAttach.addEventListener('click', () => chatFileInput.click());
+  chatFileInput.addEventListener('change', updateChatFileLabel);
+  chatRemoveFile.addEventListener('click', () => {
+    chatFileInput.value = '';
+    updateChatFileLabel();
+  });
+
   async function chatSend() {
+    if (chatSending) return;
     const text = chatInput.value.trim();
-    if (!text) return;
+    const photo = chatFileInput.files && chatFileInput.files[0];
+    if (!text && !photo) return;
     if (!currentUser) { chatNote.textContent = 'Sign in first.'; return; }
     if (!telemetryOn()) { chatNote.textContent = 'Chat needs the worker to be set up.'; return; }
-    chatInput.value = '';
+    if (photo && (!['image/jpeg','image/png','image/webp','image/gif'].includes(photo.type) ||
+        photo.size > 5 * 1024 * 1024)) {
+      chatNote.textContent = 'Choose a JPG, PNG, WebP, or GIF photo no larger than 5 MB.';
+      return;
+    }
+    chatSending = true;
+    chatAttach.disabled = true;
+    panel.querySelector('#gpa-chat-send').disabled = true;
     try {
-      // See sendBeat() for why this header is conditional: only present at
-      // all on the owner's own device, so nobody else's request shape changes.
       const ownerCode = admGet(ADMIN_KEYS.OWNER_CODE);
-      const sendHeaders = { 'Content-Type': 'text/plain' };
-      if (ownerCode) sendHeaders['X-GPA-Owner'] = ownerCode;
-      if (sessionToken()) sendHeaders['X-GPA-Session'] = sessionToken();
+      const auth = {};
+      if (ownerCode) auth['X-GPA-Owner'] = ownerCode;
+      if (sessionToken()) auth['X-GPA-Session'] = sessionToken();
+      let mediaId = null;
+      if (photo) {
+        chatNote.textContent = 'Uploading photo…';
+        const upload = new FormData();
+        upload.append('photo', photo, photo.name);
+        upload.append('room', chatRoom);
+        upload.append('user', currentUser);
+        upload.append('code', chatCodeFor(chatRoom) || '');
+        const response = await fetch(telemetryEndpoint() + '/chat/media/upload', {
+          method: 'POST', headers: auth, body: upload
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.ok) throw Error(result.error || 'Photo upload failed.');
+        mediaId = result.id;
+      }
+      chatNote.textContent = 'Sending message…';
       const res = await fetch(telemetryEndpoint() + '/chat/send', {
-        method: 'POST', headers: sendHeaders,
-        body: JSON.stringify({ room: chatRoom, user: currentUser, text, code: chatCodeFor(chatRoom) })
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain', ...auth },
+        body: JSON.stringify({
+          room: chatRoom, user: currentUser, text, code: chatCodeFor(chatRoom),
+          ...(mediaId ? { mediaId } : {})
+        })
       });
-      const data = await res.json().catch(() => ({}));
-      if (!data.ok) { chatNote.textContent = data.error || 'Message not sent.'; chatInput.value = text; return; }
-      chatPoll();
-    } catch (e) {
-      chatNote.textContent = 'Could not send — check your connection.';
-      chatInput.value = text;
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || !result.ok) throw Error(result.error || 'Message not sent.');
+      chatInput.value = '';
+      chatFileInput.value = '';
+      updateChatFileLabel();
+      chatNote.textContent = '';
+      await chatPoll();
+    } catch (error) {
+      // Keep the original text/file selection so a failed upload or send
+      // does not destroy the draft.
+      chatNote.textContent = error.message || 'Could not send — check your connection.';
+    } finally {
+      chatSending = false;
+      chatAttach.disabled = false;
+      panel.querySelector('#gpa-chat-send').disabled = false;
     }
   }
 
   chatRoomSel.addEventListener('change', () => switchChatRoom(chatRoomSel.value));
   panel.querySelector('#gpa-chat-send').addEventListener('click', chatSend);
-  chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') chatSend(); });
+  chatInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); chatSend(); }
+  });
+  const chatPane = panel.querySelector('.gpa-pane[data-pane="chat"]');
+  if (chatPane) new MutationObserver(() => {
+    if (chatIsOpenAndVisible()) requestAnimationFrame(() => {
+      chatLog.scrollTop = chatLog.scrollHeight;
+    });
+  }).observe(chatPane, { attributes: true, attributeFilter: ['class'] });
   panel.querySelector('#gpa-chat-join').addEventListener('click', async () => {
     const code = (prompt('Room code from the owner:') || '').trim().toUpperCase();
     if (!code) return;
