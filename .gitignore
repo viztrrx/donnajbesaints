@@ -13,3 +13,5 @@ eagler-e2e-out/
 console-app-out/
 # Default output folder of tests/browser/announcements.mjs
 announcements-out/
+# Default output folder of tests/browser/notifications.mjs
+notifications-out/

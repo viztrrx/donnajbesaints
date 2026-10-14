@@ -708,7 +708,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-14T21:00:00-04:00', commit: '', title: 'Agent Console as an iPhone home-screen app', parts: {
       console: ['feature', 'App mode for /console/ on the Worker: full screen, safe areas, offline launch, no zoom on typing'] } },
     { at: '2026-10-14T23:00:00-04:00', commit: '', title: 'Dismissed announcements stay dismissed', parts: {
-      console: ['fix', 'Owner banner and popup remember a dismissal for your account on every site and in the app; banner is tappable in the iPhone app'] } }
+      console: ['fix', 'Owner banner and popup remember a dismissal for your account on every site and in the app; banner is tappable in the iPhone app'] } },
+    { at: '2026-10-15T01:00:00-04:00', commit: '', title: 'Owner phone notifications in the iPhone app', parts: {
+      theme: ['feature', 'Settings → Account → Phone notifications: chats with name and room, sign-ins with time, new users, AI failures, errors, reports, security, jobs'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1875,6 +1877,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-ann-title { display: flex; align-items: center; justify-content: center; gap: 8px; }
       .gpa-ann-title svg { width: 18px; height: 18px; }
       .gpa-ann-text { font-size: 13px; }
+
+      /* ---- Owner phone notifications (Settings → Account) ---- */
+      .gpa-push { display: flex; flex-direction: column; gap: 10px; }
+      .gpa-push-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+      .gpa-push-head .gps-label { display: flex; align-items: center; justify-content: flex-start; gap: 8px; }
+      .gpa-push-token { display: flex; flex-direction: column; gap: 6px; }
+      .gpa-push-token[hidden], .gpa-push-cats[hidden], #gpa-push-actions[hidden] { display: none; }
+      .gpa-push-cats { display: flex; flex-direction: column; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); overflow: hidden; }
+      .gpa-push-cat { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; font-size: 13px; }
+      .gpa-push-cat + .gpa-push-cat { border-top: 1px solid var(--gpa-border); }
+      #gpa-push-msg:empty { display: none; }
 
       /* ---- App mode (home-screen web app): edge to edge, safe areas ---- */
       .gpa-panel.gpa-app { border-radius: 0 !important; border: none !important; box-shadow: none !important; }
@@ -3928,6 +3941,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 <div class="gps-item gps-item-row" data-k="account sign out logout user">
                   <div class="gps-who">${GPS_ICONS.account}<span id="gpa-account-who" class="gps-label">Not signed in</span></div>
                   <button id="gpa-logout-btn" class="gps-btn">Sign out</button>
+                </div>
+                <div class="gps-item gpa-push" id="gpa-push-card" data-k="notifications push phone iphone alerts owner chat sign in errors ai">
+                  <div class="gpa-push-head">
+                    <div><div class="gps-label">Phone notifications <span class="gps-tag">Owner</span></div><p class="gps-hint" id="gpa-push-hint">Alerts on your iPhone for chats, sign-ins, AI failures, errors and more.</p></div>
+                    <button id="gpa-push-toggle" class="gps-btn" type="button">Turn on</button>
+                  </div>
+                  <label class="gpa-push-token" id="gpa-push-token-row" hidden>
+                    <span class="gps-hint">Owner proof: your admin token. Used once to turn this on; never saved.</span>
+                    <input id="gpa-push-token" class="gpa-input" type="password" autocomplete="off" aria-label="Admin token, used once to turn on notifications">
+                  </label>
+                  <div class="gpa-push-cats" id="gpa-push-cats" hidden></div>
+                  <div class="gps-row" id="gpa-push-actions" hidden><button id="gpa-push-test" class="gps-btn" type="button">Send a test notification</button></div>
+                  <p class="gps-hint" id="gpa-push-msg" role="status" aria-live="polite"></p>
                 </div>
                 <div class="gps-item gps-item-row" data-k="account server session sign in connected memory devices">
                   <div><div class="gps-label">Server account</div><p class="gps-hint" id="gps-srv-hint"></p></div>
@@ -12673,7 +12699,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     ADMIN_KEYS.MODEL, ADMIN_KEYS.SMART_MODEL, ADMIN_KEYS.AUTO_UPGRADE,
     ADMIN_KEYS.SYSPREFIX, ADMIN_KEYS.MAXCHARS, ADMIN_KEYS.TEMP,
     ADMIN_KEYS.LOGS, ADMIN_KEYS.TELE_TOKEN, ADMIN_KEYS.TELE_ENDPOINT,
-    ADMIN_KEYS.TELE_NOTICE_SEEN, 'gpa_script_src', 'gpa_chat_rooms', 'gpa_ann_seen', 'gpa_bc_dismissed', 'gpa_session_token'
+    ADMIN_KEYS.TELE_NOTICE_SEEN, 'gpa_script_src', 'gpa_chat_rooms', 'gpa_ann_seen', 'gpa_bc_dismissed', 'gpa_push_device', 'gpa_session_token'
   ];
 
   const loginOverlay = panel.querySelector('#gpa-login');
@@ -17311,6 +17337,169 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     back.appendChild(card);
     panel.appendChild(back);
     try { ok.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+  }
+
+  // ---- Owner phone notifications (Settings → Account) ------------------------
+  // Web Push from the Worker to the owner's home-screen app (iOS 16.4+ and
+  // desktop browsers). Turning it on needs owner proof once (owner code,
+  // owner session or the admin token typed here, which is not stored); the
+  // Worker then hands this device a manage key for its own subscription.
+  (function ownerPush() {
+    const card = panel.querySelector('#gpa-push-card');
+    if (!card) return;
+    const $ = (sel) => card.querySelector(sel);
+    const hint = $('#gpa-push-hint'), toggle = $('#gpa-push-toggle'), msg = $('#gpa-push-msg');
+    const tokenRow = $('#gpa-push-token-row'), tokenInput = $('#gpa-push-token');
+    const catsEl = $('#gpa-push-cats'), actions = $('#gpa-push-actions'), testBtn = $('#gpa-push-test');
+    const DEVICE_KEY = 'gpa_push_device';
+    const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    let device = null, categories = {};
+    try { device = JSON.parse(localStorage.getItem(DEVICE_KEY) || 'null'); } catch (e) { device = null; }
+    const api = (path, body, extra) => fetch(telemetryEndpoint() + path, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json', ...(extra || {}) },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    }).then(async (r) => ({ ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) }));
+    const say = (t) => { msg.textContent = t || ''; };
+    const keyBytes = (b64) => { const s = b64.replace(/-/g, '+').replace(/_/g, '/'); return Uint8Array.from(atob(s + '='.repeat((4 - s.length % 4) % 4)), (c) => c.charCodeAt(0)); };
+    function saveDevice(d) {
+      device = d;
+      try { if (d) localStorage.setItem(DEVICE_KEY, JSON.stringify(d)); else localStorage.removeItem(DEVICE_KEY); } catch (e) { /* ignore */ }
+    }
+    function renderCats(labels) {
+      catsEl.innerHTML = '';
+      Object.keys(labels).forEach((k) => {
+        const row = document.createElement('div');
+        row.className = 'gpa-push-cat';
+        const name = document.createElement('span');
+        name.textContent = labels[k];
+        const sw = document.createElement('button');
+        sw.type = 'button';
+        sw.className = 'gps-switch' + (categories[k] !== false ? ' primary' : '');
+        sw.setAttribute('aria-pressed', categories[k] !== false ? 'true' : 'false');
+        sw.setAttribute('aria-label', labels[k]);
+        sw.textContent = labels[k];
+        sw.addEventListener('click', async () => {
+          const next = { ...categories, [k]: categories[k] === false };
+          const r = await api('/push/update', { id: device.id, key: device.key, categories: next }).catch(() => null);
+          if (r && r.ok) { categories = r.data.subscription.categories; renderCats(labels); say(''); }
+          else say('Couldn’t save that. Check your connection.');
+        });
+        row.appendChild(name); row.appendChild(sw);
+        catsEl.appendChild(row);
+      });
+    }
+    let labelsCache = null;
+    async function labels() {
+      if (labelsCache) return labelsCache;
+      const r = await api('/push/key');
+      if (!r.ok) throw new Error('key');
+      labelsCache = r.data;
+      return labelsCache;
+    }
+    function render() {
+      const on = !!device;
+      toggle.textContent = on ? 'Turn off' : 'Turn on';
+      toggle.classList.toggle('primary', !on);
+      catsEl.hidden = !on;
+      actions.hidden = !on;
+      if (!supported) {
+        toggle.disabled = true;
+        hint.textContent = isIOS && !APP_MODE
+          ? 'Add Agent Console to your Home Screen (Share → Add to Home Screen), open it from there, then turn this on.'
+          : 'This browser can’t receive push notifications. On iPhone, use the Home Screen app (iOS 16.4 or later).';
+      } else if (!APP_MODE) {
+        hint.textContent = 'Open the Agent Console app (/console/ on your Worker) to turn on notifications for this device.';
+        toggle.disabled = true;
+      } else {
+        hint.textContent = on
+          ? 'This device gets the alerts you switch on below.'
+          : 'Alerts on this device for chats, sign-ins, AI failures, errors and more.';
+      }
+    }
+    async function turnOn() {
+      say('');
+      // iOS only shows the permission prompt from a direct tap: ask first.
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { say('Notifications are blocked. Turn them on in iPhone Settings → Notifications → Agent Console.'); return; }
+      toggle.disabled = true;
+      say('Turning on…');
+      try {
+        const info = await labels();
+        const reg = await navigator.serviceWorker.ready;
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(info.publicKey) });
+        const headers = {};
+        const code = typeof admGet === 'function' ? admGet(ADMIN_KEYS.OWNER_CODE) : '';
+        if (code) headers['X-GPA-Owner'] = code;
+        if (sessionToken()) headers['X-GPA-Session'] = sessionToken();
+        if (tokenInput.value.trim()) headers.Authorization = 'Bearer ' + tokenInput.value.trim();
+        const r = await api('/push/subscribe', { subscription: sub.toJSON(), name: isIOS ? 'iPhone' : 'Browser' }, headers);
+        tokenInput.value = '';
+        if (r.status === 403) {
+          tokenRow.hidden = false;
+          say('Only the owner can turn this on. Enter your admin token above, then tap Turn on again.');
+          return;
+        }
+        if (!r.ok) { say(r.data.error || 'Couldn’t turn on notifications.'); return; }
+        tokenRow.hidden = true;
+        saveDevice({ id: r.data.subscription.id, key: r.data.subscription.manageKey });
+        categories = r.data.subscription.categories;
+        renderCats(info.categories);
+        say('Notifications are on. Send a test to check.');
+      } catch (e) {
+        say('Couldn’t turn on notifications on this device.');
+      } finally {
+        toggle.disabled = false;
+        render();
+      }
+    }
+    async function turnOff() {
+      toggle.disabled = true;
+      try {
+        if (device) await api('/push/unsubscribe', { id: device.id, key: device.key }).catch(() => null);
+        const reg = await navigator.serviceWorker.getRegistration('/console/');
+        const sub = reg && await reg.pushManager.getSubscription();
+        if (sub) await sub.unsubscribe();
+      } catch (e) { /* already gone */ }
+      saveDevice(null);
+      say('Notifications are off on this device.');
+      toggle.disabled = false;
+      render();
+    }
+    toggle.addEventListener('click', () => (device ? turnOff() : turnOn()));
+    testBtn.addEventListener('click', async () => {
+      testBtn.disabled = true;
+      const r = await api('/push/test', { id: device.id, key: device.key }).catch(() => null);
+      testBtn.disabled = false;
+      say(r && r.ok ? 'Test sent. It should arrive in a few seconds.' : 'The test didn’t go through. Try turning notifications off and on again.');
+    });
+    render();
+    // Re-check a remembered device with the Worker (it may have been removed).
+    if (device && supported) {
+      Promise.all([api('/push/status', { id: device.id, key: device.key }), labels()]).then(([r, info]) => {
+        if (r.ok) { categories = r.data.subscription.categories; renderCats(info.categories); }
+        else if (r.status === 404) { saveDevice(null); say('This device was removed from notifications. Turn them on again.'); }
+        render();
+      }).catch(() => { /* offline: keep showing the remembered state */ });
+    }
+  })();
+
+  // A notification tap opens the app on its tab (/console/#tab=chat etc.).
+  function openTabFromUrl(href) {
+    const m = /[#&]tab=([a-z]+)/.exec(href || location.hash);
+    const item = m && panel.querySelector(`.gpa-dropdown-item[data-tab="${m[1]}"]`);
+    if (item && item.style.display !== 'none') item.click();
+  }
+  if (APP_MODE) {
+    setTimeout(() => openTabFromUrl(location.hash), 0);
+    onWin('hashchange', () => openTabFromUrl(location.hash));
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'agent-console-open') openTabFromUrl(e.data.url);
+      });
+    }
   }
 
   // ---- Owner feature flags ----

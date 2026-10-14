@@ -88,7 +88,7 @@ try {
 
   // Offline launch: the service worker kept the shell and the script.
   await page.evaluate(() => navigator.serviceWorker.ready);
-  const cached = await page.evaluate(async () => (await (await caches.open('agent-console-app-v1')).keys()).map((r) => new URL(r.url).pathname));
+  const cached = await page.evaluate(async () => { const name = (await caches.keys()).find((k) => k.startsWith('agent-console-app-')); return name ? (await (await caches.open(name)).keys()).map((r) => new URL(r.url).pathname) : []; });
   check('Service worker cached the shell and the console script', cached.includes('/console/') && cached.includes('/console/script.js'), cached.join(' '));
   check('Nothing but app files is cached', cached.every((p) => p.startsWith('/console/')));
   await ctx.setOffline(true);

@@ -90,6 +90,37 @@ the app's own files (the page, icons and the console script). Chat, AI answers
 and everything else still need a connection. Owners can point the app at a
 different build with the Worker variable `CONSOLE_SCRIPT_URL`.
 
+### Phone notifications (owner only)
+
+In the app, open **Settings → Account → Phone notifications** and tap
+**Turn on** (iOS 16.4 or later, opened from the Home Screen icon). If you
+aren't signed in with the owner code or an owner session, the app asks for
+your admin token once to prove you are the owner; it isn't saved. The Worker
+then sends standard Web Push notifications straight to your iPhone:
+
+| Alert | What it says |
+|---|---|
+| Chat messages | `kj in #public`: the message (or "Sent a photo"), for every room |
+| Sign-ins | `kj signed in`: time, place and the site they opened it on (at most once per 10 minutes per user) |
+| New users | First sign-in of a new username, and new server accounts |
+| AI request failures | Who, the error type and status, the reason (API keys are never included) |
+| Worker errors | Unexpected Worker errors, with the route |
+| Chat reports | Who reported whom, in which room, and the message |
+| Security alerts | Sign-in lockouts, owner-name and identity spoofing, refused notification sign-ups |
+| Failed scheduled jobs | The nightly jobs, if one fails |
+
+Each kind has its own switch. **Send a test notification** checks delivery,
+and tapping a notification opens the app on the right tab. Your own chats and
+AI requests never notify you. Times use `America/New_York` unless the Worker
+variable `OWNER_TZ` says otherwise.
+
+No setup is needed in Cloudflare: the Worker creates its push keys (VAPID) on
+first use and keeps them in KV. To manage them yourself instead, set the
+secrets `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (base64url P-256 keys,
+e.g. from `npx web-push generate-vapid-keys`), and optionally `VAPID_SUBJECT`
+(`mailto:you@example.com`). Changing the keys means turning notifications
+off and on again on your phone.
+
 Icons are drawn by `web/console/make-icons.py`; edit files in
 `web/console/public/`, then run `npm run build:web`. Checks:
 `node --test tests/console-app.test.mjs` and

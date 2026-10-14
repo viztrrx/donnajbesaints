@@ -1,5 +1,6 @@
 import { webApp } from './web/handler.js';
 import { consoleApp } from './web/console/handler.js';
+import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime } from './web/console/push.js';
 import { validateMutation } from './mobile/backend/validation.js';
 import { AdminMobileState, stateCall, digest, randomToken, validSource, relayCall, queueEvent } from './mobile/backend/state.js';
 export { AdminMobileState };
@@ -391,6 +392,25 @@ async function runJob(kv, id, trigger) {
   return rec;
 }
 
+// Who made each /v1 (AI) request, so the fetch wrapper can tell the owner
+// when one fails without threading the name through every early return.
+const aiCallers = new WeakMap();
+async function reportAiFailure(req, res, env, ctx) {
+  const user = aiCallers.get(req);
+  if (!user || String(user).toLowerCase() === String((env && env.OWNER) || 'viztrrx').toLowerCase()) return;
+  let type = 'error', message = 'HTTP ' + res.status;
+  try {
+    const j = await res.clone().json();
+    const e = (j && j.error) || {};
+    type = String(e.type || e.code || type).slice(0, 40);
+    message = String(e.message || message).replace(/sk-[A-Za-z0-9_-]{6,}/g, 'sk-…').slice(0, 180);
+  } catch (e) { /* non-JSON upstream body */ }
+  const p = notifyOwner(env, { cat: 'aierror', title: 'AI request failed: ' + user,
+    body: `${type} (${res.status}) · ${message} · ${ownerTime(env)}`, url: '/console/#tab=admin',
+    throttle: { key: 'ai:' + String(user).toLowerCase() + ':' + type, seconds: 300 } }, new URL(req.url).origin);
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+}
+
 export default {
   // WHY THIS WRAPPER EXISTS: when a worker throws, Cloudflare replies with a
   // bare 500 carrying no Access-Control-Allow-Origin header. The browser then
@@ -399,13 +419,24 @@ export default {
   // real reason always reaches the client, with CORS headers on it.
   async fetch(req, env, ctx) {
     try {
-      return await handleRequest(req, env, ctx);
+      const res = await handleRequest(req, env, ctx);
+      if (res && res.status >= 400 && aiCallers.has(req)) {
+        try { await reportAiFailure(req, res, env, ctx); } catch (e) { /* never block the answer */ }
+      }
+      return res;
     } catch (err) {
       // Also goes to the Workers live log (dashboard → the worker → Logs), so
       // the full error is recoverable server-side even though the response
       // deliberately carries only a short message.
       console.error('Worker error:', err);
       queueEvent(env,ctx,'backend',3);
+      try {
+        const path = new URL(req.url).pathname;
+        const p = notifyOwner(env, { cat: 'error', title: 'Worker error', urgent: true,
+          body: `${req.method} ${path} · ${String((err && err.message) || err).slice(0, 160)} · ${ownerTime(env)}`,
+          throttle: { key: 'err:' + path, seconds: 300 } }, new URL(req.url).origin);
+        if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+      } catch (e) { /* reporting must not mask the error response */ }
       return jsonResponse({
         error: {
           message: 'The worker hit an unexpected error handling this request.',
@@ -432,7 +463,7 @@ export default {
     // can show the schedule and compute the next run.
     ctx.waitUntil((async () => {
       try { await kv.put('job:cron', JSON.stringify({ cron: event.cron || null, ts: Date.now() })); } catch (e) { /* best-effort */ }
-      for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron');if(!r.ok) queueEvent(env,ctx,'jobs',3);}
+      for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron');if(!r.ok){queueEvent(env,ctx,'jobs',3);await notifyOwner(env,{cat:'jobs',title:'Scheduled job failed',body:`${id} · ${String(r.detail||'no detail').slice(0,160)} · ${ownerTime(env)}`});}}
     })());
   }
 };
@@ -656,6 +687,20 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       pendingCount++;
       scheduleFlush();
       if (/lockout|owner_claim|identity_mismatch/.test(type)) queueEvent(env,ctx,'security',3);
+      if (/lockout|owner_claim|identity_mismatch|push_subscribe_denied|login_disabled/.test(type)) {
+        const who = detail && detail.user ? String(detail.user).slice(0, 40) : 'someone';
+        const what = { login_lockout: 'Too many wrong PINs: sign-ins are locked for a while', owner_claim: 'Tried to use the owner name without the owner code',
+          identity_mismatch: 'A signed-in account claimed another username', push_subscribe_denied: 'A non-owner tried to turn on owner notifications',
+          login_disabled: 'A disabled account tried to sign in' }[type] || type;
+        notify({ cat: 'security', title: 'Security alert', body: `${what} (${who}) · ${ownerTime(env)}`, urgent: true,
+          throttle: { key: 'sec:' + type + ':' + who, seconds: 600 } });
+      }
+    };
+    // Owner push notifications (web/console/push.js). Fire and forget.
+    const notify = (ev) => {
+      const p = notifyOwner(env, ev, url.origin);
+      if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+      return p;
     };
     const noteUsage = (user, delta) => {
       const k = `usage:${dayKey()}:${String(user || 'anonymous').toLowerCase().slice(0, 80)}`;
@@ -1153,6 +1198,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const acct = { user, verifier: await sha256hex(salt + '|' + verifier), salt, role: 'user', ownerVerified, createdAt: Date.now(), epoch: 0, sessions: [] };
         const s = await issue(acct);
         await noteSec('account_created', { user });
+        if (userLower !== OWNER) notify({ cat: 'newuser', title: 'New account: ' + user, body: 'Registered at ' + ownerTime(env) + (req.cf && req.cf.country ? ' · ' + req.cf.country : ''), url: '/console/#tab=admin' });
         return json({ ok: true, token: s.token, exp: s.exp, account: view(acct, roleOf(acct)) });
       }
 
@@ -1784,6 +1830,13 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           // Approval queue: a genuinely new username (no prior rollup) starts
           // pending when the owner has approvalMode on — /v1/* then refuses
           // them until /admin/moderate action "approve" is used.
+          if (userLower !== OWNER && userLower !== 'anonymous') {
+            const where = [rec.region, rec.country !== '??' ? rec.country : ''].filter(Boolean).join(', ');
+            const detailLine = [ownerTime(env, now), where, rec.host ? 'on ' + rec.host : ''].filter(Boolean).join(' · ');
+            if (!prev) notify({ cat: 'newuser', title: 'New user: ' + user, body: 'First sign-in · ' + detailLine, url: '/console/#tab=admin' });
+            notify({ cat: 'signin', title: user + ' signed in', body: detailLine,
+              throttle: { key: 'signin:' + userLower, seconds: 600 } });
+          }
           if (!prev && cfg.approvalMode && userLower !== OWNER) {
             const modKey = 'mod:' + userLower;
             const curMod = (await kv.get(modKey, 'json')) || { state: 'active', reason: '', kickNonce: 0 };
@@ -1844,6 +1897,53 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         // a dismissal sticks on every site, browser and the home-screen app.
         dismissed: dismissed ? { broadcast: dismissed.broadcast || null, announcement: dismissed.announcement || null } : null
       });
+    }
+
+    // ---- Owner push notifications (the home-screen app) ----------------------
+    // Subscribing needs owner proof (owner token, owner session or OWNER_CODE).
+    // After that a device manages only its own subscription, with the random
+    // manage key it was given; it never sees anyone else's.
+    if (url.pathname === '/push/key' && req.method === 'GET') {
+      if (!env || !env.TELEMETRY) return json({ error: 'storage not configured' }, 503);
+      const keys = await vapidKeys(env, { create: true });
+      return json({ publicKey: keys.publicKey, categories: PUSH_CATEGORIES });
+    }
+    if (url.pathname.startsWith('/push/') && req.method === 'POST') {
+      if (!env || !env.TELEMETRY) return json({ error: 'storage not configured' }, 503);
+      let body = {};
+      try { const raw = await req.text(); if (raw.length > 4096) throw 0; body = JSON.parse(raw) || {}; } catch (e) { return json({ error: 'invalid request' }, 400); }
+      if (url.pathname === '/push/subscribe') {
+        const p = await resolvePrincipal();
+        const code = req.headers.get('X-GPA-Owner') || '';
+        const isOwner = (p && p.role === 'owner') || (env.OWNER_CODE && code && await timingSafeEqualStr(code, env.OWNER_CODE));
+        if (!isOwner) {
+          await noteSec('push_subscribe_denied', { note: 'not owner' });
+          return json({ error: 'Only the owner can turn on these notifications.' }, 403);
+        }
+        if (!validSubscription(body.subscription)) return json({ error: 'That is not a push subscription from a supported browser.' }, 400);
+        await vapidKeys(env, { create: true });
+        const rec = await addSubscription(env, body.subscription, { categories: body.categories, name: body.name });
+        return json({ ok: true, subscription: rec });
+      }
+      const id = String(body.id || ''), key = String(body.key || '');
+      if (!/^[0-9a-f-]{36}$/.test(id) || !key) return json({ error: 'unknown device' }, 404);
+      if (url.pathname === '/push/update') {
+        const r = await updateSubscription(env, id, key, body.categories);
+        return r ? json({ ok: true, subscription: r }) : json({ error: 'unknown device' }, 404);
+      }
+      if (url.pathname === '/push/unsubscribe') return json({ ok: await removeSubscription(env, id, key) });
+      if (url.pathname === '/push/status') {
+        const sub = await getSubscription(env, id, key);
+        return sub ? json({ ok: true, subscription: { id: sub.id, categories: sub.categories, name: sub.name } }) : json({ error: 'unknown device' }, 404);
+      }
+      if (url.pathname === '/push/test') {
+        const sub = await getSubscription(env, id, key);
+        if (!sub) return json({ error: 'unknown device' }, 404);
+        const keys = await vapidKeys(env);
+        const r = await sendPush(sub, { title: 'Agent Console', body: 'Notifications are working. Sent at ' + ownerTime(env) + '.', cat: 'test', url: '/console/', ts: Date.now() }, keys, env.VAPID_SUBJECT || url.origin);
+        return json({ ok: r.ok, status: r.status }, r.ok ? 200 : 502);
+      }
+      return json({ error: 'not found' }, 404);
     }
 
     // Remembers that this account dismissed the owner's banner or popup.
@@ -2189,6 +2289,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       } catch (e) {
         return json({ ok: false, error: 'could not store message' }, 200);
       }
+      if (userLower !== OWNER) {
+        const roomLabel = access.id === 'public' ? '#public' : '#' + ((access.room && access.room.name) || access.id);
+        notify({ cat: 'chat', title: user + ' in ' + roomLabel, body: text || (media ? 'Sent a photo' : ''),
+          url: '/console/#tab=chat' });
+      }
       return json({ ok: true, ts });
     }
 
@@ -2236,6 +2341,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         reason: String(body.reason || '').slice(0, 200), status: 'open', createdAt: Date.now()
       }), { expirationTtl: 60 * 60 * 24 * 30 });
       queueEvent(env,ctx,'moderation',2);
+      notify({ cat: 'reports', title: 'Chat report in ' + (access.id === 'public' ? '#public' : '#' + ((access.room && access.room.name) || access.id)),
+        body: `${p.user} reported ${msg.u}: "${String(msg.t || '').slice(0, 140)}"` + (body.reason ? ' · ' + String(body.reason).slice(0, 80) : ''),
+        url: '/console/#tab=admin' });
       return json({ ok: true });
     }
 
@@ -3178,6 +3286,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       return json({ error: { message: 'Sign in again to use AI features (this console now requires a verified session).', type: 'session_required' } }, 401);
     }
     const modUser = identity.user;
+    if (modUser) aiCallers.set(req, modUser);   // read by the fetch wrapper to report failures
     const isStaff = !!principal && (ROLE_RANK_V2[principal.role] || 0) >= 1;
     let assignedKey = '';
     let vCfg = null;
