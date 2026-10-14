@@ -2002,6 +2002,91 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       return { ok: true, id, room };
     };
 
+    // Public chat gallery. Store untrusted uploads outside KV and under a
+    // dedicated prefix so other R2 assets (including Eaglercraft) are untouched.
+    const chatMediaBucket=env && env.donnajbe_eaglercraft_client;
+    const CHAT_IMAGE_LIMIT=5*1024*1024;
+    const CHAT_IMAGE_TYPES={
+      'image/jpeg':true,'image/png':true,'image/webp':true,'image/gif':true
+    };
+    const chatImageSignature=(data,type)=>{
+      const starts=(...bytes)=>bytes.every((byte,i)=>data[i]===byte);
+      const textAt=(offset,text)=>[...text].every((ch,i)=>data[offset+i]===ch.charCodeAt(0));
+      return type==='image/jpeg'?starts(255,216,255):
+        type==='image/png'?starts(137,80,78,71,13,10,26,10):
+        type==='image/webp'?textAt(0,'RIFF')&&textAt(8,'WEBP'):
+        type==='image/gif'?textAt(0,'GIF8'):false;
+    };
+    if(url.pathname==='/chat/media/upload' && req.method==='POST'){
+      if(!kvMain||!chatMediaBucket)return json({ok:false,error:'Chat photo storage is not configured'},503);
+      const contentLength=Number(req.headers.get('Content-Length')||0);
+      if(contentLength>CHAT_IMAGE_LIMIT+65536)return json({ok:false,error:'Photo must be 5 MB or less'},413);
+      let form;
+      try{form=await req.formData();}catch(e){return json({ok:false,error:'Invalid photo upload'},400);}
+      const file=form.get('photo');
+      if(!file||typeof file.arrayBuffer!=='function'||!file.size||file.size>CHAT_IMAGE_LIMIT||
+        !CHAT_IMAGE_TYPES[file.type])return json({ok:false,error:'Choose a JPG, PNG, WebP, or GIF up to 5 MB'},400);
+      const identity=await effectiveUser(form.get('user'));
+      if(identity.refused||!String(identity.user||'').trim())return json({ok:false,error:'Sign in to upload a photo'},401);
+      const user=String(identity.user).trim().slice(0,40);
+      const lower=user.toLowerCase();
+      if(lower===OWNER&&env.OWNER_CODE&&!identity.verified&&
+        !(await timingSafeEqualStr(req.headers.get('X-GPA-Owner')||'',env.OWNER_CODE)))
+        return json({ok:false,error:'Owner verification required'},403);
+      const cfg=await getConfig(kvMain);
+      const state=await resolve(kvMain,user);
+      if(state.state==='blocked'||(cfg.readOnly&&lower!==OWNER)||
+        (cfg.maintenance?.on&&lower!==OWNER))return json({ok:false,error:'Chat is unavailable for this account'},403);
+      if(cfg.blockedCountries?.includes(String(req.cf?.country||'').toUpperCase()))
+        return json({ok:false,error:'Chat is unavailable in your region'},403);
+      const room=await checkRoomAccess(kvMain,form.get('room'),form.get('code'));
+      if(!room.ok)return json({ok:false,error:room.error},403);
+      const rules=await getRoomCfg(kvMain,room.id);
+      if(rules.bannedUsers.includes(lower))return json({ok:false,error:'Banned from this room'},403);
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      if(bytes.length>CHAT_IMAGE_LIMIT||!chatImageSignature(bytes,file.type))
+        return json({ok:false,error:'This file is not a supported photo'},400);
+      // Guest chat remains available, but per-client upload limits prevent
+      // an anonymous user from filling R2 with large image files.
+      const rateKey='chat-photo-rate:'+dayKey()+':'+
+        (await sha256hex(clientIp(req)||'unknown')).slice(0,28);
+      const uploaded=parseInt(await kvMain.get(rateKey)||'0',10)||0;
+      if(uploaded>=12)return json({ok:false,error:'Daily photo upload limit reached (12)'},429);
+      await kvMain.put(rateKey,String(uploaded+1),{expirationTtl:172800});
+      const id=crypto.randomUUID();
+      try{
+        await chatMediaBucket.put('chat-media/'+id,bytes,{
+          httpMetadata:{contentType:file.type},
+          customMetadata:{uploader:lower,room:room.id,type:file.type}
+        });
+      }catch(e){return json({ok:false,error:'Photo storage is temporarily unavailable'},503);}
+      return json({ok:true,id,type:file.type,url:'/chat/media/'+id});
+    }
+    if(url.pathname.startsWith('/chat/media/')&&req.method==='GET'){
+      const id=url.pathname.slice('/chat/media/'.length);
+      if(!/^[a-f0-9-]{36}$/.test(id))return json({error:'Photo not found'},404);
+      if(!chatMediaBucket)return json({error:'Chat photo storage is unavailable'},503);
+      const photo=await chatMediaBucket.get('chat-media/'+id);
+      if(!photo||!CHAT_IMAGE_TYPES[photo.customMetadata?.type])
+        return json({error:'Photo not found'},404);
+      return new Response(photo.body,{headers:{
+        'Content-Type':photo.customMetadata.type,
+        'X-Content-Type-Options':'nosniff',
+        'Cache-Control':'public, max-age=300',
+        'Cross-Origin-Resource-Policy':'cross-origin',
+        'Access-Control-Allow-Origin':'*'
+      }});
+    }
+    const chatPhoto=async(id,user,room)=>{
+      if(!id)return null;
+      if(typeof id!=='string'||!/^[a-f0-9-]{36}$/.test(id)||!chatMediaBucket)return false;
+      const photo=await chatMediaBucket.head('chat-media/'+id);
+      if(!photo||!CHAT_IMAGE_TYPES[photo.customMetadata?.type]||
+        photo.customMetadata.uploader!==user.toLowerCase()||
+        photo.customMetadata.room!==room)return false;
+      return {id,type:photo.customMetadata.type};
+    };
+
     if (url.pathname === '/chat/send' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ ok: false, error: 'chat storage not configured' }, 200);
@@ -2012,7 +2097,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const user = String(sendId.user || 'anonymous').slice(0, 40);
       const userLower = user.toLowerCase();
       const text = String(body.text || '').trim().slice(0, 500);
-      if (!text) return json({ ok: false, error: 'empty message' }, 200);
+      if (!text && !body.mediaId) return json({ ok: false, error: 'empty message' }, 200);
       // Nobody may claim the owner's username without proving it (OWNER_CODE,
       // sent as X-GPA-Owner) — otherwise any visitor could sign in as the
       // owner's name and inherit the 👑 badge and moderation immunity in
@@ -2038,6 +2123,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       }
       const access = await checkRoomAccess(kv, body.room, body.code);
       if (!access.ok) return json({ ok: false, error: access.error }, 200);
+      const media=await chatPhoto(body.mediaId,user,access.id);
+      if(body.mediaId&&!media)return json({ok:false,error:'Photo upload not found or not owned by this user'},200);
       const roomCfg = await getRoomCfg(kv, access.id);
       if (roomCfg.bannedUsers.includes(userLower)) {
         return json({ ok: false, error: 'banned from this room' }, 200);
@@ -2061,7 +2148,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (mod.shadowMuted) return json({ ok: true, ts });
       try {
         const log = await readRoomLog(kv, access.id);
-        log.push({ u: user, t: text, ts, owner: userLower === OWNER });
+        log.push({ u: user, t: text, ts, owner: userLower === OWNER, ...(media?{media}:{}) });
         // Keep the newest CHAT_MAX so one room's log can't grow past the
         // 25MB per-value ceiling however long it runs.
         const trimmed = log.slice(-CHAT_MAX);
