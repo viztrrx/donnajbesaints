@@ -7,3 +7,5 @@ node_modules/
 # Real EaglercraftX build (scripts/build-eaglercraft.sh): inputs, work files and
 # the generated client. Mojang-derived; never commit.
 build/
+# Default output folder of tests/browser/eaglercraft.e2e.mjs (screenshots, results)
+eagler-e2e-out/
