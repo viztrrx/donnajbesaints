@@ -694,7 +694,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-12T12:00:00-04:00', commit: '', title: 'Minimalist Chromebox Lite covers every 1.8 block texture and loads by default', parts: {
       eaglercraft: ['redesign', '373 clean block textures, lighter effects, cached versioned installation and an automatic-selection switch'] } },
     { at: '2026-10-14T18:00:00-04:00', commit: '', title: 'Interface polish: sectioned sidebar, line icons everywhere, deeper surfaces', parts: {
-      console: ['redesign', 'Sidebar sections, icon window controls, brand mark, drawer sidebar on narrow panels, stronger primary buttons'],
+      console: ['redesign', 'Sidebar sections, icon window controls, brand mark, drawer sidebar on narrow panels, stronger primary buttons, 44px touch targets, labelled search fields'],
       scan: ['fix', 'Line icons replace emoji in buttons'], ask: ['fix', 'Line icons for voice input and model badge'],
       chat: ['fix', 'Line icon for the photo button'], music: ['fix', 'Line icons in the player and library'],
       games: ['fix', 'Line icons for pause, resume and fullscreen'], eaglercraft: ['fix', 'Fullscreen buttons use the fullscreen icon'],
@@ -1805,7 +1805,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-insight-actions .gpa-btn { font-size: 11px; padding: 5px 9px; min-height: 28px; gap: 6px; }
       .gpa-insight-actions .gpa-btn svg { width: 13px; height: 13px; }
       .game-btn { font-size: 11px; }
-      .gpa-cal-dow { font-size: 10.5px; letter-spacing: 0.06em; }
+      .gpa-cal-dow { font-size: 11px; letter-spacing: 0.06em; }
+      .gpa-cal-day { font-size: 12px; }
+      .gpa-snapshot-label { font-size: 11.5px; }
+      .gvh-kind { font-size: 11px; }
+      .gvh-list code { font-size: 11px; }
       .gpa-pause-stat-label { font-size: 10.5px; }
       .gpa-insight-label { font-size: 10.5px; }
       .gpa-admin-statcard .l { font-size: 10.5px; }
@@ -1838,6 +1842,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-panel.gpa-narrow .gpa-main { transition: filter var(--gps-t2) ease, opacity var(--gps-t2) ease; }
       .gpa-panel.gpa-narrow:not(.gpa-sidebar-hidden) .gpa-main { filter: blur(1px); opacity: 0.55; }
+
+      /* ---- Touch screens: every tap target at least 44×44 ---- */
+      @media (pointer: coarse) {
+        #gpa-sidebar-toggle, #gpa-min, #gpa-reload, #gpa-console-fullscreen, #gpa-close { width: 44px; height: 44px; }
+        .gpa-header { gap: 2px; padding: 4px 8px; }
+        .gpa-dropdown-item { min-height: 44px; }
+        .gpa-input, .gpa-panel select, .gpx-seg .gps-seg-btn, .gpx-seg-inline .gps-seg-btn, .gpa-cal-day, #gps-search { min-height: 44px; }
+        .gps-switch::before { content: ''; position: absolute; inset: -9px -2px; }
+        .gpa-btn, .gpa-dropdown-item, .gps-seg-btn, .gpa-cal-day { touch-action: manipulation; }
+        .gpa-btn:not(.primary):not(.danger):not(:disabled):hover, .gpa-btn.primary:not(:disabled):hover { transform: none; }
+      }
 
       @media (prefers-reduced-motion: reduce) {
         .gpa-btn:hover, .gpa-btn.primary:not(:disabled):hover { transform: none; }
@@ -2987,7 +3002,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="search">
             <div class="gpx-card-head">${GPS_ICONS.search}<div class="gpa-card-title">Search and play</div></div>
             <div class="gpa-row gpx-composer">
-              <input id="gpa-music-query" class="gpa-input" placeholder="Type a song name or description…" />
+              <input id="gpa-music-query" class="gpa-input" placeholder="Type a song name or description…" aria-label="Song to search for" />
               <button id="gpa-music-search" class="gpa-btn primary">Play</button>
             </div>
             <div id="gpa-music-status" class="gpa-sub"></div>
@@ -3065,7 +3080,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div class="gpx-card-head">${GPS_ICONS.lab}<div class="gpa-card-title">Research mode</div></div>
             <p class="gpa-sub">The AI reads web sources on a topic and writes you a brief with citations.</p>
             <div class="gpa-row gpx-composer">
-              <input id="gpa-research-input" class="gpa-input" placeholder="Topic or question to research…" />
+              <input id="gpa-research-input" class="gpa-input" placeholder="Topic or question to research…" aria-label="Topic or question to research" />
               <button id="gpa-research-btn" class="gpa-btn primary">Research</button>
             </div>
             <div id="gpa-research-out" class="gpa-output" style="max-height:260px;"></div>
