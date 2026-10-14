@@ -548,3 +548,35 @@ test('eagler: versioned pack JSON is same-origin, typed and cacheable', async ()
   assert.equal((await c.call('/eagler/loader/pack-config.js')).status, 200);
   assert.equal((await c.call('/eagler/loader/sub/bundle.json')).status, 404);
 });
+
+test('dismissals: banner and popup stay dismissed for the account, everywhere', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  const t = (await signUp(c, 'dana')).data.token;
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { broadcast: 'kj owes', announcement: { title: 'Heads up', text: 'Pay up' } } });
+  let st = await c.call('/status?user=dana', { headers: sess(t) });
+  assert.equal(st.data.broadcast, 'kj owes');
+  assert.ok(st.data.announcement && st.data.announcement.id);
+  assert.equal(st.data.dismissed, null, 'nothing dismissed yet');
+  const annId = st.data.announcement.id;
+
+  assert.equal((await c.call('/status/dismiss', { method: 'POST', headers: sess(t), body: { user: 'dana', kind: 'broadcast', id: 'b1abc' } })).data.ok, true);
+  assert.equal((await c.call('/status/dismiss', { method: 'POST', headers: sess(t), body: { user: 'dana', kind: 'announcement', id: annId } })).data.ok, true);
+  st = await c.call('/status?user=dana', { headers: sess(t) });
+  assert.deepEqual(st.data.dismissed, { broadcast: 'b1abc', announcement: annId }, 'a reload (any site, the app) sees both dismissals');
+  assert.equal(st.data.broadcast, 'kj owes', 'the owner message itself is untouched');
+  const beat = await c.call('/track', { method: 'POST', body: { user: 'dana', session: t, event: 'open', sid: 's9' } });
+  assert.deepEqual(beat.data.dismissed, { broadcast: 'b1abc', announcement: annId }, 'the heartbeat carries the dismissals too');
+
+  // The session decides whose record is written, not the asserted name.
+  await c.call('/status/dismiss', { method: 'POST', headers: sess(t), body: { user: 'erin', kind: 'broadcast', id: 'bzzz' } });
+  assert.equal(await env.TELEMETRY.get('dismiss:erin', 'json'), null);
+  assert.equal((await env.TELEMETRY.get('dismiss:dana', 'json')).broadcast, 'bzzz');
+  const other = await c.call('/status?user=frank');
+  assert.equal(other.data.dismissed, null, 'other users still see the message');
+
+  // Bad input is refused and stores nothing.
+  for (const body of [{ user: 'dana', kind: 'chat', id: 'x' }, { user: 'dana', kind: 'broadcast', id: '' }, { user: 'dana', kind: 'broadcast', id: '<script>' }]) {
+    assert.equal((await c.call('/status/dismiss', { method: 'POST', headers: sess(t), body })).status, 400);
+  }
+  assert.equal((await c.call('/status/dismiss', { method: 'POST', body: 'x'.repeat(2000) })).status, 400);
+});

@@ -706,7 +706,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       games: ['fix', 'Line icons for pause, resume and fullscreen'], eaglercraft: ['fix', 'Fullscreen buttons use the fullscreen icon'],
       study: ['fix', 'Line icons on deck controls'], saved: ['fix', 'Line icons and larger insight actions'] } },
     { at: '2026-10-14T21:00:00-04:00', commit: '', title: 'Agent Console as an iPhone home-screen app', parts: {
-      console: ['feature', 'App mode for /console/ on the Worker: full screen, safe areas, offline launch, no zoom on typing'] } }
+      console: ['feature', 'App mode for /console/ on the Worker: full screen, safe areas, offline launch, no zoom on typing'] } },
+    { at: '2026-10-14T23:00:00-04:00', commit: '', title: 'Dismissed announcements stay dismissed', parts: {
+      console: ['fix', 'Owner banner and popup remember a dismissal for your account on every site and in the app; banner is tappable in the iPhone app'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -864,6 +866,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // Window chrome and status glyphs (replace text/emoji glyphs so every
     // control shares one stroke weight and scales with the theme).
     menu: gpsSvg('<path d="M4.5 7h15M4.5 12h15M4.5 17h15"/>'),
+    megaphone: gpsSvg('<path d="M4 10v4h3l7 4.5v-13L7 10z"/><path d="M17.5 9.5a3.5 3.5 0 0 1 0 5M7 14l1.2 5h2.6L10 14.8"/>'),
     minus: gpsSvg('<path d="M6 12h12"/>'),
     maximize: gpsSvg('<path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15"/>'),
     minimize: gpsSvg('<path d="M9 4.5V9H4.5M19.5 9H15V4.5M15 19.5V15h4.5M4.5 15H9v4.5"/>'),
@@ -1851,6 +1854,28 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-panel.gpa-narrow .gpa-main { transition: filter var(--gps-t2) ease, opacity var(--gps-t2) ease; }
       .gpa-panel.gpa-narrow:not(.gpa-sidebar-hidden) .gpa-main { filter: blur(1px); opacity: 0.55; }
 
+      /* ---- Owner banner and announcement popup ---- */
+      .gpa-broadcast {
+        display: flex; align-items: center; gap: 10px; flex-shrink: 0; position: relative; z-index: 3;
+        padding: 6px 6px 6px 14px; font-size: 12.5px; line-height: 1.45; color: var(--gpa-text);
+        background: linear-gradient(90deg, color-mix(in srgb, var(--gpa-accent) 18%, var(--gpa-panel)), color-mix(in srgb, var(--gpa-accent) 8%, var(--gpa-panel)));
+        border-bottom: 1px solid color-mix(in srgb, var(--gpa-accent) 40%, var(--gpa-border));
+      }
+      .gpa-broadcast-ic { display: grid; place-items: center; color: var(--gpa-accent); }
+      .gpa-broadcast-ic svg { width: 17px; height: 17px; }
+      .gpa-broadcast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      .gpa-broadcast-x {
+        flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px;
+        border: 1px solid transparent; background: transparent; color: var(--gpa-sub); cursor: pointer; touch-action: manipulation;
+      }
+      .gpa-broadcast-x svg { width: 16px; height: 16px; }
+      .gpa-broadcast-x:hover { color: var(--gpa-text); background: var(--gps-soft); }
+      .gpa-broadcast-x:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 1px; }
+      .gpa-app .gpa-broadcast { padding-left: calc(14px + env(safe-area-inset-left)); padding-right: calc(6px + env(safe-area-inset-right)); }
+      .gpa-ann-title { display: flex; align-items: center; justify-content: center; gap: 8px; }
+      .gpa-ann-title svg { width: 18px; height: 18px; }
+      .gpa-ann-text { font-size: 13px; }
+
       /* ---- App mode (home-screen web app): edge to edge, safe areas ---- */
       .gpa-panel.gpa-app { border-radius: 0 !important; border: none !important; box-shadow: none !important; }
       .gpa-app #gpa-min, .gpa-app #gpa-close, .gpa-app #gpa-login-min, .gpa-app #gpa-login-close, .gpa-app .gpa-login-winbtns { display: none !important; }
@@ -1879,6 +1904,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         #gpa-sidebar-toggle, #gpa-min, #gpa-reload, #gpa-console-fullscreen, #gpa-close { width: 44px; height: 44px; }
         .gpa-header { gap: 2px; padding: 4px 8px; }
         .gpa-dropdown-item { min-height: 44px; }
+        .gpa-broadcast-x { width: 44px; height: 44px; }
         .gpa-input, .gpa-panel select, .gpx-seg .gps-seg-btn, .gpx-seg-inline .gps-seg-btn, .gpa-cal-day, #gps-search { min-height: 44px; }
         .gps-switch::before { content: ''; position: absolute; inset: -9px -2px; }
         .gpa-btn, .gpa-dropdown-item, .gps-seg-btn, .gpa-cal-day { touch-action: manipulation; }
@@ -12647,7 +12673,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     ADMIN_KEYS.MODEL, ADMIN_KEYS.SMART_MODEL, ADMIN_KEYS.AUTO_UPGRADE,
     ADMIN_KEYS.SYSPREFIX, ADMIN_KEYS.MAXCHARS, ADMIN_KEYS.TEMP,
     ADMIN_KEYS.LOGS, ADMIN_KEYS.TELE_TOKEN, ADMIN_KEYS.TELE_ENDPOINT,
-    ADMIN_KEYS.TELE_NOTICE_SEEN, 'gpa_script_src', 'gpa_chat_rooms', 'gpa_ann_seen', 'gpa_session_token'
+    ADMIN_KEYS.TELE_NOTICE_SEEN, 'gpa_script_src', 'gpa_chat_rooms', 'gpa_ann_seen', 'gpa_bc_dismissed', 'gpa_session_token'
   ];
 
   const loginOverlay = panel.querySelector('#gpa-login');
@@ -17157,6 +17183,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     // Owner broadcast, remote reload and feature flags ride along on the same
     // status payload, so they land within one poll like moderation does.
+    if (s.dismissed && typeof s.dismissed === 'object') rememberServerDismissals(s.dismissed);
     if (typeof s.broadcast === 'string') showBroadcast(s.broadcast);
     if (s.announcement) showAnnouncement(s.announcement);
     if (s.features && typeof s.features === 'object') applyFeatureFlags(s.features);
@@ -17174,48 +17201,102 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     else hideModOverlay();
   }
 
+  // ---- Dismissals: banner and popup stay dismissed ----------------------------
+  // A dismissal is remembered on this device and, for the signed-in account,
+  // on the Worker (/status/dismiss), so it sticks after a reload, on every
+  // site the console is opened on and in the home-screen app. The banner is
+  // identified by a hash of its text (a new message shows again); the popup by
+  // the id the Worker gives every new send.
+  const BC_DISMISSED_KEY = 'gpa_bc_dismissed';
+  const dismissedNow = new Set();   // this session, in case storage is blocked
+  function textId(text) {
+    // FNV-1a, 32-bit: short, stable and safe to send (no message text leaves).
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return 'b' + h.toString(36) + text.length.toString(36);
+  }
+  function rememberServerDismissals(d) {
+    try {
+      if (typeof d.broadcast === 'string' && d.broadcast) localStorage.setItem(BC_DISMISSED_KEY, d.broadcast);
+      if (typeof d.announcement === 'string' && d.announcement) localStorage.setItem(ANN_SEEN_KEY, d.announcement);
+    } catch (e) { /* storage blocked: the server copy still applies next poll */ }
+    if (broadcastEl && broadcastText && localStorage.getItem(BC_DISMISSED_KEY) === textId(broadcastText)) {
+      broadcastEl.remove(); broadcastEl = null;
+    }
+  }
+  function sendDismissal(kind, id) {
+    dismissedNow.add(kind + ':' + id);
+    try { localStorage.setItem(kind === 'broadcast' ? BC_DISMISSED_KEY : ANN_SEEN_KEY, id); } catch (e) { /* ignore */ }
+    if (!currentUser || typeof telemetryOn !== 'function' || !telemetryOn()) return;
+    const headers = { 'Content-Type': 'application/json' };
+    if (sessionToken()) headers['X-GPA-Session'] = sessionToken();
+    fetch(telemetryEndpoint() + '/status/dismiss', { method: 'POST', headers, body: JSON.stringify({ user: currentUser, kind, id }) })
+      .catch(() => { /* local copy still hides it on this device */ });
+  }
+
   // ---- Owner broadcast banner ----
   let broadcastText = null;   // null = never set, '' = explicitly cleared
   let broadcastEl = null;
   function showBroadcast(text) {
-    if (text === broadcastText) return;   // don't rebuild on every poll
+    if (text === broadcastText && (broadcastEl || !text)) return;   // don't rebuild on every poll
     broadcastText = text;
-    if (!text) { if (broadcastEl) { broadcastEl.remove(); broadcastEl = null; } return; }
-    const t = THEMES[theme] || THEMES.dark;
+    if (!text || dismissedNow.has('broadcast:' + textId(text)) || localStorage.getItem(BC_DISMISSED_KEY) === textId(text)) {
+      if (broadcastEl) { broadcastEl.remove(); broadcastEl = null; }
+      return;
+    }
     if (!broadcastEl) {
       broadcastEl = document.createElement('div');
       broadcastEl.className = 'gpa-broadcast';
-      panel.insertBefore(broadcastEl, panel.firstChild ? panel.firstChild.nextSibling : null);
+      broadcastEl.setAttribute('role', 'status');
+      // Below the header, never above it: at the very top it sat under the
+      // iPhone status bar in the home-screen app, where taps don't reach it.
+      const header = panel.querySelector('.gpa-header');
+      panel.insertBefore(broadcastEl, header ? header.nextSibling : panel.firstChild);
     }
     broadcastEl.innerHTML = '';
-    broadcastEl.style.cssText = `padding:7px 10px;margin:0;font:11px/1.45 ui-monospace,monospace;`
-      + `background:${t.accent}1f;border-bottom:1px solid ${t.accent}66;color:${t.text};display:flex;gap:8px;align-items:flex-start;`;
-    const icon = document.createElement('span'); icon.textContent = '📢';
-    const msg = document.createElement('span'); msg.style.flex = '1'; msg.textContent = text;
-    const x = document.createElement('span');
-    x.textContent = '✕';
-    x.style.cssText = `cursor:pointer;opacity:0.7;`;
-    x.addEventListener('click', () => { if (broadcastEl) { broadcastEl.remove(); broadcastEl = null; } });
+    const icon = document.createElement('span');
+    icon.className = 'gpa-broadcast-ic';
+    icon.innerHTML = GPS_ICONS.megaphone;
+    const msg = document.createElement('span');
+    msg.className = 'gpa-broadcast-text';
+    msg.textContent = text;
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'gpa-broadcast-x';
+    x.title = 'Dismiss';
+    x.setAttribute('aria-label', 'Dismiss this message');
+    x.innerHTML = GPS_ICONS.x;
+    const id = textId(text);
+    x.addEventListener('click', () => {
+      sendDismissal('broadcast', id);
+      if (broadcastEl) { broadcastEl.remove(); broadcastEl = null; }
+    });
     broadcastEl.appendChild(icon); broadcastEl.appendChild(msg); broadcastEl.appendChild(x);
   }
 
   // ---- Announcement modal ----
   // Distinct from the broadcast banner: this one is a modal the user has to
   // acknowledge, for things they must not miss. Each send gets a fresh id, and
-  // we remember the last id acknowledged so it shows exactly once per
-  // announcement rather than on every poll.
+  // the id acknowledged is remembered (here and on the Worker) so it shows
+  // exactly once per announcement rather than on every poll or reload.
   const ANN_SEEN_KEY = 'gpa_ann_seen';
   function showAnnouncement(ann) {
     if (!ann || !ann.id) return;
-    if (localStorage.getItem(ANN_SEEN_KEY) === ann.id) return;
+    if (dismissedNow.has('announcement:' + ann.id) || localStorage.getItem(ANN_SEEN_KEY) === ann.id) return;
     if (panel.querySelector('.gpa-ann-backdrop')) return;   // one at a time
     const back = document.createElement('div');
     back.className = 'gpa-ann-backdrop';
+    back.setAttribute('role', 'dialog');
+    back.setAttribute('aria-modal', 'true');
+    back.setAttribute('aria-label', ann.title || 'Announcement');
     const card = document.createElement('div');
     card.className = 'gpa-ann-card';
     const title = document.createElement('div');
     title.className = 'gpa-ann-title';
-    title.textContent = '📣 ' + (ann.title || 'Announcement');
+    title.innerHTML = GPS_ICONS.megaphone;
+    const titleText = document.createElement('span');
+    titleText.textContent = ann.title || 'Announcement';
+    title.appendChild(titleText);
     const text = document.createElement('div');
     text.className = 'gpa-ann-text';
     text.textContent = ann.text || '';
@@ -17223,12 +17304,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     ok.className = 'gpa-btn primary gpa-ann-ok';
     ok.textContent = 'Got it';
     ok.addEventListener('click', () => {
-      try { localStorage.setItem(ANN_SEEN_KEY, ann.id); } catch (e) { /* ignore */ }
+      sendDismissal('announcement', ann.id);
       back.remove();
     });
     card.appendChild(title); card.appendChild(text); card.appendChild(ok);
     back.appendChild(card);
     panel.appendChild(back);
+    try { ok.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
   }
 
   // ---- Owner feature flags ----

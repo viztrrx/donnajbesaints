@@ -1802,6 +1802,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       // Welcome pane can show "you've opened this N times" without a
       // separate admin-gated call.
       const uRec = await kv.get('user:' + userLower, 'json');
+      // Same dismissal record as /status: the heartbeat also carries the
+      // banner and popup, so it must say what this account already dismissed.
+      let dismissed = null;
+      try { dismissed = await kv.get('dismiss:' + userLower, 'json'); } catch (e) { /* best-effort */ }
       return json({
         ok: true, state: r.state, reason: r.reason, kickNonce: r.kickNonce,
         owner: !!r.owner, private: !!r.private,
@@ -1811,7 +1815,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || '',
         maintenance: cfg.maintenance && cfg.maintenance.on ? { on: true, message: cfg.maintenance.message || '' } : null,
         memoryEnabled: cfg.memoryEnabled !== false, session: trackId.verified ? 'ok' : (sessionProblem || 'none'),
-        yourStats: { opens: (uRec && uRec.opens) || 0, firstSeen: (uRec && uRec.firstSeen) || now }
+        yourStats: { opens: (uRec && uRec.opens) || 0, firstSeen: (uRec && uRec.firstSeen) || now },
+        dismissed: dismissed ? { broadcast: dismissed.broadcast || null, announcement: dismissed.announcement || null } : null
       });
     }
 
@@ -1824,6 +1829,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const cfg = await getConfig(kv);
       const mod = await getMod(kv, statusUser);
       const assignedKeys = await assignedKeyFlags(kv, statusUser);
+      let dismissed = null;
+      if (kv && statusUser) { try { dismissed = await kv.get('dismiss:' + statusUser.toLowerCase(), 'json'); } catch (e) { /* best-effort */ } }
       return json({
         state: r.state, reason: r.reason, kickNonce: r.kickNonce,
         owner: !!r.owner, private: !!r.private,
@@ -1832,8 +1839,31 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         announcement: cfg.announcement || null, assignedKeys,   // booleans only — see assignedKeyFlags
         brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || '',
         maintenance: cfg.maintenance && cfg.maintenance.on ? { on: true, message: cfg.maintenance.message || '' } : null,
-        memoryEnabled: cfg.memoryEnabled !== false
+        memoryEnabled: cfg.memoryEnabled !== false,
+        // What this account already dismissed (banner text hash, popup id), so
+        // a dismissal sticks on every site, browser and the home-screen app.
+        dismissed: dismissed ? { broadcast: dismissed.broadcast || null, announcement: dismissed.announcement || null } : null
       });
+    }
+
+    // Remembers that this account dismissed the owner's banner or popup.
+    // Only display state: it never changes what the owner sent to anyone else.
+    if (url.pathname === '/status/dismiss' && req.method === 'POST') {
+      const kv = env && env.TELEMETRY;
+      if (!kv) return json({ ok: false, error: 'storage not configured' }, 200);
+      let body = {};
+      try { const raw = await req.text(); if (raw.length > 1024) throw 0; body = JSON.parse(raw) || {}; } catch (e) { return json({ ok: false, error: 'invalid request' }, 400); }
+      const kind = body.kind, id = String(body.id || '');
+      if (!['broadcast', 'announcement'].includes(kind) || !/^[A-Za-z0-9_-]{1,80}$/.test(id)) return json({ ok: false, error: 'invalid dismissal' }, 400);
+      const who = (await effectiveUser(body.user)).user || '';
+      if (!who) return json({ ok: false, error: 'no user' }, 200);
+      const key = 'dismiss:' + who.toLowerCase().slice(0, 80);
+      let rec = {};
+      try { rec = (await kv.get(key, 'json')) || {}; } catch (e) { rec = {}; }
+      rec[kind] = id;
+      rec.ts = Date.now();
+      await kv.put(key, JSON.stringify(rec), { expirationTtl: 60 * 60 * 24 * 180 });
+      return json({ ok: true });
     }
 
     // Public, PII-free headcount for the Welcome pane's "active now" tile —
