@@ -692,7 +692,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-10T01:00:00-04:00', commit: '', title: 'Chromebox performance settings apply whenever Eaglercraft starts', parts: {
       eaglercraft: ['feature', 'Low graphics preset with 2 chunks and a 60 FPS cap; controls and resource-pack choices are preserved'] } },
     { at: '2026-10-12T12:00:00-04:00', commit: '', title: 'Minimalist Chromebox Lite covers every 1.8 block texture and loads by default', parts: {
-      eaglercraft: ['redesign', '373 clean block textures, lighter effects, cached versioned installation and an automatic-selection switch'] } }
+      eaglercraft: ['redesign', '373 clean block textures, lighter effects, cached versioned installation and an automatic-selection switch'] } },
+    { at: '2026-10-14T18:00:00-04:00', commit: '', title: 'Interface polish: sectioned sidebar, line icons everywhere, deeper surfaces', parts: {
+      console: ['redesign', 'Sidebar sections, icon window controls, brand mark, drawer sidebar on narrow panels, stronger primary buttons'],
+      scan: ['fix', 'Line icons replace emoji in buttons'], ask: ['fix', 'Line icons for voice input and model badge'],
+      chat: ['fix', 'Line icon for the photo button'], music: ['fix', 'Line icons in the player and library'],
+      games: ['fix', 'Line icons for pause, resume and fullscreen'], eaglercraft: ['fix', 'Fullscreen buttons use the fullscreen icon'],
+      study: ['fix', 'Line icons on deck controls'], saved: ['fix', 'Line icons and larger insight actions'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -846,7 +852,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     sun: gpsSvg('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>'),
     settings: gpsSvg('<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/>'),
     book: gpsSvg('<path d="M4.5 5.5c2.8-1 5.3-.8 7.5.8 2.2-1.6 4.7-1.8 7.5-.8v13c-2.8-1-5.3-.8-7.5.8-2.2-1.6-4.7-1.8-7.5-.8z"/><path d="M12 6.3v13"/>'),
-    x: gpsSvg('<path d="M6 6l12 12M18 6L6 18"/>')
+    x: gpsSvg('<path d="M6 6l12 12M18 6L6 18"/>'),
+    // Window chrome and status glyphs (replace text/emoji glyphs so every
+    // control shares one stroke weight and scales with the theme).
+    menu: gpsSvg('<path d="M4.5 7h15M4.5 12h15M4.5 17h15"/>'),
+    minus: gpsSvg('<path d="M6 12h12"/>'),
+    maximize: gpsSvg('<path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15"/>'),
+    minimize: gpsSvg('<path d="M9 4.5V9H4.5M19.5 9H15V4.5M15 19.5V15h4.5M4.5 15H9v4.5"/>'),
+    pointer: gpsSvg('<path d="M6 3.5l12 7.2-5.3 1.4 3.4 6.2-2.5 1.3-3.3-6.2L6 17z"/>'),
+    sparkle: gpsSvg('<path d="M12 3.5l1.6 5 5 1.6-5 1.6-1.6 5-1.6-5-5-1.6 5-1.6z"/><path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>'),
+    stop: gpsSvg('<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>'),
+    save: gpsSvg('<path d="M5 4.5h11l3.5 3.5v11.5H5z"/><path d="M8 4.5v5h7v-5M8 19.5v-6h8v6"/>'),
+    mute: gpsSvg('<path d="M4.5 9.5h3.5L13 5.5v13l-5-4H4.5z"/><path d="M16.5 9.5l4 5M20.5 9.5l-4 5"/>')
   });
 
   // Per-room scene markup. Each is a distinct metaphor; the rooms module only
@@ -879,6 +896,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   // Icon + label inside a button whose text the code never rewrites.
   const gpxLbl = (icon, text) => `${GPS_ICONS[icon]}<span>${text}</span>`;
+  // Runtime counterpart of gpxLbl for buttons whose label changes with state.
+  // The text goes in as textContent, so callers may pass any string.
+  function gpxSetLbl(btn, icon, text) {
+    if (!btn) return;
+    btn.innerHTML = GPS_ICONS[icon] || '';
+    const label = document.createElement('span');
+    label.textContent = text;
+    btn.appendChild(label);
+  }
   // A designed empty state. `action` is optional markup.
   function gpxEmpty(o) {
     return `<div class="gpx-empty ${o.cls || ''}">`
@@ -1700,6 +1726,127 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         .gpx-icon-btn { min-width: 44px; }
       }
     `;
+  // ---- Refinement layer -----------------------------------------------------
+  // Loaded last. Adds depth, hierarchy and consistent chrome on top of the
+  // design layers above, using only theme tokens so every theme (including
+  // Matte Black and custom palettes) picks it up.
+  const GPR_CSS = `
+      .gpa-panel {
+        --gpr-lift: 0 1px 0 color-mix(in srgb, var(--gpa-text) 7%, transparent) inset, 0 1px 2px color-mix(in srgb, var(--gpa-shade) 22%, transparent), 0 14px 34px -20px color-mix(in srgb, var(--gpa-shade) 60%, transparent);
+        --gpr-sheen: linear-gradient(180deg, color-mix(in srgb, var(--gpa-text) 3%, transparent), transparent 60%);
+        --gpr-primary: linear-gradient(180deg, color-mix(in srgb, #ffffff 16%, var(--gpa-accent)), var(--gpa-accent) 70%);
+      }
+
+      /* ---- Header: one icon size, one hit area, a brand mark ---- */
+      .gpa-header {
+        gap: 6px; padding: 9px 12px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--gpa-text) 3%, var(--gpa-panel-t)), var(--gpa-panel-t));
+      }
+      #gpa-sidebar-toggle, #gpa-min, #gpa-reload, #gpa-console-fullscreen, #gpa-close { width: 32px; height: 32px; }
+      #gpa-sidebar-toggle svg, #gpa-min svg, #gpa-reload svg, #gpa-console-fullscreen svg, #gpa-close svg { width: 17px; height: 17px; }
+      #gpa-sidebar-toggle.active { background: color-mix(in srgb, var(--gpa-accent) 16%, transparent); color: var(--gpa-text); }
+      .gpa-title { display: flex; align-items: center; gap: 9px; font-size: 13.5px; letter-spacing: -0.01em; margin-left: 2px; min-width: 0; }
+      .gpa-title::before {
+        content: ''; width: 18px; height: 18px; flex-shrink: 0; border-radius: 6px;
+        background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2, var(--gpa-accent)));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 14px -2px color-mix(in srgb, var(--gpa-glow, var(--gpa-accent)) 70%, transparent);
+      }
+
+      /* ---- Sidebar: labelled sections, softer active state ---- */
+      .gpa-sidebar { width: 200px; padding: 10px 10px 16px; }
+      .gpa-nav-group {
+        padding: 16px 10px 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+        color: color-mix(in srgb, var(--gpa-sub) 72%, transparent); user-select: none;
+      }
+      .gpa-nav-group[hidden] { display: none; }
+      .gpa-dropdown-item { border-radius: calc(10px * var(--gpa-rs)); }
+      .gpa-dropdown-item:hover .gpa-nav-ic { color: var(--gpa-text); }
+      .gpa-dropdown-item.active {
+        background: linear-gradient(90deg, color-mix(in srgb, var(--gpa-accent) 20%, transparent), color-mix(in srgb, var(--gpa-accent) 5%, transparent));
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gpa-accent) 24%, transparent);
+        font-weight: 600;
+      }
+
+      /* ---- Surfaces: a little light from above and a soft drop ---- */
+      .gpa-card { background: var(--gpr-sheen), var(--gpa-card-bg); box-shadow: var(--gpr-lift); }
+      .gpx-hero { box-shadow: var(--gpr-lift); }
+      .gpx-hero::after {
+        content: ''; position: absolute; left: 24px; right: 24px; top: 0; height: 1px; pointer-events: none;
+        background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--gpa-accent) 65%, transparent), transparent);
+      }
+      .gpx-title { font-size: 22px; letter-spacing: -0.02em; }
+
+      /* ---- Buttons: a real primary, a quieter secondary ---- */
+      .gpa-btn:not(.primary):not(.danger):not(:disabled):hover { transform: translateY(-1px); }
+      .gpa-btn.primary {
+        background: var(--gpr-primary); border-color: color-mix(in srgb, #000000 14%, var(--gpa-accent)); font-weight: 600;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 1px 2px rgba(0,0,0,0.25), 0 8px 18px -10px color-mix(in srgb, var(--gpa-accent) 80%, transparent);
+      }
+      .gpa-btn.primary:not(:disabled):hover {
+        background: var(--gpr-primary); filter: brightness(1.07); transform: translateY(-1px);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 2px 4px rgba(0,0,0,0.25), 0 12px 24px -10px color-mix(in srgb, var(--gpa-accent) 85%, transparent);
+      }
+      .gpa-btn.primary:active { transform: translateY(0) scale(0.98); filter: none; }
+      .gpa-btn.primary:disabled { box-shadow: inset 0 1px 0 rgba(255,255,255,0.18); filter: saturate(0.6); }
+      .gpa-segmented .gpa-btn.primary, .gpa-segmented .gpa-btn.primary:hover { box-shadow: none; transform: none; }
+
+      /* ---- Segmented switches: the selected option reads as selected ---- */
+      .gpx-seg .gps-seg-btn.primary, .gpx-seg-inline .gps-seg-btn.primary {
+        font-weight: 600;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--gpa-accent) 18%, var(--gpa-card-bg)), color-mix(in srgb, var(--gpa-accent) 6%, var(--gpa-card-bg)));
+      }
+      .gpx-seg .gps-seg-btn.primary svg, .gpx-seg-inline .gps-seg-btn.primary svg { color: var(--gpa-accent); }
+
+      /* ---- Fields ---- */
+      .gpa-input::placeholder, textarea::placeholder { color: color-mix(in srgb, var(--gpa-sub) 80%, transparent); }
+      .gpa-input:hover:not(:focus) { border-color: color-mix(in srgb, var(--gpa-text) 18%, var(--gpa-border)); }
+
+      /* ---- Readability: nothing a person needs to read below 10.5px ---- */
+      .gpa-insight-actions .gpa-btn { font-size: 11px; padding: 5px 9px; min-height: 28px; gap: 6px; }
+      .gpa-insight-actions .gpa-btn svg { width: 13px; height: 13px; }
+      .game-btn { font-size: 11px; }
+      .gpa-cal-dow { font-size: 10.5px; letter-spacing: 0.06em; }
+      .gpa-pause-stat-label { font-size: 10.5px; }
+      .gpa-insight-label { font-size: 10.5px; }
+      .gpa-admin-statcard .l { font-size: 10.5px; }
+      .gpa-admin-ls-row .k { font-size: 10.5px; }
+      .gpa-admin-ls-row .gpa-btn { font-size: 11px; padding: 4px 9px; }
+      .gpa-model-badge {
+        display: inline-flex; align-items: center; gap: 6px; width: fit-content; max-width: 100%;
+        font-size: 10.5px; padding: 3px 9px; border-radius: 999px; opacity: 1;
+        background: var(--gpa-field); border: 1px solid var(--gpa-border);
+      }
+      .gpa-model-badge svg { width: 12px; height: 12px; color: var(--gpa-accent); }
+
+      /* ---- Small icon slots that used to hold emoji ---- */
+      .gpa-local-track-badge, .gpa-local-track-remove { display: inline-flex; align-items: center; }
+      .gpa-local-track-badge svg, .gpa-local-track-remove svg { width: 13px; height: 13px; }
+      .gpa-folder-chip .mini { display: inline-flex; align-items: center; gap: 7px; }
+      .gpa-folder-chip .mini svg { width: 13px; height: 13px; }
+      .gpa-folder-chip .gpa-tree-file { padding-left: 18px; }
+      .gpa-langpick-glyph { display: grid; place-items: center; color: var(--gpa-accent); }
+      .gpa-langpick-glyph svg { width: 28px; height: 28px; }
+      .gpa-pause-title { letter-spacing: -0.01em; }
+      #gpa-voice-btn.primary svg { animation: gpr-listen 1.2s ease-in-out infinite; }
+      @keyframes gpr-listen { 50% { opacity: 0.45; } }
+
+      /* ---- Narrow panel: the sidebar becomes a drawer over the content ---- */
+      .gpa-panel.gpa-narrow .gpa-body { position: relative; }
+      .gpa-panel.gpa-narrow .gpa-sidebar {
+        position: absolute; top: 0; bottom: 0; left: 0; z-index: 20; width: min(240px, 80%);
+        background: var(--gpa-panel); box-shadow: 24px 0 48px -16px rgba(0,0,0,0.65);
+      }
+      .gpa-panel.gpa-narrow .gpa-main { transition: filter var(--gps-t2) ease, opacity var(--gps-t2) ease; }
+      .gpa-panel.gpa-narrow:not(.gpa-sidebar-hidden) .gpa-main { filter: blur(1px); opacity: 0.55; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .gpa-btn:hover, .gpa-btn.primary:not(:disabled):hover { transform: none; }
+        #gpa-voice-btn.primary svg { animation: none; }
+      }
+      @media (forced-colors: active) {
+        .gpa-title::before, .gpx-hero::after { display: none; }
+      }
+  `;
   const GPS_CSS = `
       /* ===== Settings control center ======================================
          Design system (all values below derive from these):
@@ -2476,13 +2623,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   panel.innerHTML = `
     <div class="gpa-header" id="gpa-drag">
-      <button id="gpa-sidebar-toggle" title="Show/hide the sidebar">&#9776;</button>
-      <button id="gpa-min" title="Collapse Agent Console (↓ ↓)" aria-label="Collapse Agent Console" aria-controls="gpa-body" aria-expanded="true">&minus;</button>
+      <button id="gpa-sidebar-toggle" title="Show/hide the sidebar" aria-label="Show or hide the sidebar">${GPS_ICONS.menu}</button>
+      <button id="gpa-min" title="Collapse Agent Console (↓ ↓)" aria-label="Collapse Agent Console" aria-controls="gpa-body" aria-expanded="true">${GPS_ICONS.minus}</button>
       <span class="gpa-title">Agent Console</span>
       <span class="gpa-dot"></span>
-      <button id="gpa-reload" title="Reload the console — fetches the latest script and restarts it">&#10227;</button>
-      <button id="gpa-console-fullscreen" title="Fullscreen the whole console">⛶</button>
-      <button id="gpa-close" title="Close">&times;</button>
+      <button id="gpa-reload" title="Reload the console — fetches the latest script and restarts it" aria-label="Reload the console">${GPS_ICONS.refresh}</button>
+      <button id="gpa-console-fullscreen" title="Fullscreen the whole console" aria-label="Fullscreen the whole console">${GPS_ICONS.maximize}</button>
+      <button id="gpa-close" title="Close" aria-label="Close Agent Console">${GPS_ICONS.x}</button>
     </div>
     <div class="gpa-toast-wrap" id="gpa-toast-wrap"></div>
     <div class="gpa-login" id="gpa-login">
@@ -2520,7 +2667,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     </div>
     <div class="gpa-langpick" id="gpa-langpick" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="gpa-langpick-title">
       <div class="gpa-langpick-card">
-        <div class="gpa-langpick-glyph">🌐</div>
+        <div class="gpa-langpick-glyph">${GPS_ICONS.globe}</div>
         <div class="gpa-langpick-title" id="gpa-langpick-title">Choose your language</div>
         <div class="gpa-langpick-sub">Elige tu idioma</div>
         <div class="gpa-langpick-who" id="gpa-langpick-who"></div>
@@ -2540,17 +2687,21 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         </button>
         <div class="gpa-dropdown-menu" id="gpa-dropdown-menu">
           <button class="gpa-dropdown-item" data-tab="welcome"><span class="gpa-nav-ic">${GPS_ICONS.sun}</span><span class="gpa-nav-label">Welcome</span></button>
+          <div class="gpa-nav-group" role="presentation" data-group="Assistant">Assistant</div>
           <button class="gpa-dropdown-item active" data-tab="scan"><span class="gpa-nav-ic">${GPS_ICONS.scan}</span><span class="gpa-nav-label">Page Insights</span></button>
           <button class="gpa-dropdown-item" data-tab="ask"><span class="gpa-nav-ic">${GPS_ICONS.ai}</span><span class="gpa-nav-label">Ask AI</span></button>
           <button class="gpa-dropdown-item" data-tab="chat"><span class="gpa-nav-ic">${GPS_ICONS.users}</span><span class="gpa-nav-label">Chat</span><span id="gpa-chat-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
+          <div class="gpa-nav-group" role="presentation" data-group="Play">Play</div>
           <button class="gpa-dropdown-item" data-tab="music"><span class="gpa-nav-ic">${GPS_ICONS.music}</span><span class="gpa-nav-label">Music</span></button>
           <button class="gpa-dropdown-item" data-tab="browser"><span class="gpa-nav-ic">${GPS_ICONS.globe}</span><span class="gpa-nav-label">Proxy</span></button>
           <button class="gpa-dropdown-item" data-tab="eaglercraft"><span class="gpa-nav-ic">${GPS_ICONS.cube}</span><span class="gpa-nav-label">Eaglercraft</span></button>
           <button class="gpa-dropdown-item" data-tab="games"><span class="gpa-nav-ic">${GPS_ICONS.game}</span><span class="gpa-nav-label">Games</span></button>
+          <div class="gpa-nav-group" role="presentation" data-group="Study & write">Study &amp; write</div>
           <button class="gpa-dropdown-item" data-tab="study"><span class="gpa-nav-ic">${GPS_ICONS.cards}</span><span class="gpa-nav-label">Study</span></button>
           <button class="gpa-dropdown-item" data-tab="notes"><span class="gpa-nav-ic">${GPS_ICONS.note}</span><span class="gpa-nav-label">Notes</span></button>
           <button class="gpa-dropdown-item" data-tab="humanize"><span class="gpa-nav-ic">${GPS_ICONS.wand}</span><span class="gpa-nav-label">Humanize</span></button>
           <button class="gpa-dropdown-item" data-tab="grammar"><span class="gpa-nav-ic">${GPS_ICONS.spell}</span><span class="gpa-nav-label">Grammar</span></button>
+          <div class="gpa-nav-group" role="presentation" data-group="Library">Library</div>
           <button class="gpa-dropdown-item" data-tab="saved"><span class="gpa-nav-ic">${GPS_ICONS.book}</span><span class="gpa-nav-label">Saved</span></button>
           <button class="gpa-dropdown-item" data-tab="theme"><span class="gpa-nav-ic">${GPS_ICONS.settings}</span><span class="gpa-nav-label">Settings</span></button>
           <button class="gpa-dropdown-item" data-tab="admin" style="display:none"><span class="gpa-nav-ic">${GPS_ICONS.advanced}</span><span class="gpa-nav-label">Admin</span></button>
@@ -2696,7 +2847,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                   <div class="gpx-tool">
                     <div class="gpx-tool-ic" aria-hidden="true">${GPS_ICONS.pin}</div>
                     <div class="gpx-tool-copy"><div class="gpx-tool-name">Auto-explain</div><div class="gpx-tool-desc">Explains the question you are looking at as you scroll.</div></div>
-                    <button id="gpa-autofollow-btn" class="gpa-btn">📍 Auto-explain</button>
+                    <button id="gpa-autofollow-btn" class="gpa-btn">${gpxLbl('pin', 'Auto-explain')}</button>
                   </div>
                   <div class="gpx-tool">
                     <div class="gpx-tool-ic" aria-hidden="true">${GPS_ICONS.table}</div>
@@ -2706,7 +2857,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                   <div class="gpx-tool">
                     <div class="gpx-tool-ic" aria-hidden="true">${GPS_ICONS.eye}</div>
                     <div class="gpx-tool-copy"><div class="gpx-tool-name">Watch</div><div class="gpx-tool-desc">Tells you when something on the page changes.</div></div>
-                    <button id="gpa-watch-btn" class="gpa-btn">👀 Watch page</button>
+                    <button id="gpa-watch-btn" class="gpa-btn">${gpxLbl('eye', 'Watch page')}</button>
                   </div>
                 </div>
                 <div class="gpa-row gpx-composer" id="gpa-watch-row" style="display:none;">
@@ -2739,7 +2890,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <div class="gpa-card gpx-card">
                 <div class="gpx-card-head">${GPS_ICONS.controls}<div class="gpa-card-title">Page actions</div></div>
                 <div class="gpx-stack">
-                  <button class="gpa-btn autoconfirm-btn">✋ Confirm page clicks: ON</button>
+                  <button class="gpa-btn autoconfirm-btn">${gpxLbl('pointer', 'Confirm page clicks: ON')}</button>
                   <button id="gpa-more-settings-btn" class="gpa-btn">${gpxLbl('settings', 'More settings')}</button>
                 </div>
               </div>
@@ -2793,7 +2944,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <div class="gpa-row gpx-composer gpx-composer-dock">
             <input id="gpa-ask-input" class="gpa-input" placeholder="Ask me anything… (paste an image too)" aria-label="Message" />
             <button id="gpa-ask-attach" class="gpa-btn gpx-icon-btn" title="Attach an image" aria-label="Attach an image">${GPS_ICONS.attach}</button>
-            <button id="gpa-voice-btn" class="gpa-btn gpx-icon-btn" title="Speak your question" aria-label="Speak your question">🎙</button>
+            <button id="gpa-voice-btn" class="gpa-btn gpx-icon-btn" title="Speak your question" aria-label="Speak your question">${GPS_ICONS.mic}</button>
             <button id="gpa-ask-btn" class="gpa-btn primary">Send</button>
           </div>
           <input id="gpa-ask-file" type="file" accept="image/*" multiple style="display:none;" />
@@ -2812,7 +2963,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             desc: 'Messages in this room appear here as soon as the console reaches the chat server. Pick another room or join a private one with a code.' })}
           <div class="gpa-row gpx-composer gpx-composer-dock">
             <input id="gpa-chat-input" class="gpa-input" placeholder="Message…" maxlength="500" autocomplete="off" aria-label="Chat message" />
-            <button id="gpa-chat-attach" class="gpa-btn gpx-icon-btn" type="button" title="Attach a photo (up to 5 MB)" aria-label="Choose a chat photo">📷</button>
+            <button id="gpa-chat-attach" class="gpa-btn gpx-icon-btn" type="button" title="Attach a photo (up to 5 MB)" aria-label="Choose a chat photo">${GPS_ICONS.camera}</button>
             <button id="gpa-chat-send" class="gpa-btn primary">Send</button>
           </div>
           <input id="gpa-chat-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none" aria-label="Choose a photo from your gallery" />
@@ -2867,7 +3018,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 <span id="gpa-local-time" class="gpa-sub">0:00 / 0:00</span>
                 <div class="gpx-player-ctrls">
                   <button id="gpa-local-prev" class="gpa-btn gpx-icon-btn" aria-label="Previous track">⏮</button>
-                  <button id="gpa-local-playpause" class="gpa-btn primary gpx-icon-btn gpx-play" aria-label="Play or pause">▶</button>
+                  <button id="gpa-local-playpause" class="gpa-btn primary gpx-icon-btn gpx-play" aria-label="Play or pause">${GPS_ICONS.play}</button>
                   <button id="gpa-local-next" class="gpa-btn gpx-icon-btn" aria-label="Next track">⏭</button>
                 </div>
                 <label class="gpx-volume"><span aria-hidden="true">${GPS_ICONS.volume}</span><input type="range" id="gpa-local-volume" class="gpa-range" min="0" max="100" value="80" aria-label="Volume" /></label>
@@ -2926,7 +3077,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         <div class="gpx-room gpx-eagler" data-eagler="idle" data-proxy="idle">
           ${gpxHero({ room: 'eaglercraft', title: 'Eaglercraft', status: 'Not running', scene: GPX_SCENES.games,
             desc: 'Minecraft 1.8 in your browser through EaglercraftX: singleplayer, servers and Shared Worlds with friends. It loads and connects through your Worker, and the console has to be fullscreen to play.',
-            actions: `<button id="gpa-eag-fs" class="gpa-btn primary">${gpxLbl('panel', 'Enter Fullscreen')}</button>` })}
+            actions: `<button id="gpa-eag-fs" class="gpa-btn primary">${gpxLbl('maximize', 'Enter Fullscreen')}</button>` })}
           <section class="gpa-card gpx-card gpx-eag-launcher">
             <div class="gpx-card-head">${GPS_ICONS.cube}<div class="gpa-card-title">Play</div><span id="gpa-eag-fs-chip" class="gpx-chip">Fullscreen off</span></div>
             <p id="gpa-eag-gate" class="gpa-sub">Eaglercraft requires fullscreen mode. Enter fullscreen, then launch.</p>
@@ -2962,8 +3113,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           ${gpxHero({ room: 'games', title: 'Games', status: 'Pick a game',
             desc: 'Thirty-two quick games. P pauses, R restarts and T shows a timer.',
             actions: `<button id="gpa-game-restart" class="gpa-btn">${gpxLbl('refresh', 'Restart')}</button>
-              <button id="gpa-game-pause" class="gpa-btn">⏸ Pause</button>
-              <button id="gpa-game-fullscreen" class="gpa-btn">${gpxLbl('panel', 'Fullscreen')}</button>` })}
+              <button id="gpa-game-pause" class="gpa-btn">${gpxLbl('pause', 'Pause')}</button>
+              <button id="gpa-game-fullscreen" class="gpa-btn">${gpxLbl('maximize', 'Fullscreen')}</button>` })}
           <details class="gpx-details gpx-library" open>
             <summary>${gpxLbl('game', 'Game library')}</summary>
             <div class="gpx-games">
@@ -3006,12 +3157,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div id="gpa-game-viewport" class="gpa-game-viewport"><div id="gpa-game-fit" class="gpa-game-fit"></div></div>
             <div id="gpa-game-pausemenu" class="gpa-pause-menu" style="display:none;">
               <div class="gpa-pause-card">
-                <div class="gpa-pause-title">⏸ Paused</div>
+                <div class="gpa-pause-title">Paused</div>
                 <div id="gpa-pause-stats" class="gpa-pause-stats"></div>
                 <div id="gpa-pause-options" class="gpa-pause-options"></div>
                 <div class="gpa-row" style="justify-content:center; margin-top:10px;">
-                  <button id="gpa-pause-resume" class="gpa-btn primary">▶ Resume</button>
-                  <button id="gpa-pause-restart" class="gpa-btn">🔄 Restart</button>
+                  <button id="gpa-pause-resume" class="gpa-btn primary">${gpxLbl('play', 'Resume')}</button>
+                  <button id="gpa-pause-restart" class="gpa-btn">${gpxLbl('reset', 'Restart')}</button>
                 </div>
                 <div class="gpa-sub" style="text-align:center; margin-top:8px;">P resume · R restart · T timer</div>
               </div>
@@ -3047,13 +3198,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <section class="gpa-card gpx-card">
                 <div class="gpx-card-head">${GPS_ICONS.pen}<div class="gpa-card-title">Scratchpad</div><span class="gpx-chip">Autosaved</span></div>
                 <textarea id="gpa-scratch" class="gpa-sync-box" style="height:120px;" placeholder="Jot anything… it saves as you type." aria-label="Scratchpad"></textarea>
-                <button id="gpa-scratch-tidy" class="gpa-btn">✨ Tidy notes with AI</button>
+                <button id="gpa-scratch-tidy" class="gpa-btn">${gpxLbl('sparkle', 'Tidy notes with AI')}</button>
               </section>
               <section class="gpa-card gpx-card gpx-pomo">
                 <div class="gpx-card-head">${GPS_ICONS.timer}<div class="gpa-card-title">Focus timer</div><span class="gpx-chip">25 / 5 min</span></div>
                 <div class="gpx-pomo-face"><span id="gpa-pomo-time" class="gpa-pomo-time">25:00</span></div>
                 <div class="gpa-row gpx-pomo-row">
-                  <button id="gpa-pomo-start" class="gpa-btn primary">▶ Start</button>
+                  <button id="gpa-pomo-start" class="gpa-btn primary">${gpxLbl('play', 'Start')}</button>
                   <button id="gpa-pomo-reset" class="gpa-btn">Reset</button>
                   <span id="gpa-pomo-count" class="gpa-sub"></span>
                 </div>
@@ -3109,7 +3260,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <textarea id="gpa-hum-input" class="gpa-sync-box" style="height:150px;" placeholder="Paste any text here — an essay, an email, a paragraph you wrote — from anywhere, not just this page."></textarea>
             <div class="gpa-row">
               <button id="gpa-hum-go" class="gpa-btn primary">${gpxLbl('wand', 'Humanize')}</button>
-              <button id="gpa-hum-retry" class="gpa-btn" style="display:none;">🔄 Try again</button>
+              <button id="gpa-hum-retry" class="gpa-btn" style="display:none;">${gpxLbl('refresh', 'Try again')}</button>
             </div>
             <div id="gpa-hum-status" class="gpa-sub"></div>
           </section>
@@ -3135,7 +3286,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
       <div id="gpa-save-modal" class="gpa-modal" style="display:none;">
         <div class="gpa-modal-card">
-          <div class="gpa-modal-title" id="gpa-save-modal-title">💾 Save insight</div>
+          <div class="gpa-modal-title" id="gpa-save-modal-title">Save insight</div>
           <label for="gpa-save-label">Label (optional)</label>
           <input id="gpa-save-label" placeholder="e.g. History, Exam prep, Recipes…" />
           <label for="gpa-save-folder">Section (folder)</label>
@@ -5450,7 +5601,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         background: var(--gpa-field); border: 1px solid var(--gpa-border); border-radius: calc(6px * var(--gpa-rs));
         color: var(--gpa-text); font-size: 12px; padding: 6px 8px; font-family: inherit; width: 100%;
       }
-    ` + GPS_CSS + GPX_CSS;
+    ` + GPS_CSS + GPX_CSS + GPR_CSS;
   applyTheme(theme, { instant: true });
 
   // ---- Drag logic -----------------------------------------------------
@@ -5723,8 +5874,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   });
   function syncConsoleFullscreenLabel() {
     const active = isConsoleFullscreen();
-    consoleFsBtn.textContent = active ? '⤢' : '⛶';
+    consoleFsBtn.innerHTML = active ? GPS_ICONS.minimize : GPS_ICONS.maximize;
     consoleFsBtn.title = active ? 'Exit fullscreen' : 'Fullscreen the whole console';
+    consoleFsBtn.setAttribute('aria-label', consoleFsBtn.title);
   }
   onDoc('fullscreenchange', syncConsoleFullscreenLabel);
   onDoc('webkitfullscreenchange', syncConsoleFullscreenLabel);
@@ -5842,11 +5994,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     panel.classList.toggle('gpa-sidebar-hidden', hidden);
     sidebarToggleBtn.classList.toggle('active', hidden);
     sidebarToggleBtn.title = hidden ? 'Show the sidebar' : 'Hide the sidebar';
+    sidebarToggleBtn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
     localStorage.setItem(SIDEBAR_HIDDEN_KEY, hidden ? '1' : '0');
     if (typeof fitGameToStage === 'function') requestAnimationFrame(fitGameToStage);
   }
   setSidebarHidden(localStorage.getItem(SIDEBAR_HIDDEN_KEY) === '1');
   sidebarToggleBtn.addEventListener('click', () => setSidebarHidden(!panel.classList.contains('gpa-sidebar-hidden')));
+  // On a narrow panel the sidebar slides over the content as a drawer (see
+  // GPR_CSS); a tap on the content behind it closes it, like any drawer.
+  panel.querySelector('#gpa-main').addEventListener('pointerdown', () => {
+    if (panel.classList.contains('gpa-narrow') && !panel.classList.contains('gpa-sidebar-hidden')) setSidebarHidden(true);
+  });
 
   // Tracks the panel's actual rendered width (not the browser viewport's —
   // a windowed size preset can be narrow in an otherwise wide browser) so
@@ -5859,6 +6017,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
     });
     narrowObserver.observe(panel);
+  }
+
+  // Section labels in the sidebar hide themselves when every tab under them
+  // is switched off (feature switches and roles hide items via style).
+  function syncNavGroups() {
+    panel.querySelectorAll('.gpa-nav-group').forEach((g) => {
+      let el = g.nextElementSibling, any = false;
+      while (el && !el.classList.contains('gpa-nav-group')) {
+        if (el.classList.contains('gpa-dropdown-item') && el.style.display !== 'none') { any = true; break; }
+        el = el.nextElementSibling;
+      }
+      g.hidden = !any;
+    });
+  }
+  syncNavGroups();
+  if (typeof MutationObserver !== 'undefined') {
+    new MutationObserver(syncNavGroups).observe(panel.querySelector('#gpa-dropdown-menu'), { attributes: true, attributeFilter: ['style'], subtree: true });
   }
 
   // ---- Dropdown section switcher -----------------------------------------
@@ -6451,6 +6626,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       'Page Insights': 'Información de la página', 'Ask AI': 'Preguntar a la IA',
       'Chat': 'Chat', 'Music': 'Música', 'Proxy': 'Proxy', 'Eaglercraft': 'Eaglercraft', 'Games': 'Juegos',
       'Study': 'Estudio', 'Notes': 'Notas', 'Humanize': 'Humanizar', 'Grammar': 'Gramática', 'Saved': 'Guardado', 'Settings': 'Ajustes',
+      'Assistant': 'Asistente', 'Play': 'Diversión', 'Study & write': 'Estudio y escritura', 'Library': 'Biblioteca',
       'Agent Console': 'Consola del Agente',
       'Sign in to continue': 'Inicia sesión para continuar',
       'Welcome back': 'Bienvenido de nuevo',
@@ -6469,6 +6645,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const en = NAV_LABELS_EN[item.dataset.tab];
       if (label && en) label.textContent = t(en);
     });
+    panel.querySelectorAll('.gpa-nav-group[data-group]').forEach((g) => { g.textContent = t(g.dataset.group); });
     const titleEl = panel.querySelector('.gpa-title');
     // Only translate the built-in name — an owner-set brand name (see
     // applyBrandName) always wins and is left exactly as the owner typed it.
@@ -7610,11 +7787,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     footer.style.marginTop = '8px';
     const btn = document.createElement('button');
     btn.className = 'gpa-btn';
-    btn.textContent = '📤 Send all to flashcards';
+    gpxSetLbl(btn, 'cards', 'Send all to flashcards');
     btn.addEventListener('click', () => {
       const added = addFlashcards(arr);
       footer.querySelectorAll('button').forEach((b) => { b.disabled = true; });
-      btn.textContent = added ? `✓ Added ${added} card${added === 1 ? '' : 's'} — see the Study tab` : '✓ Already in your deck';
+      gpxSetLbl(btn, 'check', added ? `Added ${added} card${added === 1 ? '' : 's'} — see the Study tab` : 'Already in your deck');
     });
     footer.appendChild(btn);
     return footer;
@@ -7687,9 +7864,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const why = it.why ? `<div class="gpa-tutor-why"><b>Why:</b> ${escapeHtml(it.why)}</div>` : '';
       const sol = it.sol ? `<div class="gpa-tutor-sol"><b>Solution:</b>\n${escapeHtml(formatSolution(it.sol))}</div>` : '';
       const pitfall = it.pitfall ? `<div class="gpa-tutor-pitfall"><b>Watch out:</b> ${escapeHtml(it.pitfall)}</div>` : '';
-      const pin = it.h ? `<button class="gpa-btn gpa-tutor-pin" data-idx="${idx}">📍 Show on page</button>` : '';
-      const card = `<button class="gpa-btn gpa-tutor-card" data-idx="${idx}">➕ Flashcard</button>`;
-      const save = `<button class="gpa-btn gpa-tutor-save" data-idx="${idx}">💾 Save</button>`;
+      const pin = it.h ? `<button class="gpa-btn gpa-tutor-pin" data-idx="${idx}">${gpxLbl('pin', 'Show on page')}</button>` : '';
+      const card = `<button class="gpa-btn gpa-tutor-card" data-idx="${idx}">${gpxLbl('plus', 'Flashcard')}</button>`;
+      const save = `<button class="gpa-btn gpa-tutor-save" data-idx="${idx}">${gpxLbl('save', 'Save')}</button>`;
       return `<div class="gpa-grid-cell" style="animation-delay:${idx * 35}ms">
          <span class="gpa-grid-q">${escapeHtml(it.q)}</span>
          <span class="gpa-grid-a">${escapeHtml(it.a)}</span>
@@ -7719,7 +7896,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (cardBtn) {
         const item = arr[Number(cardBtn.dataset.idx)];
         const added = addFlashcards([item]);
-        cardBtn.textContent = added ? '✓ Added' : '✓ In deck';
+        gpxSetLbl(cardBtn, 'check', added ? 'Added' : 'In deck');
         cardBtn.disabled = true;
       }
     };
@@ -7911,7 +8088,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // look (same convention as every other toggle button here), not by
     // appending "ON"/"OFF" text, which previously ran wider than the
     // button next to it in this two-up row and spilled past its own edge.
-    btn.textContent = '📍 Auto-explain';
+    gpxSetLbl(btn, 'pin', 'Auto-explain');
     btn.classList.toggle('primary', on);
     btn.title = on
       ? 'Auto-explain is ON. After Tutor mode runs, float the explanation for whichever question is on screen and follow along as the quiz advances. Click to turn off.'
@@ -8377,7 +8554,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       // later AI request as background; off = it just sits here.
       const ctxBtn = document.createElement('button');
       ctxBtn.className = 'gpa-btn' + (it.ctx ? ' primary' : '');
-      ctxBtn.textContent = it.ctx ? '🧠 Context: ON' : '🧠 Use as context';
+      gpxSetLbl(ctxBtn, 'ai', it.ctx ? 'Context: ON' : 'Use as context');
       ctxBtn.title = it.ctx
         ? 'This insight is being sent with every AI request. Click to stop.'
         : 'Send this insight along with every later AI request as background context.';
@@ -8387,7 +8564,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       });
       const lab = document.createElement('button');
       lab.className = 'gpa-btn';
-      lab.textContent = '🏷 Label';
+      gpxSetLbl(lab, 'pen', 'Label');
       lab.addEventListener('click', () => {
         const v = prompt('Label for this insight:', it.label || '');
         if (v === null) return;
@@ -8396,11 +8573,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       });
       const move = document.createElement('button');
       move.className = 'gpa-btn';
-      move.textContent = '📂 Move';
+      gpxSetLbl(move, 'folder', 'Move');
       move.addEventListener('click', () => openSaveModal({ moveId: it.id }));
       const del = document.createElement('button');
       del.className = 'gpa-btn';
-      del.textContent = '🗑';
+      del.innerHTML = GPS_ICONS.trash;
+      del.title = 'Delete this insight';
+      del.setAttribute('aria-label', 'Delete this insight');
       del.addEventListener('click', () => {
         if (!confirm('Delete this insight?')) return;
         const arr = savedAll().filter((x) => x.id !== it.id);
@@ -8464,7 +8643,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       grid.appendChild(b);
     }
     const dayItems = items.filter((it) => sameDay(new Date(it.ts), selDay));
-    dayLabel.textContent = `📅 ${selDay.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })} — ${dayItems.length} insight${dayItems.length === 1 ? '' : 's'}`;
+    dayLabel.textContent = `${selDay.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })} — ${dayItems.length} insight${dayItems.length === 1 ? '' : 's'}`;
     renderInsightCards(listEl, dayItems);
   }
 
@@ -8486,13 +8665,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       main.style.background = 'transparent';
       main.style.border = 'none';
       main.style.color = 'inherit';
-      main.textContent = (isFile ? '　📄 ' : '📁 ') + label + '  (' + items.filter((it) => it.folder === id).length + ')';
+      gpxSetLbl(main, isFile ? 'note' : 'folder', label + '  (' + items.filter((it) => it.folder === id).length + ')');
+      if (isFile) main.classList.add('gpa-tree-file');
       main.addEventListener('click', () => { selFolder = id; renderFolderTree(); });
       row.appendChild(main);
       if (id) {
         const del = document.createElement('button');
         del.className = 'mini';
-        del.textContent = '🗑';
+        del.innerHTML = GPS_ICONS.trash;
         del.title = 'Delete ' + (isFile ? 'file' : 'folder');
         del.addEventListener('click', () => {
           if (!confirm(`Delete "${label}"? Its insights move to Unfiled.`)) return;
@@ -8538,7 +8718,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
     const labelTxt = selFolder ? folderName(selFolder) : 'Unfiled';
     const folderItems = items.filter((it) => it.folder === selFolder);
-    dayLabel.textContent = `🗂 ${labelTxt} — ${folderItems.length} insight${folderItems.length === 1 ? '' : 's'}`;
+    dayLabel.textContent = `${labelTxt} — ${folderItems.length} insight${folderItems.length === 1 ? '' : 's'}`;
     renderInsightCards(listEl, folderItems);
   }
 
@@ -8638,7 +8818,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const btn = document.createElement('button');
     btn.className = 'gpa-btn';
     btn.style.marginTop = '8px';
-    btn.textContent = '💾 Save Insight';
+    gpxSetLbl(btn, 'save', 'Save Insight');
     btn.addEventListener('click', () => saveInsight(text));
     container.appendChild(btn);
   }
@@ -9520,14 +9700,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       row.className = 'gpa-local-track' + (i === localCurrentIndex ? ' playing' : '') + (unavailable ? ' gpa-track-unavailable' : '');
       const badge = document.createElement('span');
       badge.className = 'gpa-local-track-badge';
-      badge.textContent = track.offline ? '💾' : '☁';
+      badge.innerHTML = track.offline ? GPS_ICONS.save : GPS_ICONS.globe;
       badge.title = track.offline ? 'Saved on this device — plays offline' : 'Streamed from the web — needs a connection';
       const name = document.createElement('span');
       name.className = 'gpa-local-track-name';
       name.textContent = track.name;
       const remove = document.createElement('span');
       remove.className = 'gpa-local-track-remove';
-      remove.textContent = '✕';
+      remove.innerHTML = GPS_ICONS.x;
       remove.title = track.offline ? 'Delete from this device' : 'Remove from the list';
       remove.addEventListener('click', (e) => { e.stopPropagation(); removeLocalTrack(i); });
       row.appendChild(badge);
@@ -9641,8 +9821,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   localAudio.addEventListener('ended', () => {
     if (localPlaylist.length) playLocalTrack((localCurrentIndex + 1) % localPlaylist.length);
   });
-  localAudio.addEventListener('play', () => { localPlayPauseBtn.textContent = '⏸'; });
-  localAudio.addEventListener('pause', () => { localPlayPauseBtn.textContent = '▶'; });
+  localAudio.addEventListener('play', () => { localPlayPauseBtn.innerHTML = GPS_ICONS.pause; });
+  localAudio.addEventListener('pause', () => { localPlayPauseBtn.innerHTML = GPS_ICONS.play; });
   localAudio.addEventListener('timeupdate', () => {
     if (localAudio.duration) localSeek.value = String((localAudio.currentTime / localAudio.duration) * 100);
     localTimeEl.textContent = `${formatTime(localAudio.currentTime)} / ${formatTime(localAudio.duration)}`;
@@ -10232,7 +10412,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     shell.className = 'gpa-panel gpx-eag-window';
     shell.dataset.proxy = 'idle';
     shell.innerHTML = `<div class="gpx-browser-bar"><div class="gpx-eag-state"><span class="gpx-dot"></span><span class="gpx-eag-wstatus">Starting…</span></div>`
-      + `<button class="gpa-btn" data-act="fs">${gpxLbl('panel', 'Fullscreen')}</button>`
+      + `<button class="gpa-btn" data-act="fs">${gpxLbl('maximize', 'Fullscreen')}</button>`
       + `<button class="gpa-btn" data-act="stop">${gpxLbl('x', 'Stop Eaglercraft')}</button></div>`
       + `<div class="gpx-loadbar" aria-hidden="true"></div><div class="gpx-browser-view"></div>`;
     sr.appendChild(shell);
@@ -10292,7 +10472,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       icon: paused ? 'pause' : 'cube',
       title: paused ? 'Paused' : 'Eaglercraft requires fullscreen mode',
       desc: paused ? 'This window left fullscreen. Enter fullscreen to resume.' : 'Enter fullscreen in this window to start the game.',
-      buttons: [{ act: 'resume', label: paused ? 'Enter Fullscreen and Resume' : 'Enter Fullscreen', icon: 'panel', primary: true }, { act: 'stop', label: 'Stop Eaglercraft', icon: 'x' }]
+      buttons: [{ act: 'resume', label: paused ? 'Enter Fullscreen and Resume' : 'Enter Fullscreen', icon: 'maximize', primary: true }, { act: 'stop', label: 'Stop Eaglercraft', icon: 'x' }]
     }, c.onAct);
     eagSetConn(paused ? 'idle' : eag.started ? 'connected' : 'idle');
   }
@@ -10966,7 +11146,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const ttsBtn = panel.querySelector('#gpa-tts-toggle');
   function renderTtsBtn() {
     const on = localStorage.getItem(TTS_KEY) === 'on';
-    ttsBtn.textContent = on ? '🔊 Read answers aloud: ON' : '🔇 Read answers aloud: OFF';
+    gpxSetLbl(ttsBtn, on ? 'volume' : 'mute', on ? 'Read answers aloud: ON' : 'Read answers aloud: OFF');
     ttsBtn.classList.toggle('primary', on);
   }
   ttsBtn.addEventListener('click', () => {
@@ -10988,7 +11168,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function renderAutoConfirmBtn() {
     const on = localStorage.getItem(AUTOCONFIRM_KEY) === 'on';
     autoConfirmBtns.forEach((btn) => {
-      btn.textContent = on ? '⚡ Confirm page clicks: OFF (auto)' : '✋ Confirm page clicks: ON';
+      gpxSetLbl(btn, on ? 'bolt' : 'pointer', on ? 'Confirm page clicks: OFF (auto)' : 'Confirm page clicks: ON');
       btn.classList.toggle('primary', on);
     });
   }
@@ -11020,12 +11200,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         askInput.value = e.results[0][0].transcript;
         sendChat();
       };
-      const done = () => { listening = false; voiceBtn.classList.remove('primary'); voiceBtn.textContent = '🎙'; };
+      const done = () => { listening = false; voiceBtn.classList.remove('primary'); voiceBtn.innerHTML = GPS_ICONS.mic; voiceBtn.setAttribute('aria-label', 'Speak your question'); };
       rec.onend = done;
       rec.onerror = done;
       listening = true;
       voiceBtn.classList.add('primary');
-      voiceBtn.textContent = '🔴';
+      voiceBtn.innerHTML = GPS_ICONS.stop;
+      voiceBtn.setAttribute('aria-label', 'Stop listening');
       rec.start();
     });
   })();
@@ -11854,14 +12035,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       row.className = 'gpa-row';
       const cp = document.createElement('button');
       cp.className = 'gpa-btn';
-      cp.textContent = '📋 Copy CSV';
+      gpxSetLbl(cp, 'copy', 'Copy CSV');
       cp.addEventListener('click', () => navigator.clipboard.writeText(csv).then(() => {
-        cp.textContent = '✓ Copied';
-        setTimeout(() => { cp.textContent = '📋 Copy CSV'; }, 900);
+        gpxSetLbl(cp, 'check', 'Copied');
+        setTimeout(() => { gpxSetLbl(cp, 'copy', 'Copy CSV'); }, 900);
       }));
       const ask = document.createElement('button');
       ask.className = 'gpa-btn primary';
-      ask.textContent = '🤖 Ask AI about it';
+      gpxSetLbl(ask, 'ai', 'Ask AI about it');
       ask.addEventListener('click', async () => {
         ask.disabled = true;
         ask.textContent = 'Thinking…';
@@ -11876,7 +12057,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           showError(div, e, currentProviderLabel());
         }
         ask.disabled = false;
-        ask.textContent = '🤖 Ask AI about it';
+        gpxSetLbl(ask, 'ai', 'Ask AI about it');
       });
       row.appendChild(cp);
       row.appendChild(ask);
@@ -11896,7 +12077,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     watchCond.value = localStorage.getItem('gpa_watch_last_cond') || '';
 
     function setUi(watching) {
-      watchBtn.textContent = watching ? '⏹ Stop watching' : '👀 Watch page';
+      gpxSetLbl(watchBtn, watching ? 'stop' : 'eye', watching ? 'Stop watching' : 'Watch page');
       watchBtn.classList.toggle('primary', watching);
     }
     function stop(msg) {
@@ -12019,7 +12200,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const ctrls = document.createElement('div');
     const reset = document.createElement('button');
     reset.className = 'gpa-btn';
-    reset.textContent = '🔄 Reset progress';
+    gpxSetLbl(reset, 'reset', 'Reset progress');
     reset.addEventListener('click', () => {
       const c = JSON.parse(localStorage.getItem(FC_KEY) || '[]');
       c.forEach((x) => { x.box = 1; });
@@ -12028,7 +12209,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     });
     const del = document.createElement('button');
     del.className = 'gpa-btn';
-    del.textContent = '🗑 Delete deck';
+    gpxSetLbl(del, 'trash', 'Delete deck');
     del.addEventListener('click', () => {
       if (confirm('Delete the whole deck?')) { localStorage.removeItem(FC_KEY); renderDeck(); }
     });
@@ -12064,10 +12245,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     row.style.marginTop = '6px';
     const again = document.createElement('button');
     again.className = 'gpa-btn';
-    again.textContent = '🔁 Again';
+    gpxSetLbl(again, 'refresh', 'Again');
     const know = document.createElement('button');
     know.className = 'gpa-btn primary';
-    know.textContent = '✓ Knew it';
+    gpxSetLbl(know, 'check', 'Knew it');
     function grade(box) {
       const c = JSON.parse(localStorage.getItem(FC_KEY) || '[]');
       c[pick.i].box = box === 3 ? Math.min(3, (c[pick.i].box || 1) + 1) : 1;
@@ -12132,7 +12313,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         showToast('AI error: ' + (e && e.message || e), { type: 'danger' });
       }
       tidyBtn.disabled = false;
-      tidyBtn.textContent = '✨ Tidy notes with AI';
+      gpxSetLbl(tidyBtn, 'sparkle', 'Tidy notes with AI');
     });
   })();
 
@@ -12151,7 +12332,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     function stopTicking() {
       if (running) { clearInterval(running); running = null; }
-      startBtn.textContent = '▶ Start';
+      gpxSetLbl(startBtn, 'play', 'Start');
     }
     function tick() {
       left--;
@@ -12174,7 +12355,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     startBtn.addEventListener('click', () => {
       if (running) { stopTicking(); return; }
       running = setInterval(tick, 1000);
-      startBtn.textContent = '⏸ Pause';
+      gpxSetLbl(startBtn, 'pause', 'Pause');
     });
     panel.querySelector('#gpa-pomo-reset').addEventListener('click', () => {
       stopTicking();
@@ -16457,7 +16638,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     renderPauseStats();
     pauseMenu.style.display = 'flex';
-    pauseBtn.textContent = '▶ Resume';
+    gpxSetLbl(pauseBtn, 'play', 'Resume');
   }
 
   function resumeGame() {
@@ -16469,7 +16650,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       try { activeGameControls.resume(); } catch (e) { /* ignore */ }
     }
     pauseMenu.style.display = 'none';
-    pauseBtn.textContent = '⏸ Pause';
+    gpxSetLbl(pauseBtn, 'pause', 'Pause');
   }
 
   function togglePause() { isGamePaused ? resumeGame() : pauseGame(); }
@@ -16482,7 +16663,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     gamePausedTotal = 0;
     gamePausedAt = 0;
     pauseMenu.style.display = 'none';
-    pauseBtn.textContent = '⏸ Pause';
+    gpxSetLbl(pauseBtn, 'pause', 'Pause');
     gameStartedAt = Date.now();
 
     gameFit.innerHTML = '';
@@ -16577,7 +16758,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   function syncFullscreenLabel() {
     const active = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    fullscreenBtn.textContent = active ? '⛶ Exit Fullscreen' : '⛶ Fullscreen';
+    gpxSetLbl(fullscreenBtn, active ? 'minimize' : 'maximize', active ? 'Exit Fullscreen' : 'Fullscreen');
     // Entering/leaving fullscreen changes the available area — refit. Chrome
     // doesn't always finish laying out the fullscreen element within a single
     // frame, so one rAF could measure a stale (pre-transition) size and scale
@@ -16774,7 +16955,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     const badge = document.createElement('div');
     badge.className = 'gpa-model-badge';
-    badge.textContent = `🤖 ${lastAIModel} · ${lastAIProvider}${lastAIUpgraded ? ' · auto-upgraded for a hard task' : ''}`;
+    gpxSetLbl(badge, 'ai', `${lastAIModel} · ${lastAIProvider}${lastAIUpgraded ? ' · auto-upgraded for a hard task' : ''}`);
     el.appendChild(badge);
   }
 
