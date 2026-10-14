@@ -10718,7 +10718,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       image.alt = 'Photo shared by ' + m.u;
       image.loading = 'lazy';
       image.addEventListener('load', () => {
-        if (chatIsOpenAndVisible()) chatLog.scrollTop = chatLog.scrollHeight;
+        // Media can expand the conversation after a poll has finished.
+        chatLog.scrollTop = chatLog.scrollHeight;
+        requestAnimationFrame(() => { if (chatLog.isConnected) chatLog.scrollTop = chatLog.scrollHeight; });
       });
       thumbButton.appendChild(image);
       thumbButton.addEventListener('click', () => openChatImageViewer(imageUrl, 'Photo shared by ' + m.u, thumbButton));
@@ -10775,8 +10777,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const empty = chatLog.querySelector('.gpa-chat-empty');
       if (chatLog.children.length && empty) empty.remove();
       if (!chatLog.children.length) chatLog.innerHTML = '<div class="gpa-chat-empty">No messages yet — say something.</div>';
-      // Opening a room or receiving any message follows the newest message.
-      if (added && (visible || wasBootstrap)) {
+      // Always prepare the scroll position for the latest message, even if
+      // the Chat pane is currently hidden and will be opened later.
+      if (added) {
         chatLog.scrollTop = chatLog.scrollHeight;
         requestAnimationFrame(() => { if (chatLog.isConnected) chatLog.scrollTop = chatLog.scrollHeight; });
       }
