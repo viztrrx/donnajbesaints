@@ -153,8 +153,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // "Full" isn't a fixed entry in PANEL_SIZES since it has to track whatever
   // the viewport actually is right now, not a stored pixel size — this is
   // the new full-page "app" surface, computed live rather than cached.
-  const FULL_MARGIN = 16;
+  // App mode: the console is the whole page of the home-screen web app
+  // (/console/ on the Worker sets this flag before loading the script). It
+  // fills the screen edge to edge, and there is no page underneath to close
+  // or collapse to.
+  const APP_MODE = window.__agentConsoleApp === true;
+  const FULL_MARGIN = APP_MODE ? 0 : 16;
   function sizeFor(key) {
+    if (APP_MODE) return { w: window.innerWidth, h: window.innerHeight };
     if (key === 'full') {
       return {
         w: Math.max(360, window.innerWidth - FULL_MARGIN * 2),
@@ -698,7 +704,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       scan: ['fix', 'Line icons replace emoji in buttons'], ask: ['fix', 'Line icons for voice input and model badge'],
       chat: ['fix', 'Line icon for the photo button'], music: ['fix', 'Line icons in the player and library'],
       games: ['fix', 'Line icons for pause, resume and fullscreen'], eaglercraft: ['fix', 'Fullscreen buttons use the fullscreen icon'],
-      study: ['fix', 'Line icons on deck controls'], saved: ['fix', 'Line icons and larger insight actions'] } }
+      study: ['fix', 'Line icons on deck controls'], saved: ['fix', 'Line icons and larger insight actions'] } },
+    { at: '2026-10-14T21:00:00-04:00', commit: '', title: 'Agent Console as an iPhone home-screen app', parts: {
+      console: ['feature', 'App mode for /console/ on the Worker: full screen, safe areas, offline launch, no zoom on typing'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1843,6 +1851,29 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-panel.gpa-narrow .gpa-main { transition: filter var(--gps-t2) ease, opacity var(--gps-t2) ease; }
       .gpa-panel.gpa-narrow:not(.gpa-sidebar-hidden) .gpa-main { filter: blur(1px); opacity: 0.55; }
 
+      /* ---- App mode (home-screen web app): edge to edge, safe areas ---- */
+      .gpa-panel.gpa-app { border-radius: 0 !important; border: none !important; box-shadow: none !important; }
+      .gpa-app #gpa-min, .gpa-app #gpa-close, .gpa-app #gpa-login-min, .gpa-app #gpa-login-close, .gpa-app .gpa-login-winbtns { display: none !important; }
+      .gpa-app .gps-item[data-k^="panel interface size"] { display: none; }
+      .gpa-app .gpa-header {
+        cursor: default;
+        padding-top: calc(9px + env(safe-area-inset-top));
+        padding-left: calc(12px + env(safe-area-inset-left));
+        padding-right: calc(12px + env(safe-area-inset-right));
+      }
+      .gpa-app .gpa-sidebar { padding-left: calc(10px + env(safe-area-inset-left)); padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+      .gpa-app .gpa-main {
+        padding-left: calc(calc(16px * var(--gpa-dz)) + env(safe-area-inset-left));
+        padding-right: calc(calc(16px * var(--gpa-dz)) + env(safe-area-inset-right));
+        padding-bottom: calc(calc(16px * var(--gpa-dz)) + env(safe-area-inset-bottom));
+        overscroll-behavior: contain;
+      }
+      .gpa-app .gpa-login { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+      /* iOS zooms into any focused field under 16px; app mode keeps the page still. */
+      @media (pointer: coarse) {
+        .gpa-app input, .gpa-app textarea, .gpa-app select { font-size: 16px !important; }
+      }
+
       /* ---- Touch screens: every tap target at least 44×44 ---- */
       @media (pointer: coarse) {
         #gpa-sidebar-toggle, #gpa-min, #gpa-reload, #gpa-console-fullscreen, #gpa-close { width: 44px; height: 44px; }
@@ -2633,7 +2664,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   particleWrap.appendChild(particleCanvas);
 
   const panel = document.createElement('div');
-  panel.className = 'gpa-panel';
+  panel.className = 'gpa-panel' + (APP_MODE ? ' gpa-app' : '');
   particleWrap.appendChild(panel);
 
   panel.innerHTML = `
@@ -5733,6 +5764,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   })();
 
   function toggleAgentConsole() {
+    if (APP_MODE) return; // nothing underneath to collapse to
     const active = root.activeElement;
     const focusWasInPanel = !!active && active !== minimized && panel.contains(active);
     const focusWasOnMini = active === minimized;
@@ -7123,13 +7155,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // Defaults to the full-page "app" surface now rather than the small
   // windowed panel — the windowed presets are still there for anyone who
   // wants the old floating-widget footprint back.
-  let panelSizeKey = localStorage.getItem(PANEL_SIZE_KEY) || 'full';
+  let panelSizeKey = APP_MODE ? 'full' : (localStorage.getItem(PANEL_SIZE_KEY) || 'full');
   if (!PANEL_SIZES[panelSizeKey] && panelSizeKey !== 'full') panelSizeKey = 'full';
   const sizeBtns = panel.querySelectorAll('.size-btn');
   function setSizeUI(s) {
     sizeBtns.forEach((b) => b.classList.toggle('primary', b.dataset.size === s));
   }
   function applyPanelSize(key) {
+    if (APP_MODE) key = 'full';
     panelSizeKey = (PANEL_SIZES[key] || key === 'full') ? key : 'full';
     localStorage.setItem(PANEL_SIZE_KEY, panelSizeKey);
     const { w, h } = sizeFor(panelSizeKey);
@@ -19261,6 +19294,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   async function reloadInterface(btn) {
+    // The app shell fetches the latest script itself on every load.
+    if (APP_MODE) { location.reload(); return; }
     const src = scriptSource();
     const setBusy = (busy) => {
       if (!btn) return;

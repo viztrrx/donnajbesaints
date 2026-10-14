@@ -68,6 +68,34 @@ Pasting the command also works; the problem only happens when it's typed. You ca
 
 * * *
 
+## Agent Console as an iPhone app {#iphone-app}
+
+The Worker also serves the whole console as a home-screen web app at
+`https://donnajbe.viztrrx.workers.dev/console/`.
+
+1. Open that address in **Safari** on your iPhone.
+2. Tap **Share**, then **Add to Home Screen**.
+3. Keep **Open as Web App** on and tap **Add**.
+
+Open it from the new icon. It runs the same `script.js` as the bookmarklet in
+*app mode*: edge to edge under the status bar and home indicator, no window
+corners, no close or collapse button, 44px tap targets, and 16px text fields so
+iOS doesn't zoom when you type. Sign in with your usual username and PIN; the
+app keeps its own sign-in, separate from Safari and from the pages you inject
+the console into. The reload button restarts the app with the latest
+`script.js` from `main`.
+
+After the first launch it also opens offline: the service worker keeps only
+the app's own files (the page, icons and the console script). Chat, AI answers
+and everything else still need a connection. Owners can point the app at a
+different build with the Worker variable `CONSOLE_SCRIPT_URL`.
+
+Icons are drawn by `web/console/make-icons.py`; edit files in
+`web/console/public/`, then run `npm run build:web`. Checks:
+`node --test tests/console-app.test.mjs` and
+`node tests/browser/console-app.mjs` (an emulated iPhone against the Worker
+running locally).
+
 ## API keys {#api-keys}
 
 | Feature | Key | Where to get it |

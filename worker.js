@@ -1,4 +1,5 @@
 import { webApp } from './web/handler.js';
+import { consoleApp } from './web/console/handler.js';
 import { validateMutation } from './mobile/backend/validation.js';
 import { AdminMobileState, stateCall, digest, randomToken, validSource, relayCall, queueEvent } from './mobile/backend/state.js';
 export { AdminMobileState };
@@ -439,6 +440,8 @@ export default {
 async function handleRequest(req, env, ctx, operationReserved = false) {
     const web = await webApp(req, env, ctx, handleRequest);
     if (web) return web;
+    const consoleShell = await consoleApp(req, env);
+    if (consoleShell) return consoleShell;
     const cors = CORS_HEADERS;
     const json = jsonResponse;
 

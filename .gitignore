@@ -9,3 +9,5 @@ node_modules/
 build/
 # Default output folder of tests/browser/eaglercraft.e2e.mjs (screenshots, results)
 eagler-e2e-out/
+# Default output folder of tests/browser/console-app.mjs
+console-app-out/
