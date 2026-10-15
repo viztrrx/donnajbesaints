@@ -281,10 +281,27 @@ test('push: private rooms, mentions, approval queue, quiet hours, who\'s online 
     assert.deepEqual(st.data.subscription.quiet, { start: 0, end: 23 });
     await t.call('/push/update', { method: 'POST', body: { id: sub.id, key: sub.manageKey, quiet: null } });
 
-    // Daily summary from the daily cron.
-    await worker.scheduled({ cron: '0 5 * * *' }, t.env, { waitUntil: (p) => t.settleList.push(p) });
-    await Promise.all(t.settleList.splice(0));
-    n = (await got()).filter((m) => m.cat === 'digest');
+    // Daily summary: at 12 noon New York time, once a day, from the 5-minute
+    // cron — not from the nightly jobs. Checked in summer (EDT) and winter (EST).
+    const cron5 = () => worker.scheduled({ cron: '*/5 * * * *' }, t.env, { waitUntil: (p) => t.settleList.push(p) }).then(() => Promise.all(t.settleList.splice(0)));
+    const realNow = Date.now;
+    const at = (iso) => { Date.now = () => Date.parse(iso); };
+    try {
+      await worker.scheduled({ cron: '0 5 * * *' }, t.env, { waitUntil: (p) => t.settleList.push(p) });
+      await Promise.all(t.settleList.splice(0));
+      assert.equal((await got()).filter((m) => m.cat === 'digest').length, 0, 'the nightly jobs no longer send it');
+      at('2026-10-20T15:55:00Z'); await cron5();   // 11:55 AM EDT
+      assert.equal((await got()).filter((m) => m.cat === 'digest').length, 0, 'not before noon');
+      at('2026-10-20T16:00:00Z'); await cron5();   // 12:00 PM EDT
+      n = (await got()).filter((m) => m.cat === 'digest');
+      assert.equal(n.length, 1, 'sent at noon');
+      at('2026-10-20T16:05:00Z'); await cron5();   // 12:05 PM: already sent today
+      assert.equal((await got()).filter((m) => m.cat === 'digest').length, 0, 'only once a day');
+      at('2026-12-01T16:00:00Z'); await cron5();   // 11:00 AM EST: not yet in winter
+      assert.equal((await got()).filter((m) => m.cat === 'digest').length, 0);
+      at('2026-12-01T17:00:00Z'); await cron5();   // 12:00 PM EST
+      assert.equal((await got()).filter((m) => m.cat === 'digest').length, 1, 'noon in winter too');
+    } finally { Date.now = realNow; }
     assert.equal(n.length, 1);
     assert.match(n[0].body, /used the console/);
     assert.equal(n[0].url, '/console/#tab=admin&sec=overview');

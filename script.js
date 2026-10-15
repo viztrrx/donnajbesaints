@@ -727,7 +727,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-16T01:00:00-04:00', commit: '', title: 'Notifications open their exact spot', parts: {
       admin: ['feature', 'A tap opens the person’s profile (API key, quota or Approve), the access request, the Allowed users row, the report or the job, highlighted; each profile can assign an API key'],
       chat: ['feature', 'Chat notifications open the room the message was in'],
-      theme: ['fix', 'The test notification opens Phone notifications'] } }
+      theme: ['fix', 'The test notification opens Phone notifications'] } },
+    { at: '2026-10-16T09:00:00-04:00', commit: '', title: 'Daily summary at 12 PM New York time', parts: {
+      theme: ['feature', 'The daily summary notification now arrives at noon Eastern every day (it used to come around 1 AM)'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',

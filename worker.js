@@ -445,7 +445,27 @@ async function checkPresence(env, ownerName, origin, { force = false } = {}) {
   return { changed: true, online: now, joined, left };
 }
 
-// Daily summary for the owner (runs with the daily cron).
+// Daily summary for the owner at 12:00 noon in the owner's time zone
+// (OWNER_TZ, default America/New_York). Cron runs in UTC and can't follow
+// daylight saving, so the 5-minute cron asks "is it the noon hour there and
+// has today's summary not gone out yet?" — noon in EDT and in EST alike.
+const DIGEST_HOUR = 12;
+function ownerClock(env, ts) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: (env && env.OWNER_TZ) || 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: 'numeric', hourCycle: 'h23' })
+    .formatToParts(new Date(ts == null ? Date.now() : ts)).map((p) => [p.type, p.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) % 24 };
+}
+async function maybeSendDailyDigest(env, ts) {
+  const kv = env && env.TELEMETRY;
+  if (!kv) return null;
+  const clock = ownerClock(env, ts);
+  if (clock.hour !== DIGEST_HOUR) return null;
+  if ((await kv.get('push:digest:last')) === clock.date) return null;
+  // Marked first, so overlapping cron runs can't send it twice.
+  await kv.put('push:digest:last', clock.date, { expirationTtl: 3 * 24 * 3600 });
+  return sendDailyDigest(env);
+}
+
 async function sendDailyDigest(env) {
   const kv = env && env.TELEMETRY;
   if (!kv || !(await anySubscriberWants(env, 'digest'))) return null;
@@ -461,7 +481,9 @@ async function sendDailyDigest(env) {
     }
     cursor = page.list_complete || scanned > 1000 ? undefined : page.cursor;
   } while (cursor);
-  const day = dayKey(Date.now() - 12 * 3600 * 1000);
+  // AI and security counts are kept per UTC day: report the last complete
+  // one (at noon in New York that is the day that ended at 8 PM yesterday).
+  const day = dayKey(Date.now() - 24 * 3600 * 1000);
   let n = 0, fail = 0, rl = 0;
   const usage = await kv.list({ prefix: `usage:${day}:` });
   for (const k of usage.keys) { const u = parseUsage(await kv.get(k.name)); n += u.n; fail += u.fail; rl += u.rl; }
@@ -544,13 +566,17 @@ export default {
     const kv = env && env.TELEMETRY;
     if (!kv) return;
     // Every 5 minutes: only the "who's online" check (see checkPresence).
-    if (event.cron === PRESENCE_CRON) { ctx.waitUntil(checkPresence(env, env.OWNER, null, { force: true }).catch(() => {})); return; }
+    // It also sends the owner's daily summary at noon their time.
+    if (event.cron === PRESENCE_CRON) {
+      ctx.waitUntil(checkPresence(env, env.OWNER, null, { force: true }).catch(() => {}));
+      ctx.waitUntil(maybeSendDailyDigest(env).catch(() => {}));
+      return;
+    }
     // Daily jobs. The cron expression is recorded so the Automation section
     // can show the schedule and compute the next run.
     ctx.waitUntil((async () => {
       try { await kv.put('job:cron', JSON.stringify({ cron: event.cron || null, ts: Date.now() })); } catch (e) { /* best-effort */ }
       for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron');if(!r.ok){queueEvent(env,ctx,'jobs',3);await notifyOwner(env,{cat:'jobs',title:'Scheduled job failed',url:adminLink('automation',{job:id}),body:`${id} · ${String(r.detail||'no detail').slice(0,160)} · ${ownerTime(env)}`});}}
-      try { await sendDailyDigest(env); } catch (e) { /* the summary is best-effort */ }
     })());
   }
 };

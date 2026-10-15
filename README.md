@@ -200,7 +200,7 @@ then sends standard Web Push notifications straight to your iPhone:
 | System | Security alerts | Wrong PINs, second sign-ins, sign-in lockouts, owner-name and identity spoofing, refused notification sign-ups | Admin → Security at that name's Allowed users row (wrong PIN, second device) or Access requests (unlisted name); the person's profile for spoofing |
 | System | Actions by your admins | What a moderator or admin (not you) did, and to whom | Admin → Audit log |
 | System | Failed scheduled jobs | The nightly jobs, if one fails | Admin → Automation, that job |
-| System | Daily summary | Once a day: people who used the console, new users, AI requests and failures, limits, security events | Admin → Overview |
+| System | Daily summary | Every day at 12 PM (noon) New York time, in summer and winter: people who used the console in the last 24 hours, new users, AI requests and failures, limits, security events | Admin → Overview |
 | — | Test notification | "Notifications are working" | Settings → Account → Phone notifications |
 
 The spot a notification opens is outlined for a moment so it's easy to find.

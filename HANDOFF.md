@@ -78,8 +78,9 @@ Order matters: Eaglercraft must stay right after Proxy, before Games.
   `admin-mobile-v1`): Saints Command pairing/push state.
 - `previews.kv_namespaces` points at the same KV (preview builds share
   production data; known risk, owner said fine).
-- **Crons:** `"0 5 * * *"` (daily jobs + owner daily summary) and
-  `"*/5 * * * *"` (who's-online presence check; no-op unless enabled).
+- **Crons:** `"0 5 * * *"` (daily jobs) and `"*/5 * * * *"` (who's-online
+  presence check, no-op unless enabled; also sends the owner's daily summary
+  once at 12 PM `OWNER_TZ` via `maybeSendDailyDigest`, KV `push:digest:last`).
   Listing crons in wrangler replaces dashboard crons.
 
 ### Worker vars/secrets (set in Cloudflare, never in Git)
