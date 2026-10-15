@@ -2713,7 +2713,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     if (url.pathname === '/chat/poll' && req.method === 'GET') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ ok: false, error: 'chat storage not configured', messages: [] }, 200);
-      if (!allowedUser(await getConfig(kv), (await effectiveUser(url.searchParams.get('user'))).user)) {
+      const pollId = await effectiveUser(url.searchParams.get('user'));
+      if (!allowedUser(await getConfig(kv), pollId.user)) {
         return json({ ok: false, error: ACCESS_DENIED, messages: [] }, 403);
       }
       const access = await checkRoomAccess(kv, url.searchParams.get('room'), url.searchParams.get('code'));
@@ -2723,15 +2724,23 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       // client polls this every couple of seconds, so it answers with a
       // readable error and an empty list rather than throwing.
       let messages;
+      let reads = [];
       try {
-        messages = (chatInRooms ? (await chatRoomCall(env, access.id, 'read', { since })).messages : await readRoomLog(kv, access.id))
+        // Read receipts: while the chat is on screen the client says how far
+        // it has read (?read=<ts>); it is recorded for the identified user
+        // and everyone's cursors come back. Rooms only (Durable Objects).
+        const reader = pollId.user && pollId.user.toLowerCase() !== 'anonymous' ? pollId.user : '';
+        const seen = parseInt(url.searchParams.get('read') || '0', 10) || 0;
+        const room = chatInRooms ? await chatRoomCall(env, access.id, 'read', { since, reader, seen }) : null;
+        if (room) reads = room.reads || [];
+        messages = (room ? room.messages : await readRoomLog(kv, access.id))
           .filter((m) => m && m.ts > since)
           .sort((a, b) => a.ts - b.ts)
           .slice(-CHAT_MAX);
       } catch (e) {
         return json({ ok: false, error: 'chat storage is temporarily unavailable', messages: [], now: Date.now() }, 200);
       }
-      return json({ ok: true, room: access.id, messages, now: Date.now() });
+      return json({ ok: true, room: access.id, messages, reads, now: Date.now() });
     }
     // ---- /chat/report : a signed-in user flags a chat message ----
     if (url.pathname === '/chat/report' && req.method === 'POST') {

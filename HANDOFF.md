@@ -104,6 +104,11 @@ All on `main`. Each has tests; see section 6.
    `usageMeter()` in worker.js adds `usage` to `/status` and `/track` for
    people with a daily/monthly quota or rpm; `renderUsageMeter()` draws
    `#gpa-usage` under the header. Test: `tests/browser/usage-meter.mjs`.
+   Read receipts: `/chat/poll?read=<ts>` (sent only while Chat is visible)
+   moves the caller's cursor in the room DO (`reads`), every poll returns
+   `reads`; `renderChatReceipt()` draws "Delivered"/"Read by …" under your
+   newest message when it is the last in the room. Test:
+   `tests/browser/read-receipts.mjs`.
 0. **Notification deep links**: every `notify()` carries a link built by
    `appLink(tab, params)` / `adminLink(sec, params)` in `worker.js`, e.g.
    `/console/#tab=admin&sec=users&user=renzo&focus=key`. In `script.js`,
@@ -210,7 +215,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (68 tests)
+npm test                                   # node --test tests/*.test.mjs (69 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -223,6 +228,7 @@ node tests/browser/notification-links.mjs  # 15 (every notification tap lands on
 node tests/browser/usage-meter.mjs         # 16 (meter states, Ask AI refresh, screenshots)
 node tests/browser/usage-meter-sizes.mjs   # 25 (meter + one-line header at every panel size preset)
 node tests/browser/chat-burst.mjs          # 4 (50 simultaneous messages, none lost)
+node tests/browser/read-receipts.mjs       # 13 (three phones: Delivered → Read by …)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 

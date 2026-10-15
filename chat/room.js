@@ -15,6 +15,12 @@
 //
 // The first touch of a room adopts whatever the old KV log held (key
 // roomlog:<id>), so messages from before the upgrade stay visible.
+//
+// Read receipts: each person's read cursor (the newest message they had on
+// screen, and when) is kept here too, reported with their polls while the
+// chat is open, and handed back to everyone so the sender's latest message
+// can say "Delivered" or "Read by …".
+const READS_MAX = 60;                  // cursors kept per room (most recent)
 
 const TTL_MS = 7 * 24 * 3600 * 1000;   // same week-long lifetime as before
 const MAX = 120;                       // newest messages kept per room
@@ -55,7 +61,24 @@ export class ChatRoom {
       const log = await this.load(id);
       if (action === 'read') {
         const since = Number(body.since) || 0;
-        return reply({ ok: true, messages: log.filter((m) => m && m.ts > since) });
+        let reads = (await this.storage.get('reads')) || {};
+        // A reader moves their cursor forward only, and only to a message
+        // that exists (no claiming to have read the future).
+        const reader = String(body.reader || '').trim().slice(0, 40);
+        const seen = Number(body.seen) || 0;
+        const lastTs = log.length ? log[log.length - 1].ts : 0;
+        if (reader && seen > 0) {
+          const key = reader.toLowerCase();
+          const upTo = Math.min(seen, lastTs);
+          if (upTo > ((reads[key] && reads[key].ts) || 0)) {
+            reads[key] = { u: reader, ts: upTo, at: Date.now() };
+            const keep = Object.entries(reads).sort((a, b) => b[1].at - a[1].at).slice(0, READS_MAX);
+            reads = Object.fromEntries(keep);
+            await this.storage.put('reads', reads);
+          }
+        }
+        const fresh = Object.values(reads).filter((r) => r && Date.now() - r.at < TTL_MS);
+        return reply({ ok: true, messages: log.filter((m) => m && m.ts > since), reads: fresh });
       }
       if (action === 'append') {
         const m = body.msg && typeof body.msg === 'object' ? body.msg : null;
@@ -73,7 +96,7 @@ export class ChatRoom {
       }
       if (action === 'clear') {
         const n = log.length;
-        await this.storage.put({ log: [], updatedAt: Date.now(), seeded: true });
+        await this.storage.put({ log: [], reads: {}, updatedAt: Date.now(), seeded: true });
         return reply({ ok: true, deleted: n });
       }
       return reply({ ok: false, error: 'unknown action' }, 404);

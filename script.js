@@ -734,7 +734,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       console: ['feature', 'People with a daily or monthly AI limit (or a per-minute rate) see a meter under the header: used, left and when it resets; amber near the end, red at the limit'],
       chat: ['fix', 'Messages sent at the same moment from different places could erase each other (the notification still arrived); each room now keeps one always-consistent log'] } },
     { at: '2026-10-16T12:00:00-04:00', commit: '', title: 'Header title stays on one line', parts: {
-      console: ['fix', 'The console name no longer wraps onto two lines at the Compact panel size; a tighter header fits it, and a long custom brand name ends in “…”'] } }
+      console: ['fix', 'The console name no longer wraps onto two lines at the Compact panel size; a tighter header fits it, and a long custom brand name ends in “…”'] } },
+    { at: '2026-10-16T15:00:00-04:00', commit: '', title: 'Read receipts in chat', parts: {
+      chat: ['feature', 'iMessage-style receipts under your newest message: “Delivered”, then “Read by kj 3:42 PM” (or “kj and dub”, “and 2 others”) once someone has it on screen'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -5283,6 +5285,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-chat-msg.owner .who::after { content: ' 👑'; }
       .gpa-chat-msg .when { font-size: 10px; color: var(--gpa-sub); font-variant-numeric: tabular-nums; }
       .gpa-chat-msg .body { line-height: 1.5; overflow-wrap: anywhere; }
+      /* Read receipt under your newest message, iMessage style: small, grey,
+         right-aligned; "Delivered" or "Read by … 3:42 PM". */
+      .gpa-chat-receipt {
+        margin-top: 3px; text-align: right; font-size: 11px; line-height: 1.3; color: var(--gpa-sub);
+        animation: gpaReceiptIn .25s ease-out;
+      }
+      .gpa-chat-receipt b { font-weight: 600; }
+      .gpa-chat-receipt-time { font-weight: 400; margin-left: 3px; }
+      @keyframes gpaReceiptIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+      @media (prefers-reduced-motion: reduce) { .gpa-chat-receipt { animation: none; } }
       .gpa-chat-empty { color: var(--gpa-sub); font-size: 12px; text-align: center; padding: 16px 0; }
       /* Gallery photos are small in chat and expand only on tap. */
       .gpa-chat-thumb-button { display: block; max-width: 100%; width: fit-content; margin-top: 7px; padding: 0;
@@ -11370,6 +11382,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   let chatSince = 0;
   let chatTimer = null;
   let chatSeen = new Set();
+  let chatReads = [];   // everyone's read cursors in this room: [{ u, ts, at }]
   let chatUnread = 0;
   // Consecutive failed polls. When the worker is down or out of quota there is
   // nothing to be gained by asking twenty times a minute, so each failure
@@ -11444,6 +11457,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     div.className = 'gpa-chat-msg'
       + (currentUser && m.u === currentUser ? ' mine' : '')
       + (m.owner ? ' owner' : '');
+    div.dataset.ts = String(m.ts);
     const avatar = document.createElement('span');
     avatar.className = 'avatar';
     avatar.textContent = String(m.u || '?').trim().charAt(0).toUpperCase();
@@ -11495,6 +11509,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const params = new URLSearchParams({ room: chatRoom, since: String(chatSince) });
     if (currentUser) params.set('user', currentUser);   // the allowed-users list applies to reading too
     if (sessionToken()) params.set('s', sessionToken());   // proof for that name, without a preflight
+    // Read receipts: only while the chat is actually on screen, report the
+    // newest message already shown (so it was really seen).
+    if (currentUser && chatSince && chatIsOpenAndVisible()) params.set('read', String(chatSince));
     const code = chatCodeFor(chatRoom);
     if (code) params.set('code', code);
     // Snapshot before the request: this poll's messages should only count
@@ -11544,6 +11561,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         requestAnimationFrame(() => { if (chatLog.isConnected) chatLog.scrollTop = chatLog.scrollHeight; });
       }
       if (added) updateChatBadge();
+      chatReads = Array.isArray(data.reads) ? data.reads : [];
+      renderChatReceipt();
     } catch (e) {
       chatPollFailures++;
       chatNote.textContent = 'Offline — messages will load when you reconnect.';
@@ -11558,10 +11577,54 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (chatRoom !== id) switchChatRoom(id);
   }
 
+  // ---- Read receipts (iMessage style) ---------------------------------------
+  // Under your own message, when it is the newest one in the room (as in
+  // iMessage, a reply makes it moot): "Delivered" once the room has it, then
+  // "Read by kj · 3:42 PM" when someone else has had it on screen.
+  function receiptTime(at) {
+    const d = new Date(at), now = new Date();
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (d.toDateString() === now.toDateString()) return time;
+    if (d.toDateString() === new Date(now.getTime() - 864e5).toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+  function renderChatReceipt() {
+    const msgs = chatLog.querySelectorAll('.gpa-chat-msg');
+    const last = msgs[msgs.length - 1];
+    const old = chatLog.querySelector('.gpa-chat-receipt');
+    if (!last || !last.classList.contains('mine') || !currentUser) { if (old) old.remove(); return; }
+    const ts = Number(last.dataset.ts) || 0;
+    const me = currentUser.toLowerCase();
+    const readers = chatReads.filter((r) => r && r.u && r.u.toLowerCase() !== me && r.ts >= ts).sort((a, b) => a.at - b.at);
+    let html, label;
+    if (!readers.length) {
+      html = '<b>Delivered</b>';
+      label = 'Delivered';
+    } else {
+      const names = readers.map((r) => r.u);
+      const who = names.length === 1 ? names[0] : names.length === 2 ? names[0] + ' and ' + names[1]
+        : names.slice(0, 2).join(', ') + ' and ' + (names.length - 2) + (names.length - 2 === 1 ? ' other' : ' others');
+      const when = receiptTime(Math.max(...readers.map((r) => r.at)));
+      html = '<b>Read</b> by ' + escapeHtml(who) + ' <span class="gpa-chat-receipt-time">' + escapeHtml(when) + '</span>';
+      label = 'Read by ' + names.join(', ') + ', ' + when;
+    }
+    if (old && old.parentNode === last.querySelector('.col') && old.dataset.label === label) return;   // unchanged: no flicker
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.className = 'gpa-chat-receipt' + (readers.length ? ' is-read' : '');
+    el.dataset.label = label;
+    el.setAttribute('aria-label', label);
+    if (readers.length) el.title = readers.map((r) => r.u + ' · ' + receiptTime(r.at)).join('\n');
+    el.innerHTML = html;
+    last.querySelector('.col').appendChild(el);
+    if (chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 80) chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
   function switchChatRoom(id) {
     chatRoom = id;
     chatSince = 0;
     chatSeen = new Set();
+    chatReads = [];
     chatBootstrap = true;
     chatLog.innerHTML = '<div class="gpa-chat-empty">Loading…</div>';
     chatPoll();

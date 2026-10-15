@@ -157,3 +157,33 @@ test('chat (rooms): old KV messages carry over, and reports, room delete and cle
   await env.TELEMETRY.put('roomlog:public', JSON.stringify([{ u: 'kj', t: 'stale copy', ts: 5 }]));
   assert.equal((await poll(c)).data.messages.length, 0);
 });
+
+test('chat (rooms): read receipts — cursors move forward only, per person, and come back to everyone', async () => {
+  const env = { TELEMETRY: makeKV(), ADMIN_TOKEN: ADMIN, OWNER: 'boss' };
+  env.CHAT_ROOMS = makeRooms(env);
+  const c = client(env);
+  const pollAs = (user, read) => c.call(`/chat/poll?room=public&since=0&user=${user}${read != null ? '&read=' + read : ''}`);
+  const sent = (await send(c, 'maya', 'are you coming?')).data.ts;
+  let r = (await pollAs('maya')).data;
+  assert.deepEqual(r.reads, [], 'nobody has read it yet: "Delivered"');
+  // kj has it on screen and says so.
+  await pollAs('kj', sent);
+  r = (await pollAs('maya')).data;
+  assert.equal(r.reads.length, 1);
+  assert.equal(r.reads[0].u, 'kj');
+  assert.equal(r.reads[0].ts, sent);
+  assert.ok(Date.now() - r.reads[0].at < 5000, 'with the time they read it');
+  // A cursor never goes backwards, and can't point past the newest message.
+  await pollAs('kj', 1);
+  assert.equal((await pollAs('maya')).data.reads.find((x) => x.u === 'kj').ts, sent);
+  await pollAs('dub', sent + 999999);
+  assert.equal((await pollAs('maya')).data.reads.find((x) => x.u === 'dub').ts, sent, 'clamped to the newest message');
+  // Polling without ?read= (chat not on screen) records nothing.
+  await pollAs('sam');
+  assert.equal((await pollAs('maya')).data.reads.some((x) => x.u === 'sam'), false);
+  // Rooms keep separate receipts, and Clear chat resets them.
+  const room = (await c.call('/admin/rooms', { method: 'POST', headers: owner, body: { action: 'create', name: 'Study' } })).data;
+  assert.deepEqual((await poll(c, 0, room.id, room.code)).data.reads, []);
+  await c.call('/admin/jobs/run', { method: 'POST', headers: owner, body: { id: 'chat-cleanup' } });
+  assert.deepEqual((await pollAs('maya')).data.reads, []);
+});
