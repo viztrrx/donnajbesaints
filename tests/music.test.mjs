@@ -162,6 +162,9 @@ test('music: the allowed-users list applies to listening too', async () => {
     assert.equal((await t.call('/music/library')).status, 403, 'anonymous refused while the list is on');
     assert.equal((await t.call('/music/file/' + up.track.id + '?user=stranger')).status, 403);
     assert.equal((await t.call('/music/audius/stream/D7KyD?user=stranger')).status, 403);
-    assert.equal((await t.call('/music/file/' + up.track.id + '?user=KJ')).status, 200, 'listed names in any case');
+    assert.equal((await t.call('/music/file/' + up.track.id + '?user=KJ')).status, 403, 'a listed name alone is not enough');
+    const reg = await t.jsonOf(await t.call('/auth/register', { method: 'POST', body: JSON.stringify({ user: 'kj', verifier: 'a'.repeat(64) }) }));
+    assert.ok(reg.token);
+    assert.equal((await t.call('/music/file/' + up.track.id + '?user=KJ&s=' + encodeURIComponent(reg.token))).status, 200, 'listed names in any case, with their session');
   } finally { t.restore(); }
 });

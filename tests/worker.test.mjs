@@ -594,7 +594,8 @@ test('allowed users: only listed names (and the owner) get in; others see "Unabl
 
   // Sign-in screen check.
   assert.deepEqual((await c.call('/access?user=stranger')).data, { allowed: false, error: 'Unable to create account', request: null });
-  assert.equal((await c.call('/access?user=Kj')).data.allowed, true, 'case-insensitive');
+  assert.deepEqual((await c.call('/access?user=Kj')).data, { allowed: true, sessionRequired: true }, 'case-insensitive; must sign in with the PIN');
+  assert.equal((await c.call('/access?user=boss')).data.sessionRequired, false, 'the owner keeps several devices'); 
   assert.equal((await c.call('/access?user=boss')).data.allowed, true, 'the owner is always allowed');
 
   // Server accounts.
@@ -602,7 +603,9 @@ test('allowed users: only listed names (and the owner) get in; others see "Unabl
   assert.equal(reg.status, 403);
   assert.equal(reg.data.error, 'Unable to create account');
   assert.equal(await env.TELEMETRY.get('acct:stranger', 'json'), null, 'no account created');
-  assert.equal((await signUp(c, 'kj')).status, 200);
+  const kjReg = await signUp(c, 'kj');
+  assert.equal(kjReg.status, 200);
+  const kjTok = kjReg.data.token;
   const login = await c.call('/auth/login', { method: 'POST', body: { user: 'early', verifier: 'a'.repeat(64) } });
   assert.equal(login.status, 403, 'an existing account not on the list cannot sign in');
   assert.equal(login.data.error, 'Unable to create account');
@@ -615,13 +618,18 @@ test('allowed users: only listed names (and the owner) get in; others see "Unabl
   const st = await c.call('/status?user=stranger');
   assert.equal(st.data.notAllowed, true);
   assert.equal(st.data.reason, 'Unable to create account');
-  assert.equal((await c.call('/status?user=sam')).data.state, 'active');
+  // A listed name alone (no PIN-checked session) gets nothing.
+  const bare = await c.call('/status?user=sam');
+  assert.equal(bare.data.notAllowed, true);
+  assert.equal(bare.data.sessionRequired, true);
+  assert.equal((await c.call('/status?user=kj', { headers: sess(kjTok) })).data.state, 'active');
 
   // Chat, page reading and AI are refused too.
   assert.equal((await c.call('/chat/send', { method: 'POST', body: { user: 'stranger', text: 'hi', room: 'public' } })).data.ok, false);
   assert.equal((await c.call('/chat/poll?room=public&since=0&user=stranger')).status, 403);
   assert.equal((await c.call('/chat/poll?room=public&since=0')).status, 403, 'anonymous readers too');
-  assert.equal((await c.call('/chat/poll?room=public&since=0&user=dub')).data.ok, true);
+  assert.equal((await c.call('/chat/poll?room=public&since=0&user=dub')).status, 403, 'a listed name without its PIN');
+  assert.equal((await c.call('/chat/poll?room=public&since=0&user=kj&s=' + encodeURIComponent(kjTok))).data.ok, true, 'session as ?s='); 
   assert.equal((await c.call('/read?url=https://example.com', { headers: { 'X-GPA-User': 'stranger' } })).status, 403);
   const ai = await c.call('/v1/chat/completions', { method: 'POST', headers: { 'X-GPA-User': 'stranger', ...userKey }, body: { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'hi' }] } });
   assert.equal(ai.status, 403);
@@ -642,9 +650,12 @@ test('allowed users: any capitalization of a listed name gets in', async () => {
   await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['josue'] } } });
   for (const v of ['josue', 'Josue', 'JOSUE', 'jOsue', 'josUE', 'JoSuE']) {
     assert.equal((await c.call('/access?user=' + v)).data.allowed, true, v);
-    assert.equal((await c.call('/status?user=' + v)).data.state, 'active', v);
   }
-  assert.equal((await signUp(c, 'JOSUE')).status, 200, 'server account with capitals');
+  const reg = await signUp(c, 'JOSUE');
+  assert.equal(reg.status, 200, 'server account with capitals');
+  for (const v of ['josue', 'Josue', 'JOSUE', 'jOsue']) {
+    assert.equal((await c.call('/status?user=' + v, { headers: sess(reg.data.token) })).data.state, 'active', v);
+  }
   assert.equal((await signUp(c, 'josue')).status, 409, 'same account, any capitalization');
   await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['JoSuE'] } } });
   assert.equal((await c.call('/access?user=josue')).data.allowed, true, 'the list itself can be typed in any case');
@@ -693,4 +704,93 @@ test('access requests: unlisted users can ask; the owner is notified and can app
   // Decisions are audited.
   const audit = await c.call('/admin/audit', { headers: owner });
   assert.ok(JSON.stringify(audit.data).includes('access_request_approved'));
+});
+
+test('one sign-in per name: a listed username is useless without its PIN, and only one device holds it', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['kj'] } } });
+  const login = (user, pin, ip) => c.call('/auth/login', { method: 'POST', body: { user, verifier: verifierFor(user, pin) }, ip });
+  const a = await signUp(c, 'kj', '4321');
+  assert.equal(a.status, 200);
+  const tokA = a.data.token;
+
+  // An impostor who only knows the name: every door stays shut.
+  const wrong = await login('kj', '0000', '9.9.9.9');
+  assert.equal(wrong.status, 401);
+  const beat = await c.call('/track', { method: 'POST', body: { user: 'kj', event: 'open', sid: 'imp1' } });
+  assert.equal(beat.data.sessionRequired, true);
+  assert.equal(beat.data.notAllowed, true);
+  assert.equal(await env.TELEMETRY.get('session:imp1'), null, 'nothing recorded for a bare name');
+  assert.equal((await c.call('/chat/send', { method: 'POST', body: { user: 'kj', text: 'hi', room: 'public' } })).data.ok, false);
+  const ai = await c.call('/v1/chat/completions', { method: 'POST', headers: { 'X-GPA-User': 'kj', ...userKey }, body: { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'hi' }] } });
+  assert.equal(ai.status, 401);
+  assert.equal(ai.data.error.type, 'session_required');
+  assert.equal((await c.call('/auth/register', { method: 'POST', body: { user: 'KJ', verifier: verifierFor('KJ', '0000') } })).status, 409, 'cannot re-register the name');
+
+  // The real kj still works.
+  assert.equal((await c.call('/status?user=kj', { headers: sess(tokA) })).data.state, 'active');
+  assert.equal((await c.call('/track', { method: 'POST', body: { user: 'kj', event: 'open', sid: 'kjA', session: tokA } })).data.ok, true);
+
+  // Even with the right PIN, a second device is refused while the first is in use.
+  const b1 = await login('kj', '4321', '5.5.5.5');
+  assert.equal(b1.status, 409);
+  assert.equal(b1.data.inUse, true);
+  assert.ok(b1.data.waitMin >= 1 && b1.data.waitMin <= 15);
+  assert.equal((await c.call('/status?user=kj', { headers: sess(tokA) })).data.state, 'active', 'the first device is untouched');
+
+  // Signing out frees the name right away.
+  assert.equal((await c.call('/auth/logout', { method: 'POST', headers: sess(tokA) })).status, 200);
+  assert.equal((await c.call('/auth/me', { headers: sess(tokA) })).status, 401, 'a signed-out token is dead');
+  const b2 = await login('kj', '4321', '5.5.5.5');
+  assert.equal(b2.status, 200);
+  const tokB = b2.data.token;
+
+  // Last use is refreshed (rate-limited) so "in use" stays accurate.
+  let acct = await env.TELEMETRY.get('acct:kj', 'json');
+  acct.sessions[0].lastSeen = Date.now() - 6 * 60e3;
+  await env.TELEMETRY.put('acct:kj', JSON.stringify(acct));
+  await c.call('/status?user=kj', { headers: sess(tokB) });
+  await c.settle();
+  assert.ok(Date.now() - (await env.TELEMETRY.get('acct:kj', 'json')).sessions[0].lastSeen < 60e3);
+
+  // A device left idle past 15 minutes is replaced, and is told why.
+  acct = await env.TELEMETRY.get('acct:kj', 'json');
+  acct.sessions[0].lastSeen = Date.now() - 16 * 60e3;
+  await env.TELEMETRY.put('acct:kj', JSON.stringify(acct));
+  const c3 = await login('kj', '4321', '6.6.6.6');
+  assert.equal(c3.status, 200);
+  const tokC = c3.data.token;
+  assert.equal((await env.TELEMETRY.get('acct:kj', 'json')).sessions.length, 1, 'only one session is kept');
+  const old = await c.call('/status?user=kj', { headers: sess(tokB) });
+  assert.equal(old.data.sessionRequired, true);
+  assert.equal(old.data.sessionProblem, 'signed_in_elsewhere');
+  assert.equal((await c.call('/auth/me', { headers: sess(tokB) })).data.reason, 'signed_in_elsewhere');
+  // Logging out with the replaced token can't sign the new device out.
+  await c.call('/auth/logout', { method: 'POST', headers: sess(tokB) });
+  assert.equal((await c.call('/status?user=kj', { headers: sess(tokC) })).data.state, 'active');
+
+  // The owner sees it all and can sign the name out.
+  const sec = await c.call('/admin/security', { headers: owner });
+  const row = sec.data.config.allowAccounts.find((r) => r.user === 'kj');
+  assert.equal(row.claimed, true);
+  assert.equal(row.signedIn, true);
+  assert.ok(sec.data.recent.some((e) => e.type === 'signin_in_use' && e.user === 'kj'));
+  assert.ok(sec.data.recent.some((e) => e.type === 'login_failed' && e.user === 'kj'));
+  assert.equal((await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'kj', action: 'revokesessions' } })).status, 200);
+  assert.equal((await c.call('/status?user=kj', { headers: sess(tokC) })).data.sessionRequired, true);
+  assert.equal((await login('kj', '4321', '6.6.6.6')).status, 200, 'and kj can sign in again at once');
+
+  // The owner keeps several devices.
+  const bossA = await signUp(c, 'boss', '1111', { headers: { 'X-GPA-Owner': OWNER_CODE } });
+  assert.equal(bossA.status, 200);
+  const bossB = await login('boss', '1111', '7.7.7.7');
+  assert.equal(bossB.status, 200);
+  assert.equal((await c.call('/auth/me', { headers: sess(bossA.data.token) })).status, 200);
+  assert.equal((await c.call('/auth/me', { headers: sess(bossB.data.token) })).status, 200);
+
+  // With the list off, the old behavior returns (several devices, bare names).
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: false, users: ['kj'] } } });
+  assert.equal((await login('kj', '4321', '8.8.8.8')).status, 200);
+  assert.equal((await login('kj', '4321', '8.8.8.9')).status, 200);
+  assert.equal((await c.call('/status?user=kj')).data.state, 'active');
 });

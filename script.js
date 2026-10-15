@@ -720,7 +720,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       admin: ['feature', 'Security → Access requests: approve (adds to Allowed users), deny or clear; phone notification for each request'],
       console: ['feature', 'Unlisted names see “Unable to create account” with a Request access form and its status'] } },
     { at: '2026-10-15T22:00:00-04:00', commit: '', title: 'Music without keys or sign-ins: free search and a shared library', parts: {
-      music: ['redesign', 'Search Audius (free full songs) and the shared library, owner/admin uploads, one now-playing bar with lock-screen controls'] } }
+      music: ['redesign', 'Search Audius (free full songs) and the shared library, owner/admin uploads, one now-playing bar with lock-screen controls'] } },
+    { at: '2026-10-15T23:30:00-04:00', commit: '', title: 'One sign-in per name: allowed usernames can’t be borrowed', parts: {
+      console: ['feature', 'With Allowed users on, signing in checks your PIN on the server first; a name already signed in on another device is refused, and an older device is signed out'],
+      admin: ['feature', 'Security → Allowed users shows whether each name has a PIN and is signed in, with Sign out and Reset PIN'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1976,6 +1979,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gac-allow-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; font-size: 13px; }
       .gac-allow-label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--gpa-sub); }
       .gac-allow-list { width: 100%; min-height: 120px; padding: 10px; font: 13px/1.5 'Geist Mono', ui-monospace, monospace; resize: vertical; }
+      .gac-acct-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); overflow: hidden; }
+      .gac-acct { padding: 10px 12px; }
+      .gac-acct + .gac-acct { border-top: 1px solid var(--gpa-border); }
+      .gac-acct-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
       /* ---- Owner phone notifications (Settings → Account) ---- */
       .gpa-push { display: flex; flex-direction: column; gap: 10px; }
@@ -9775,7 +9782,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const musicResults = panel.querySelector('#gpa-music-results');
   const ytRow = panel.querySelector('#gpa-music-yt-row');
   const musicBase = () => (typeof telemetryEndpoint === 'function' ? telemetryEndpoint() : '');
-  const withUser = (path) => path + (path.includes('?') ? '&' : '?') + 'user=' + encodeURIComponent(currentUser || '');
+  // ?s= carries the sign-in proof: audio elements can't send headers, and a
+  // listed name alone isn't accepted while Allowed users is on.
+  const withUser = (path) => path + (path.includes('?') ? '&' : '?') + 'user=' + encodeURIComponent(currentUser || '') + (sessionToken() ? '&s=' + encodeURIComponent(sessionToken()) : '');
   const fmtDur = (sec) => { sec = Math.max(0, Math.round(sec || 0)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); };
   function musicStaffHeaders() {
     const h = {};
@@ -11418,6 +11427,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const base = telemetryEndpoint();
     const params = new URLSearchParams({ room: chatRoom, since: String(chatSince) });
     if (currentUser) params.set('user', currentUser);   // the allowed-users list applies to reading too
+    if (sessionToken()) params.set('s', sessionToken());   // proof for that name, without a preflight
     const code = chatCodeFor(chatRoom);
     if (code) params.set('code', code);
     // Snapshot before the request: this poll's messages should only count
@@ -11603,7 +11613,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!id) return;
     chatNote.textContent = 'Checking…';
     try {
-      const res = await fetch(telemetryEndpoint() + `/chat/poll?room=${encodeURIComponent(id)}&since=0&code=${encodeURIComponent(code)}`);
+      const res = await fetch(telemetryEndpoint() + `/chat/poll?room=${encodeURIComponent(id)}&since=0&code=${encodeURIComponent(code)}` + (currentUser ? '&user=' + encodeURIComponent(currentUser) : '') + (sessionToken() ? '&s=' + encodeURIComponent(sessionToken()) : ''));
       const data = await res.json().catch(() => ({}));
       if (!data.ok) { chatNote.textContent = data.error || 'Could not join.'; return; }
       const rooms = joinedRooms();
@@ -13431,7 +13441,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // reached the console still opens, and every server feature (chat, AI,
   // heartbeats) stays refused for names that aren't listed.
   const ACCESS_DENIED_MSG = 'Unable to create account';
+  // Set by accessAllowed: the Worker wants a PIN-checked server sign-in before
+  // the console opens (Allowed users on → one sign-in per name).
+  let accessNeedsServer = false;
   async function accessAllowed(user) {
+    accessNeedsServer = false;
     if (typeof telemetryOn !== 'function' || !telemetryOn()) return true;
     try {
       const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -13440,6 +13454,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (timer) clearTimeout(timer);
       const d = await r.json().catch(() => ({}));
       if (d.allowed === false) { showAccessRequest(user, d.request); return false; }
+      accessNeedsServer = !!d.sessionRequired;
       return true;
     } catch (e) { return true; }
   }
@@ -13503,6 +13518,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!user || !pin) { showLoginMsg('Enter both a profile name and a PIN.', true); return; }
     showLoginMsg('Checking…');
     if (!(await accessAllowed(user))) { showLoginMsg(ACCESS_DENIED_MSG, true); return; }
+    if (accessNeedsServer) { await serverFirstSignIn(user, pin, false); return; }
     const profile = readProfile(user);
     if (!profile) { showLoginMsg('No profile by that name here. Use Create, or restore a sync code.', true); return; }
     showLoginMsg('Checking…');
@@ -13531,6 +13547,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (String(pin).length < 4) { showLoginMsg('Use a PIN of at least 4 characters.', true); return; }
     showLoginMsg('Checking…');
     if (!(await accessAllowed(user))) { showLoginMsg(ACCESS_DENIED_MSG, true); return; }
+    if (accessNeedsServer) { await serverFirstSignIn(user, pin, true); return; }
     showLoginMsg('Securing your PIN…');
     const pinHash = await makePinRecord(user.toLowerCase(), pin);
     // A brand-new profile starts from whatever is currently set up, so you
@@ -13544,6 +13561,38 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     linkServerAccount(user, pin);
   }
 
+  // One sign-in per name (Allowed users on): the Worker checks the PIN and
+  // hands out the only session for this name BEFORE the console opens, so a
+  // username typed on someone else's device gets nothing without the PIN.
+  // The server account is the source of truth here: a device without a local
+  // profile gets one once the server accepts the PIN.
+  async function serverFirstSignIn(user, pin, creating) {
+    let profile = readProfile(user);
+    let localOk = false;
+    if (profile) localOk = (await verifyPin(user.toLowerCase(), pin, profile.pinHash)).ok;
+    showLoginMsg('Checking your PIN with the server…');
+    // A brand-new name may be claimed from Create, or from Sign in when this
+    // device already proved the PIN against its own profile.
+    const r = await linkServerAccount(user, pin, { register: creating || localOk });
+    if (!r.ok) {
+      showLoginMsg(r.missing ? 'No account with that name yet. Use Create to make one.'
+        : r.wrongPin ? (creating ? 'That name is already taken. If it’s yours, use Sign in with your PIN.' : 'Wrong PIN.')
+          : serverSessionError || 'Couldn’t sign in. Try again.', true);
+      return;
+    }
+    if (!profile) {
+      localStorage.removeItem(LANG_ASKED_KEY);
+      profile = { user, pinHash: await makePinRecord(user.toLowerCase(), pin), data: collectState(), updatedAt: Date.now() };
+      writeProfile(user, profile);
+    } else {
+      // The server accepted this PIN, so it is the right one for this name.
+      if (!localOk) { try { profile.pinHash = await makePinRecord(user.toLowerCase(), pin); writeProfile(user, profile); } catch (e) { /* not fatal */ } }
+      applyState(profile.data || {});
+    }
+    showLoginMsg('');
+    enterApp(user);
+  }
+
   // ---- Server session (worker accounts) ----------------------------------------
   // The PIN is still verified locally; right after that, the same PIN derives
   // a server verifier (PBKDF2, salted by the username, identical on every
@@ -13554,6 +13603,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // The token is stored per browser (never in profile snapshots or sync codes)
   // and expires on its own; the worker can revoke it at any time.
   const SERVER_SESSION_KEY = 'gpa_session_token';
+  // Accounts live on the same Worker that enforces the allowed-users list
+  // (/access, /status, /track). Normally that is OPENAI_PROXY itself.
+  const AUTH_BASE = () => ((typeof telemetryOn === 'function' && telemetryOn() ? telemetryEndpoint() : '') || OPENAI_PROXY);
   let serverSession = null;
   try { serverSession = JSON.parse(localStorage.getItem(SERVER_SESSION_KEY) || 'null'); } catch (e) { serverSession = null; }
   let serverSessionStatus = 'none';   // none | pending | ok | expired | failed | offline | unsupported | needs_pin
@@ -13580,8 +13632,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   function clearServerSession(remote) {
     const t = serverSession && serverSession.token;
-    if (remote && t && OPENAI_PROXY) {
-      fetch(OPENAI_PROXY + '/auth/logout', { method: 'POST', headers: { 'X-GPA-Session': t } }).catch(() => {});
+    if (remote && t && AUTH_BASE()) {
+      fetch(AUTH_BASE() + '/auth/logout', { method: 'POST', headers: { 'X-GPA-Session': t } }).catch(() => {});
     }
     serverSession = null;
     serverSessionStatus = 'none';
@@ -13592,8 +13644,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   async function workerHealth(force) {
     if (workerInfo && !force) return workerInfo;
-    if (!OPENAI_PROXY) return null;
-    try { workerInfo = await (await fetch(OPENAI_PROXY + '/health', { cache: 'no-store' })).json(); } catch (e) { workerInfo = null; }
+    if (!AUTH_BASE()) return null;
+    try { workerInfo = await (await fetch(AUTH_BASE() + '/health', { cache: 'no-store' })).json(); } catch (e) { workerInfo = null; }
     return workerInfo;
   }
   function workerSupports(feature) { return !!(workerInfo && Array.isArray(workerInfo.features) && workerInfo.features.includes(feature)); }
@@ -13602,18 +13654,42 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return pbkdf2Hex(`gpa-server|${u}|${pin}`, 'gpa-server-salt|' + u, PIN_ITERATIONS);
   }
   // Called with the plaintext PIN, right after a successful local sign-in.
-  async function linkServerAccount(user, pin) {
-    if (!OPENAI_PROXY) return;
+  async function linkServerAccount(user, pin, opts) {
+    if (!AUTH_BASE()) return { ok: false };
+    const canRegister = !opts || opts.register !== false;
+    let result = { ok: false };
     serverSessionStatus = 'pending';
     emitSession();
     try {
       const info = await workerHealth();
-      if (!info || !info.sessions || !workerSupports('sessions')) { serverSessionStatus = 'unsupported'; emitSession(); return; }
+      if (!info || !info.sessions || !workerSupports('sessions')) { serverSessionStatus = 'unsupported'; emitSession(); return { ok: false }; }
       const verifier = await serverVerifier(user, pin);
-      const post = (path, extra) => fetch(OPENAI_PROXY + path, {
+      // This device may already hold the one session for this name (signing
+      // in again without signing out): keep it instead of asking for a second.
+      if (serverSession && serverSession.token && String(serverSession.u).toLowerCase() === String(user).toLowerCase()) {
+        try {
+          const me = await fetch(AUTH_BASE() + '/auth/me', { headers: { 'X-GPA-Session': serverSession.token } });
+          const md = await me.json().catch(() => ({}));
+          if (me.ok && md.ok) {
+            // Still prove the PIN: login answers 409 (already signed in, i.e.
+            // here) only after the PIN matched; 401 means it didn't.
+            const chk = await fetch(AUTH_BASE() + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ user, verifier }) });
+            if (chk.status === 401) { serverSessionStatus = 'failed'; serverSessionError = 'Wrong PIN.'; emitSession(); return { ok: false, wrongPin: true }; }
+            const cd = chk.ok ? await chk.json().catch(() => ({})) : null;
+            storeServerSession(user, cd && cd.token ? cd : { token: md.token || serverSession.token, exp: serverSession.exp, account: md.account });
+            serverSessionStatus = 'ok'; serverSessionError = ''; emitSession();
+            return { ok: true };
+          }
+        } catch (e) { /* fall through to a normal sign-in */ }
+      }
+      const post = (path, extra) => fetch(AUTH_BASE() + path, {
         method: 'POST', headers: { 'Content-Type': 'text/plain', ...(extra || {}) }, body: JSON.stringify({ user, verifier })
       }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => ({})) }));
       let r = await post('/auth/login');
+      if (r.status === 404 && r.data.missing && !canRegister) {
+        serverSessionStatus = 'failed'; serverSessionError = 'No account with that name yet.'; emitSession();
+        return { ok: false, missing: true };
+      }
       if (r.status === 404 && r.data.missing) {
         const ownerCode = admGet(ADMIN_KEYS.OWNER_CODE);
         r = await post('/auth/register', ownerCode ? { 'X-GPA-Owner': ownerCode } : null);
@@ -13622,27 +13698,34 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         storeServerSession(user, r.data);
         serverSessionStatus = 'ok';
         serverSessionError = '';
+        result = { ok: true };
       } else {
         serverSessionStatus = 'failed';
         serverSessionError = r.status === 401 ? 'This name is registered on the server with a different PIN.'
-          : r.status === 403 && /reserved/.test(r.data.error || '') ? "This name is reserved for the console's owner."
-            : r.status === 429 ? 'Too many attempts. Try again in a few minutes.'
-              : (r.data.error || ('HTTP ' + r.status));
+          : r.status === 409 && r.data.inUse ? '“' + user + '” is already signed in on another device. Sign out there first, or try again in about ' + (r.data.waitMin || 15) + ' min. The owner can also sign it out.'
+            : r.status === 409 && r.data.exists ? 'That name is already taken.'
+              : r.status === 403 && /reserved/.test(r.data.error || '') ? "This name is reserved for the console's owner."
+                : r.status === 403 && r.data.notAllowed ? ACCESS_DENIED_MSG
+                  : r.status === 429 ? 'Too many attempts. Try again in a few minutes.'
+                    : (r.data.error || ('HTTP ' + r.status));
+        result = { ok: false, wrongPin: r.status === 401 || (r.status === 409 && !!r.data.exists), inUse: r.status === 409 && !!r.data.inUse };
       }
     } catch (e) {
       serverSessionStatus = 'offline';
+      serverSessionError = 'Couldn’t reach the server. Check your connection and try again.';
     }
     emitSession();
+    return result;
   }
   // On a reload there is no PIN to hand, so validate (and renew) the stored
   // token instead. Without one, server features wait for the PIN.
   async function refreshServerSession() {
-    if (!OPENAI_PROXY) return;
+    if (!AUTH_BASE()) return;
     await workerHealth();
     const t = sessionToken();
     if (!t) { serverSessionStatus = workerSupports('sessions') ? 'needs_pin' : 'unsupported'; emitSession(); return; }
     try {
-      const r = await fetch(OPENAI_PROXY + '/auth/me', { headers: { 'X-GPA-Session': t } });
+      const r = await fetch(AUTH_BASE() + '/auth/me', { headers: { 'X-GPA-Session': t } });
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.ok) {
         serverSession.role = d.account.role;
@@ -17673,6 +17756,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   function applyModeration(s) {
     if (!s || typeof s !== 'object') return;
+    if (s.sessionRequired && currentUser) {
+      hideModOverlay();
+      const who = currentUser;
+      signOutWith(s.sessionProblem === 'signed_in_elsewhere' ? 'You were signed out because “' + who + '” signed in on another device.'
+        : s.sessionProblem === 'revoked' ? 'Your sign-in was ended by the owner. Sign in again with your PIN.'
+          : 'Please sign in again with your PIN.', true);
+      return;
+    }
     if (s.notAllowed && currentUser) { hideModOverlay(); signOutWith(ACCESS_DENIED_MSG, true); return; }
     if (s.yourStats && typeof renderYourStats === 'function') renderYourStats(s.yourStats);
     if (s.assignedKeys && typeof s.assignedKeys === 'object') applyAssignedKeys(s.assignedKeys);
@@ -18554,7 +18645,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const types = {};
         d.days.forEach((x) => Object.entries(x.counts).forEach(([t, n]) => { types[t] = (types[t] || 0) + n; }));
         const b = body('security');
-        const LABEL = { login_failed: 'Failed sign-ins', login_lockout: 'Sign-in lockouts', admin_auth_failed: 'Bad admin credentials', admin_lockout: 'Admin lockouts', forbidden: 'Forbidden requests', identity_mismatch: 'Spoofed usernames', rate_limited: 'Rate-limited', legacy_identity_refused: 'Legacy identity refused', bad_session: 'Bad sessions', owner_claim_refused: 'Owner-name claims refused', account_created: 'Accounts created', login_disabled: 'Disabled-account sign-ins' };
+        const ago = (ts) => { const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+        // "iPhone · Safari" instead of a raw user-agent string.
+        const deviceName = (ua) => {
+          const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /CrOS/.test(ua) ? 'Chromebook' : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '';
+          const br = /Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
+          return [os, br].filter(Boolean).join(' · ') || 'Unknown device';
+        };
+        const LABEL = { signin_in_use: 'Second sign-ins refused', session_required: 'Name-only access refused', login_failed: 'Failed sign-ins', login_lockout: 'Sign-in lockouts', admin_auth_failed: 'Bad admin credentials', admin_lockout: 'Admin lockouts', forbidden: 'Forbidden requests', identity_mismatch: 'Spoofed usernames', rate_limited: 'Rate-limited', legacy_identity_refused: 'Legacy identity refused', bad_session: 'Bad sessions', owner_claim_refused: 'Owner-name claims refused', account_created: 'Accounts created', login_disabled: 'Disabled-account sign-ins' };
         b.innerHTML = `<div class="gac-kpis">` + Object.entries(types).sort((a, b2) => b2[1] - a[1]).slice(0, 8).map(([t, n]) => kpi(LABEL[t] || t, num(n), 'last 7 days', /fail|forbid|mismatch|lockout|refused/.test(t) ? 'warn' : '')).join('')
           + (Object.keys(types).length ? '' : kpi('Security events', '0', 'last 7 days')) + `</div>`
           + `<div class="gpx-split"><div class="gpx-main">`
@@ -18573,10 +18671,28 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           + (isOwner() ? card('Allowed users', `<p class="gps-hint">When on, only these usernames (and you) can create an account, sign in or use the console. Everyone else sees “Unable to create account”, and anyone already signed in who isn’t listed is signed out.</p>`
             + `<div class="gac-allow-row"><span>Only allow listed users</span><button class="gps-switch${d.config.allowlist && d.config.allowlist.on ? ' primary' : ''}" id="gac-allow-on" type="button" aria-pressed="${d.config.allowlist && d.config.allowlist.on ? 'true' : 'false'}" aria-label="Only allow listed users">Only allow listed users</button></div>`
             + `<label class="gac-allow-label">Usernames, one per line or separated by commas<textarea class="gpa-sync-box gac-allow-list" id="gac-allow-users" rows="6" spellcheck="false" autocapitalize="off" placeholder="kj&#10;dub&#10;sam">${esc(((d.config.allowlist && d.config.allowlist.users) || []).join('\n'))}</textarea></label>`
-            + `<div class="gac-allow-row"><span class="gps-hint" id="gac-allow-count">${((d.config.allowlist && d.config.allowlist.users) || []).length} listed</span><button class="gps-btn primary" id="gac-allow-save" type="button">Save list</button></div>`, 'account') : '')
+            + `<div class="gac-allow-row"><span class="gps-hint" id="gac-allow-count">${((d.config.allowlist && d.config.allowlist.users) || []).length} listed</span><button class="gps-btn primary" id="gac-allow-save" type="button">Save list</button></div>`
+            + `<p class="gps-hint">One sign-in per name: while this is on, each listed name works only with its PIN, on one device at a time. A second device is refused while the first was used in the last 15 minutes; signing out frees the name right away.</p>`
+            + ((d.config.allowAccounts || []).length ? `<ul class="gac-acct-list" id="gac-allow-accts">` + d.config.allowAccounts.map((a) => `<li class="gac-acct" data-user="${esc(a.user)}"><div class="gac-acct-top"><span class="gac-req-name">${esc(a.user)}</span>`
+              + `<span class="gac-req-badge ${a.signedIn ? 'pending' : ''}">${a.signedIn ? 'Signed in' : a.claimed ? 'Signed out' : 'No PIN yet'}</span></div>`
+              + `<div class="gac-req-meta">${a.claimed ? (a.lastSeen ? 'Last used ' + ago(a.lastSeen) + (a.country && a.country !== '??' ? ' · ' + esc(a.country) : '') + (a.device ? ' · ' + esc(deviceName(a.device)) : '') : 'PIN set ' + (a.createdAt ? ago(a.createdAt) : '')) : 'The first person to create this account sets its PIN. Make sure it’s them.'}</div>`
+              + (a.claimed ? `<div class="gac-req-actions">${a.signedIn ? '<button class="gps-btn" data-acct="revokesessions" type="button">Sign out</button>' : ''}<button class="gps-btn" data-acct="release" type="button">Reset PIN</button></div>` : '')
+              + `</li>`).join('') + `</ul>` : ''), 'account') : '')
           + `<div id="gac-legacy-security"></div></aside></div>`;
         const reqEl = b.querySelector('#gac-access-req');
-        const ago = (ts) => { const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+        const acctEl = b.querySelector('#gac-allow-accts');
+        if (acctEl) acctEl.addEventListener('click', async (e) => {
+          const btn = e.target.closest('button[data-acct]');
+          if (!btn) return;
+          const user = btn.closest('.gac-acct').dataset.user, action = btn.dataset.acct;
+          if (action === 'release' && !confirm('Reset the PIN for “' + user + '”? They’re signed out, and the next person to create “' + user + '” sets a new PIN — make sure that’s them.')) return;
+          btn.disabled = true;
+          try {
+            await api('/admin/user/action', { method: 'POST', body: { u: user, action } });
+            showToast(action === 'release' ? user + ' can set a new PIN now.' : user + ' was signed out.');
+            RENDER.security().catch((err) => errorBox('security', err));
+          } catch (err) { btn.disabled = false; showToast(err.message, { type: 'danger' }); }
+        });
         const loadRequests = async () => {
           if (!reqEl) return;
           try {

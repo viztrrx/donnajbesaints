@@ -111,6 +111,34 @@ users** on:
 Names match in any capitalization: if you list `josue`, then `Josue`,
 `JOSUE` and `jOsue` all get in (and are the same account).
 
+**One sign-in per name.** While the list is on, knowing a listed username is
+not enough to get in:
+
+- Signing in checks the PIN **on the Worker** before the console opens. A
+  wrong PIN gets "Wrong PIN."; trying to Create an account with a name that
+  already has one gets "That name is already taken."
+- The Worker no longer accepts a bare username for a listed name. Chat,
+  AI, page reading, music and heartbeats need the signed-in session, so
+  someone who skips the sign-in screen is signed out on the next status
+  check ("Please sign in again with your PIN.").
+- Each listed name holds **one session at a time**. A second device is
+  refused ("already signed in on another device") while the first was used
+  in the last 15 minutes. Signing out frees the name at once; after 15 idle
+  minutes a new sign-in replaces the old device, which is then signed out
+  with the reason.
+- Under the list you see each name's status: **Signed in** (with when, where
+  and which device), **Signed out**, or **No PIN yet**. **Sign out** ends
+  their session; **Reset PIN** deletes the account so they can create it
+  again with a new PIN.
+- Wrong PINs and refused second sign-ins are logged under Security and send
+  a "Security alerts" phone notification.
+- You (the owner) are exempt and can stay signed in on several devices.
+
+The first person to create an account for a listed name sets its PIN, so
+add a name when that person is ready to sign up, and check that it shows
+up as theirs (you also get a "New account" notification). If someone else
+got there first, use **Reset PIN**.
+
 **Requesting access.** Under "Unable to create account" the sign-in screen
 offers **Request access**: the person can add a short note and send it. You
 get an "Access request" phone notification (People → Access requests) and the

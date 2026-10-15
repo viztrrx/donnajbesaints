@@ -93,6 +93,18 @@ into KV `push:vapid`), `OWNER_TZ`, `CONSOLE_SCRIPT_URL`, `AUDIUS_API`,
 
 All on `main`. Each has tests; see section 6.
 
+0. **One sign-in per name** (Allowed users on): listed non-owner names are
+   only usable through a PIN-checked server session (`effectiveUser` refuses
+   bare names with `sessionRequired`), only the newest session is honored
+   (`acct.sessions[0]`, else `sessionProblem = 'signed_in_elsewhere'`), and
+   `/auth/login` answers 409 `inUse` while that session was used in the last
+   15 min (`ONE_SESSION_IDLE_MS`; `lastSeen` rewritten at most every 5 min).
+   GET routes accept the session as `?s=` (music `<audio>`, chat poll). The
+   console does the server sign-in *before* `enterApp` when `/access` says
+   `sessionRequired` (`serverFirstSignIn`), and session calls go to
+   `AUTH_BASE()` (the telemetry Worker). Admin → Security → Allowed users
+   lists each name's status with Sign out / Reset PIN. Owner exempt.
+   Known gap: the first person to register a listed name sets its PIN.
 1. **Music without keys** (`bf4b7f5`): Music tab searches **Audius** (free,
    keyless public API, streamed through the Worker) + a **shared library**
    in R2 that owner/admins upload to. Routes: `GET /music/search`,
@@ -178,14 +190,15 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (61 tests)
+npm test                                   # node --test tests/*.test.mjs (62 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
 node tests/browser/notifications.mjs       # 15
 node tests/browser/allowlist.mjs           # 6
-node tests/browser/access-requests.mjs     # 11 (+ screenshots of every step)
+node tests/browser/access-requests.mjs     # 12 (+ screenshots of every step)
 node tests/browser/music.mjs               # 15 (+ screenshots)
+node tests/browser/one-session.mjs         # 15 (impostor scenarios + screenshots)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 

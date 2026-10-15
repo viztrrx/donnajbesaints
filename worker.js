@@ -130,7 +130,7 @@ const jsonResponse = (obj, status) => new Response(JSON.stringify(obj), {
 // handleRequest where it can reuse the existing closures.
 // ============================================================================
 const WORKER_VERSION = '2026.10.12-web-v1';   // Eaglercraft routes, binary WebSocket fix, Wrangler deploys
-const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs', 'eaglercraft', 'mobile-admin', 'home-screen-admin'];
+const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs', 'eaglercraft', 'mobile-admin', 'home-screen-admin', 'one-session'];
 
 // ---- Permissions ------------------------------------------------------------
 // The single source of truth for who may do what. Roles come from a verified
@@ -642,6 +642,20 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     const acctKey = (u) => 'acct:' + String(u || '').toLowerCase().slice(0, 40);
     const getAcct = async (kv, u) => (kv && u ? await kv.get(acctKey(u), 'json') : null);
 
+    // ---- One sign-in per name ------------------------------------------------
+    // While the owner's allowed-users list is on, a listed name is only usable
+    // through a verified server session (the PIN-checked account), and each
+    // name may hold one session at a time: only the newest session is honored,
+    // and a new sign-in is refused while the current one was used in the last
+    // ONE_SESSION_IDLE_MS. Typing someone else's username therefore gets you
+    // nothing without their PIN, and even with it you can't sit alongside
+    // them unnoticed. The owner keeps multiple devices.
+    const ONE_SESSION_IDLE_MS = 15 * 60e3;
+    const SEEN_WRITE_MS = 5 * 60e3;   // how often lastSeen is rewritten (KV write budget)
+    const singleSession = (cfg, user) => !!(cfg && cfg.allowlist && cfg.allowlist.on && sessionKey())
+      && !!String(user || '').trim() && String(user).trim().toLowerCase() !== OWNER;
+    const liveSession = (acct, now) => (acct.sessions || []).find((s) => now - (s.lastSeen || s.createdAt || 0) < ONE_SESSION_IDLE_MS) || null;
+
     // Memoized for the life of this request.
     let principalMemo;
     let sessionProblem = '';   // why a presented session was refused (for the client)
@@ -677,7 +691,18 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           if (!acct) sessionProblem = 'no_account';
           else if (acct.disabled) sessionProblem = 'disabled';
           else if ((acct.epoch || 0) !== (p.e || 0) || (cfg.sessionEpoch || 0) !== (p.g || 0)) sessionProblem = 'revoked';
+          else if (singleSession(cfg, acct.user) && !((acct.sessions || [])[0] && acct.sessions[0].id === p.s)) sessionProblem = 'signed_in_elsewhere';
           else {
+            if (singleSession(cfg, acct.user)) {
+              // Keep "last used" fresh so a second sign-in can tell whether
+              // this session is still in use. Rate-limited to save KV writes.
+              const cur = acct.sessions[0];
+              if (Date.now() - (cur.lastSeen || 0) > SEEN_WRITE_MS) {
+                cur.lastSeen = Date.now();
+                const w = kv.put(acctKey(acct.user), JSON.stringify(acct)).catch(() => {});
+                if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(w); else await w;
+              }
+            }
             const role = String(acct.user).toLowerCase() === OWNER && acct.ownerVerified ? 'owner' : (ROLE_PERMS[acct.role] ? acct.role : 'user');
             principalMemo = { kind: 'session', role, actor: acct.user, user: acct.user, sid: p.s, acct, payload: p };
             return principalMemo;
@@ -702,6 +727,13 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       }
       const cfg = await getConfig(env && env.TELEMETRY);
       if (cfg.requireSessions) return { user: '', verified: false, refused: true };
+      // Allowed-users list on: a username alone proves nothing, so it is never
+      // accepted for a listed (non-owner) name. The caller must sign in.
+      // (Unlisted names fall through and get "Unable to create account".)
+      if (singleSession(cfg, claimed) && allowedUser(cfg, claimed)) {
+        await noteSec('session_required', { user: claimed, note: sessionProblem || 'no session' });
+        return { user: '', verified: false, refused: true, sessionRequired: true };
+      }
       return { user: claimed, verified: false };
     };
 
@@ -762,11 +794,12 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       pendingCount++;
       scheduleFlush();
       if (/lockout|owner_claim|identity_mismatch/.test(type)) queueEvent(env,ctx,'security',3);
-      if (/lockout|owner_claim|identity_mismatch|push_subscribe_denied|login_disabled|not_allowed/.test(type)) {
+      if (/lockout|owner_claim|identity_mismatch|push_subscribe_denied|login_disabled|not_allowed|login_failed|signin_in_use/.test(type)) {
         const who = detail && detail.user ? String(detail.user).slice(0, 40) : 'someone';
         const what = { login_lockout: 'Too many wrong PINs: sign-ins are locked for a while', owner_claim: 'Tried to use the owner name without the owner code',
           identity_mismatch: 'A signed-in account claimed another username', push_subscribe_denied: 'A non-owner tried to turn on owner notifications',
-          login_disabled: 'A disabled account tried to sign in', not_allowed: 'Someone not on your allowed-users list tried to get in' }[type] || type;
+          login_disabled: 'A disabled account tried to sign in', not_allowed: 'Someone not on your allowed-users list tried to get in',
+          login_failed: 'Wrong PIN for this name', signin_in_use: 'A second device tried to sign in while this name is already signed in' }[type] || type;
         notify({ cat: 'security', title: 'Security alert', body: `${what} (${who}) · ${ownerTime(env)}`, urgent: true,
           throttle: { key: 'sec:' + type + ':' + who, seconds: 600 } });
       }
@@ -1114,6 +1147,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     }
 
     const url = new URL(req.url);
+    // GET routes the browser can't add headers to without a CORS preflight,
+    // or at all (an <audio> src for music), may carry the session as ?s=.
+    if (req.method === 'GET' && !req.headers.get('X-GPA-Session') && url.searchParams.get('s')) bodySessionToken = url.searchParams.get('s').slice(0, 2000);
 
     // ---- Admin surface: default deny ---------------------------------------
     // Every /admin/* path must be named here with the role and method it
@@ -1299,7 +1335,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const now = Date.now();
         const token = await signSession({ u: acct.user, s: sid, e: acct.epoch || 0, g: cfg.sessionEpoch || 0, exp: now + SESSION_MS });
         const cf = req.cf || {};
-        acct.sessions = [{ id: sid, createdAt: now, lastSeen: now, country: cf.country || '??', ua: String(req.headers.get('User-Agent') || '').slice(0, 80) }, ...(acct.sessions || [])].slice(0, 5);
+        const fresh = { id: sid, createdAt: now, lastSeen: now, country: cf.country || '??', ua: String(req.headers.get('User-Agent') || '').slice(0, 80) };
+        // One sign-in per name: the new session replaces any older one, whose
+        // token stops working on its next request (see resolvePrincipal).
+        acct.sessions = singleSession(cfg, acct.user) ? [fresh] : [fresh, ...(acct.sessions || [])].slice(0, 5);
         acct.lastLoginAt = now;
         await kv.put(acctKey(acct.user), JSON.stringify(acct));
         return { token, exp: now + SESSION_MS };
@@ -1358,6 +1397,16 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         }
         if (acct.disabled) { await noteSec('login_disabled', { user: acct.user }); return json({ ok: false, error: 'this account is disabled' }, 403); }
         await clearFailures(kv, 'login', ip);
+        // Only checked after the PIN is right, so this never tells a stranger
+        // whether the name is in use.
+        if (singleSession(await getConfig(kv), acct.user)) {
+          const live = liveSession(acct, Date.now());
+          if (live) {
+            await noteSec('signin_in_use', { user: acct.user, note: (live.country || '??') + ' · ' + (live.ua || '') });
+            const waitMin = Math.max(1, Math.ceil((ONE_SESSION_IDLE_MS - (Date.now() - (live.lastSeen || live.createdAt || 0))) / 60e3));
+            return json({ ok: false, error: 'This name is already signed in on another device.', inUse: true, waitMin }, 409);
+          }
+        }
         const s = await issue(acct);
         return json({ ok: true, token: s.token, exp: s.exp, account: view(acct, roleOf(acct)) });
       }
@@ -1922,7 +1971,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const clip = (v, n) => String(v == null ? '' : v).slice(0, n);
       if (typeof body.session === 'string') bodySessionToken = body.session.slice(0, 2000);
       const trackId = await effectiveUser(body.user);
-      if (trackId.refused) return json({ ok: false, error: 'session_required' }, 200);
+      if (trackId.refused) {
+        return json(trackId.sessionRequired
+          ? { ok: false, error: 'session_required', state: 'blocked', notAllowed: true, sessionRequired: true, sessionProblem: sessionProblem || 'none' }
+          : { ok: false, error: 'session_required' }, 200);
+      }
       const user = clip(trackId.user || 'anonymous', 80);
       const userLower = user.toLowerCase();
       // Nobody may claim the owner's username without proving it (see
@@ -2029,7 +2082,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const cfg = await getConfig(kv);
       const name = String(url.searchParams.get('user') || '').slice(0, 80);
       const ok = allowedUser(cfg, name);
-      if (ok) return json({ allowed: true });
+      // sessionRequired: the console must finish a PIN-checked server sign-in
+      // before it opens (one sign-in per name).
+      if (ok) return json({ allowed: true, sessionRequired: singleSession(cfg, name) });
       if (name) await noteSec('not_allowed', { user: name, note: 'sign-in screen' });
       let request = null;
       if (kv && name) {
@@ -2078,7 +2133,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
 
     if (url.pathname === '/status' && req.method === 'GET') {
       const kv = env && env.TELEMETRY;
-      const statusUser = (await effectiveUser(url.searchParams.get('user'))).user || '';
+      const statusId = await effectiveUser(url.searchParams.get('user'));
+      const statusUser = statusId.user || '';
       const r = await resolve(kv, statusUser);
       const cfg = await getConfig(kv);
       const mod = await getMod(kv, statusUser);
@@ -2087,6 +2143,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (kv && statusUser) { try { dismissed = await kv.get('dismiss:' + statusUser.toLowerCase(), 'json'); } catch (e) { /* best-effort */ } }
       return json({
         state: r.state, reason: r.reason, kickNonce: r.kickNonce, notAllowed: !!r.notAllowed,
+        sessionRequired: !!statusId.sessionRequired, sessionProblem: statusId.sessionRequired ? (sessionProblem || 'none') : undefined,
         owner: !!r.owner, private: !!r.private,
         broadcast: cfg.broadcast || '', reloadVersion: cfg.reloadVersion || 0,
         features: { ...(cfg.features || {}), ...(mod.features || {}) },
@@ -2970,6 +3027,14 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             requireSessions: !!cfg.requireSessions, ownerCode: !!(env && env.OWNER_CODE), coadminToken: !!(env && env.COADMIN_TOKEN),
             legacyQueryToken: env && env.ALLOW_QUERY_TOKEN === '1', approvalMode: !!cfg.approvalMode, privateMode: !!cfg.privateMode,
             allowlist: { on: !!(cfg.allowlist && cfg.allowlist.on), users: (cfg.allowlist && cfg.allowlist.users) || [] },
+            // Per listed name: has someone set a PIN for it yet, and is it
+            // signed in right now (one sign-in per name).
+            allowAccounts: ((cfg.allowlist && cfg.allowlist.users) || []).map((u) => {
+              const a = (accts.find((x) => String(x.value.user || '').toLowerCase() === u) || {}).value;
+              const s = a && (a.sessions || [])[0];
+              return { user: u, claimed: !!a, createdAt: a ? a.createdAt || 0 : 0, signedIn: !!(a && liveSession(a, Date.now())),
+                lastSeen: s ? s.lastSeen || s.createdAt || 0 : 0, country: s ? s.country || '' : '', device: s ? s.ua || '' : '' };
+            }),
             blockedCountries: cfg.blockedCountries || [], allowedOrigins: cfg.allowedOrigins || []
           },
           approximate: true

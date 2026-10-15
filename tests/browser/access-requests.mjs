@@ -68,11 +68,19 @@ try {
   await dismissLang(page);
   await page.waitForTimeout(400);
   await shot(page, '01-JOSUE-gets-in.png');
-  await ctx.close();
+  // One sign-in per name: a second device is refused while the first is in
+  // use, and gets in once the first signs out.
+  const first = { ctx, page };
   ({ ctx, page } = await open('desktop'));
   const mixed = 'jOsue' + run;
   r = await attempt(page, mixed, 'signup');
-  check(`“${mixed}” gets in too`, r.inside, JSON.stringify(r));
+  check(`A second device is refused while “${caps}” is signed in`, !r.inside && /already signed in on another device/.test(r.msg), JSON.stringify(r));
+  await shot(page, '01b-second-device-refused.png');
+  await R(first.page, (root) => root.querySelector('#gpa-logout-btn').click());
+  await first.page.waitForTimeout(1000);
+  await first.ctx.close();
+  r = await attempt(page, mixed, 'signin');
+  check(`“${mixed}” gets in too, once the first device signed out`, r.inside, JSON.stringify(r));
   await ctx.close();
 
   // 3-5: an unlisted name.
