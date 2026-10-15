@@ -25,6 +25,7 @@ export const PUSH_CATEGORIES = {
   newuser: { label: 'New users and accounts', group: 'People', on: true },
   approval: { label: 'Waiting for your approval', group: 'People', on: true },
   access: { label: 'Access requests', group: 'People', on: true },
+  subs: { label: 'Subscriptions ending', group: 'People', on: true },
   presence: { label: 'Who’s online (live)', group: 'People', on: false },
   aierror: { label: 'AI request failures', group: 'AI', on: true },
   limits: { label: 'Rate limits and quotas reached', group: 'AI', on: true },

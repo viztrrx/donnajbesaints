@@ -338,3 +338,35 @@ test('push: every alert opens its own spot in the app', async () => {
     assert.equal((await ofCat('security')).url, '/console/#tab=admin&sec=security&focus=requests&user=stranger');
   } finally { t.restore(); }
 });
+
+test('push: subscriptions — a reminder 3 days before, and an alert when one ends', async () => {
+  const t = setup();
+  const realNow = Date.now;
+  try {
+    await t.call('/push/key');
+    const d = await makeDevice();
+    await t.call('/push/subscribe', { method: 'POST', headers: owner, body: { subscription: d.subscription } });
+    const got = async () => { await t.settle(); const out = []; for (const p of t.pushes.splice(0)) out.push(await decrypt(d, p.body)); return out; };
+    const cron = () => worker.scheduled({ cron: '*/5 * * * *' }, t.env, { waitUntil: (p) => t.settleList.push(p) }).then(() => Promise.all(t.settleList.splice(0)));
+    Date.now = () => Date.parse('2026-10-15T18:00:00Z');
+    await t.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: [] } } });
+    await t.call('/admin/subscriptions', { method: 'POST', headers: owner, body: { action: 'add', user: 'Renzo', period: '1m' } });
+    await got();
+    Date.now = () => Date.parse('2026-11-13T18:00:00Z');   // 2 days left
+    await cron();
+    let n = (await got()).filter((m) => m.cat === 'subs');
+    assert.equal(n.length, 1);
+    assert.equal(n[0].title, 'Renzo’s subscription ends soon');
+    assert.match(n[0].body, /^Ends Nov 15/);
+    assert.equal(n[0].url, '/console/#tab=admin&sec=security&focus=subs&user=Renzo');
+    await cron();
+    assert.equal((await got()).filter((m) => m.cat === 'subs').length, 0, 'reminded once');
+    Date.now = () => Date.parse('2026-11-15T18:01:00Z');
+    await cron();
+    n = (await got()).filter((m) => m.cat === 'subs');
+    assert.equal(n.length, 1);
+    assert.equal(n[0].title, 'Renzo’s subscription ended');
+    await cron();
+    assert.equal((await got()).filter((m) => m.cat === 'subs').length, 0, 'told once');
+  } finally { Date.now = realNow; t.restore(); }
+});

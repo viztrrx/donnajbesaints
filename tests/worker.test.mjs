@@ -829,3 +829,123 @@ test('usage meter: limited people get their own usage on /status and /track; oth
   assert.equal((await c.call('/status?user=kj')).data.usage.daily.limit, 3, 'a personal quota wins');
   assert.equal((await c.call('/status?user=boss', { headers: { 'X-GPA-Owner': OWNER_CODE } })).data.usage, null, 'never for the owner');
 });
+
+test('subscribers: paid access for a set time, cut off exactly when it ends, then taken off the list', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  const subs = (body) => c.call('/admin/subscriptions', { method: 'POST', headers: owner, body });
+  const realNow = Date.now;
+  const T0 = Date.parse('2026-10-15T18:30:00Z');
+  const at = (t) => { Date.now = () => t; };
+  try {
+    at(T0);
+    await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['kj'] } } });
+    assert.equal((await c.call('/access?user=renzo')).data.allowed, false, 'not listed yet');
+    // Owner only.
+    assert.equal((await c.call('/admin/subscriptions', { method: 'POST', headers: coadmin, body: { action: 'add', user: 'renzo' } })).status, 403);
+    assert.equal((await subs({ action: 'add', user: 'bad name!' })).status, 400);
+    assert.equal((await subs({ action: 'add', user: 'boss' })).status, 400, 'not for the owner');
+
+    // Add renzo for a month ($10 note): in right away, and on the allowed list.
+    let r = await subs({ action: 'add', user: 'Renzo', period: '1m', note: '$10 · Cash App' });
+    assert.equal(r.status, 200);
+    let s = r.data.subscriptions.find((x) => x.user === 'Renzo');
+    assert.equal(s.expiresAt, Date.parse('2026-11-15T18:30:00Z'), 'one calendar month later');
+    assert.equal(s.note, '$10 · Cash App');
+    assert.equal(s.active, true);
+    assert.equal(s.daysLeft, 31);
+    assert.equal((await c.call('/access?user=renzo')).data.allowed, true);
+    const cfg = await env.TELEMETRY.get('config', 'json');
+    assert.ok(cfg.allowlist.users.includes('renzo'), 'added to Allowed users');
+    assert.equal((await subs({ action: 'add', user: 'renzo' })).status, 409, 'already subscribed: use Renew');
+    const reg = await signUp(c, 'renzo');
+    assert.equal(reg.status, 200, 'can create an account');
+
+    // One minute before the end: still in. At the end: out, with the reason.
+    // (Sessions last 14 days, so he signs in again during the month.)
+    at(Date.parse('2026-11-15T18:29:00Z'));
+    const again = await c.call('/auth/login', { method: 'POST', body: { user: 'renzo', verifier: verifierFor('renzo', '1234') } });
+    assert.equal(again.status, 200);
+    assert.equal((await c.call('/status?user=renzo', { headers: sess(again.data.token) })).data.state, 'active');
+    at(Date.parse('2026-11-15T18:30:00Z'));
+    const st = (await c.call('/status?user=renzo', { headers: sess(again.data.token) })).data;
+    assert.equal(st.notAllowed, true, 'cut off at the exact end time');
+    assert.equal(st.subscriptionEnded, true);
+    assert.equal(st.reason, 'Your subscription has ended. Ask the owner to renew it.');
+    const acc = (await c.call('/access?user=renzo')).data;
+    assert.equal(acc.allowed, false);
+    assert.equal(acc.error, 'Your subscription has ended. Ask the owner to renew it.');
+    assert.equal(acc.subscriptionEnded, Date.parse('2026-11-15T18:30:00Z'));
+    assert.equal((await c.call('/auth/login', { method: 'POST', body: { user: 'renzo', verifier: verifierFor('renzo', '1234') } })).status, 403);
+    // Even a stale Allowed-users save that still has the name doesn't let him back in.
+    await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['kj', 'renzo'] } } });
+    assert.equal((await c.call('/access?user=renzo')).data.allowed, false);
+
+    // The 5-minute cron takes him off the list (once) and tells the owner.
+    const ctx = { waitUntil: (p) => pend.push(p) }; const pend = [];
+    await worker.scheduled({ cron: '*/5 * * * *' }, env, ctx); await Promise.all(pend.splice(0));
+    let after = await env.TELEMETRY.get('config', 'json');
+    assert.equal(after.allowlist.users.includes('renzo'), false, 'taken off Allowed users');
+    assert.equal(after.subscriptions.renzo.ended, true);
+    r = await subs({ action: 'list' });
+    s = r.data.subscriptions.find((x) => x.user === 'Renzo');
+    assert.deepEqual([s.active, s.daysLeft], [false, 0]);
+
+    // Renew: a fresh month from now, back on the list.
+    at(Date.parse('2026-11-20T09:00:00Z'));
+    r = await subs({ action: 'renew', user: 'renzo', period: '1m' });
+    s = r.data.subscriptions.find((x) => x.user === 'Renzo');
+    assert.equal(s.expiresAt, Date.parse('2026-12-20T09:00:00Z'));
+    assert.equal(s.note, '$10 · Cash App', 'the note is kept');
+    assert.equal((await c.call('/access?user=renzo')).data.allowed, true);
+    // Renewing early adds on top of the time left.
+    r = await subs({ action: 'renew', user: 'renzo', period: '1w' });
+    assert.equal(r.data.subscriptions.find((x) => x.user === 'Renzo').expiresAt, Date.parse('2026-12-27T09:00:00Z'));
+
+    // 3 days before the end the cron reminds the owner, once.
+    at(Date.parse('2026-12-24T10:00:00Z'));
+    await worker.scheduled({ cron: '*/5 * * * *' }, env, ctx); await Promise.all(pend.splice(0));
+    assert.equal((await env.TELEMETRY.get('config', 'json')).subscriptions.renzo.reminded, true);
+    assert.equal((await c.call('/access?user=renzo')).data.allowed, true, 'a reminder doesn’t end it');
+
+    // End now: out immediately and off the list. Remove: forgets the record.
+    await subs({ action: 'end', user: 'renzo' });
+    assert.equal((await c.call('/access?user=renzo')).data.allowed, false);
+    assert.equal((await env.TELEMETRY.get('config', 'json')).allowlist.users.includes('renzo'), false);
+    await subs({ action: 'delete', user: 'renzo' });
+    assert.equal((await subs({ action: 'list' })).data.subscriptions.length, 0);
+    assert.equal((await c.call('/access?user=renzo')).data.error, 'Unable to create account', 'back to the plain message');
+
+    // Approving an access request from someone whose subscription ended lets them in for free.
+    await subs({ action: 'add', user: 'dub', period: '1w' });
+    at(Date.parse('2027-01-05T00:00:00Z'));
+    assert.equal((await c.call('/access?user=dub')).data.allowed, false);
+    await c.call('/access/request', { method: 'POST', body: { user: 'dub', message: 'renew pls' } });
+    await c.call('/admin/access-requests/decide', { method: 'POST', headers: owner, body: { user: 'dub', action: 'approve' } });
+    assert.equal((await c.call('/access?user=dub')).data.allowed, true);
+
+    // Turning the list on by itself keeps the names on it.
+    await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: false } } });
+    await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true } } });
+    assert.ok((await env.TELEMETRY.get('config', 'json')).allowlist.users.includes('kj'));
+  } finally { Date.now = realNow; }
+});
+
+test('subscribers: month math keeps the day, or the month’s last day', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  const realNow = Date.now;
+  try {
+    for (const [from, period, want] of [
+      ['2026-01-31T12:00:00Z', '1m', '2026-02-28T12:00:00Z'],
+      ['2028-01-31T12:00:00Z', '1m', '2028-02-29T12:00:00Z'],
+      ['2026-12-15T08:00:00Z', '1m', '2027-01-15T08:00:00Z'],
+      ['2026-10-15T08:00:00Z', '3m', '2027-01-15T08:00:00Z'],
+      ['2026-10-15T08:00:00Z', '12m', '2027-10-15T08:00:00Z'],
+      ['2026-10-15T08:00:00Z', '2w', '2026-10-29T08:00:00Z']
+    ]) {
+      Date.now = () => Date.parse(from);
+      const u = 'm' + Math.random().toString(36).slice(2, 8);
+      const r = await c.call('/admin/subscriptions', { method: 'POST', headers: owner, body: { action: 'add', user: u, period } });
+      assert.equal(new Date(r.data.subscriptions.find((x) => x.user === u).expiresAt).toISOString(), new Date(want).toISOString(), `${from} + ${period}`);
+    }
+  } finally { Date.now = realNow; }
+});

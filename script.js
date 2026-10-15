@@ -736,7 +736,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-16T12:00:00-04:00', commit: '', title: 'Header title stays on one line', parts: {
       console: ['fix', 'The console name no longer wraps onto two lines at the Compact panel size; a tighter header fits it, and a long custom brand name ends in “…”'] } },
     { at: '2026-10-16T15:00:00-04:00', commit: '', title: 'Read receipts in chat', parts: {
-      chat: ['feature', 'iMessage-style receipts under your newest message: “Delivered”, then “Read by kj 3:42 PM” (or “kj and dub”, “and 2 others”) once someone has it on screen'] } }
+      chat: ['feature', 'iMessage-style receipts under your newest message: “Delivered”, then “Read by kj 3:42 PM” (or “kj and dub”, “and 2 others”) once someone has it on screen'] } },
+    { at: '2026-10-16T18:00:00-04:00', commit: '', title: 'Subscribers: paid access for a set time', parts: {
+      admin: ['feature', 'Security → Subscribers: add a name for 1 week to 1 year with a note; renew, end now or remove; alerts 3 days before and when it ends'],
+      console: ['feature', 'When a subscription ends the person is signed out with “Your subscription has ended” and can ask the owner to renew from the sign-in screen'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -2036,6 +2039,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gac-acct { padding: 10px 12px; }
       .gac-acct + .gac-acct { border-top: 1px solid var(--gpa-border); }
       .gac-acct-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      /* ---- Admin → Security → Subscribers ---- */
+      .gac-subs-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; align-items: end; margin: 10px 0; }
+      .gac-subs-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--gpa-sub); min-width: 0; }
+      .gac-subs-form .gac-subs-note-l, .gac-subs-form button { grid-column: 1 / -1; }
+      .gac-subs-warn { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin: 8px 0; border-radius: var(--gps-r2); font-size: 12.5px;
+        border: 1px solid color-mix(in srgb, var(--gpa-warning, #e0a63b) 55%, var(--gpa-border)); background: color-mix(in srgb, var(--gpa-warning, #e0a63b) 10%, transparent); }
+      .gac-subs-count { margin: 4px 0 0; }
+      .gac-subscr.is-soon .gac-req-badge { color: var(--gpa-warning, #e0a63b); border-color: color-mix(in srgb, var(--gpa-warning, #e0a63b) 55%, var(--gpa-border)); }
+      .gac-subscr .gac-req-badge { text-transform: none; }
+      .gac-subscr.is-ended { opacity: .75; }
+      .gac-subscr.is-ended .gac-req-badge { color: var(--gpa-danger, #e5484d); border-color: color-mix(in srgb, var(--gpa-danger, #e5484d) 45%, var(--gpa-border)); }
 
       /* ---- Landing spot of a notification tap ---- */
       .gpa-flash { outline: 2px solid var(--gpa-accent); outline-offset: -2px; border-radius: var(--gps-r2, 12px); animation: gpaFlash 1.2s ease-out 2; }
@@ -13582,8 +13596,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // Set by accessAllowed: the Worker wants a PIN-checked server sign-in before
   // the console opens (Allowed users on → one sign-in per name).
   let accessNeedsServer = false;
+  // The Worker's own words for a refusal: "Unable to create account", or
+  // "Your subscription has ended…" for a subscriber whose time is up.
+  let accessDeniedMsg = ACCESS_DENIED_MSG;
   async function accessAllowed(user) {
     accessNeedsServer = false;
+    accessDeniedMsg = ACCESS_DENIED_MSG;
     if (typeof telemetryOn !== 'function' || !telemetryOn()) return true;
     try {
       const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -13591,7 +13609,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const r = await fetch(telemetryEndpoint() + '/access?user=' + encodeURIComponent(user), { cache: 'no-store', signal: ctl ? ctl.signal : undefined });
       if (timer) clearTimeout(timer);
       const d = await r.json().catch(() => ({}));
-      if (d.allowed === false) { showAccessRequest(user, d.request); return false; }
+      if (d.allowed === false) {
+        accessDeniedMsg = typeof d.error === 'string' && d.error ? d.error.slice(0, 160) : ACCESS_DENIED_MSG;
+        showAccessRequest(user, d.request, d.subscriptionEnded);
+        return false;
+      }
       accessNeedsServer = !!d.sessionRequired;
       return true;
     } catch (e) { return true; }
@@ -13604,7 +13626,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const reqMsg = panel.querySelector('#gpa-req-msg');
   const reqSend = panel.querySelector('#gpa-req-send');
   let reqFor = '';
-  function showAccessRequest(user, request) {
+  function showAccessRequest(user, request, subscriptionEnded) {
     reqFor = user;
     reqBox.hidden = false;
     const status = request && request.status;
@@ -13619,6 +13641,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       reqText.textContent = 'The owner declined the request for “' + user + '”. You can ask again tomorrow.';
       reqSend.textContent = 'Request declined';
       reqSend.disabled = true;
+    } else if (subscriptionEnded) {
+      reqText.textContent = 'The subscription for “' + user + '” ended on ' + new Date(subscriptionEnded).toLocaleDateString([], { month: 'short', day: 'numeric' }) + '. You can send the owner a note to renew it.';
+      reqSend.textContent = 'Ask to renew';
+      reqSend.disabled = false;
     } else {
       reqText.textContent = 'This console is limited to people the owner has approved. You can ask the owner to let “' + user + '” in.';
       reqSend.textContent = 'Send request';
@@ -13655,7 +13681,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const pin = loginPinInput.value;
     if (!user || !pin) { showLoginMsg('Enter both a profile name and a PIN.', true); return; }
     showLoginMsg('Checking…');
-    if (!(await accessAllowed(user))) { showLoginMsg(ACCESS_DENIED_MSG, true); return; }
+    if (!(await accessAllowed(user))) { showLoginMsg(accessDeniedMsg, true); return; }
     if (accessNeedsServer) { await serverFirstSignIn(user, pin, false); return; }
     const profile = readProfile(user);
     if (!profile) { showLoginMsg('No profile by that name here. Use Create, or restore a sync code.', true); return; }
@@ -13684,7 +13710,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (readProfile(user)) { showLoginMsg('That profile already exists here — sign in instead.', true); return; }
     if (String(pin).length < 4) { showLoginMsg('Use a PIN of at least 4 characters.', true); return; }
     showLoginMsg('Checking…');
-    if (!(await accessAllowed(user))) { showLoginMsg(ACCESS_DENIED_MSG, true); return; }
+    if (!(await accessAllowed(user))) { showLoginMsg(accessDeniedMsg, true); return; }
     if (accessNeedsServer) { await serverFirstSignIn(user, pin, true); return; }
     showLoginMsg('Securing your PIN…');
     const pinHash = await makePinRecord(user.toLowerCase(), pin);
@@ -17966,7 +17992,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           : 'Please sign in again with your PIN.', true);
       return;
     }
-    if (s.notAllowed && currentUser) { hideModOverlay(); signOutWith(ACCESS_DENIED_MSG, true); return; }
+    if (s.notAllowed && currentUser) { hideModOverlay(); signOutWith(s.subscriptionEnded && s.reason ? s.reason : ACCESS_DENIED_MSG, true); return; }
     if (s.yourStats && typeof renderYourStats === 'function') renderYourStats(s.yourStats);
     if ('usage' in s) renderUsageMeter(s.usage);
     if (s.assignedKeys && typeof s.assignedKeys === 'object') applyAssignedKeys(s.assignedKeys);
@@ -18917,6 +18943,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             + `<li class="ok"><i></i><span>Allowed users only</span><em>${d.config.allowlist && d.config.allowlist.on ? 'On (' + d.config.allowlist.users.length + ')' : 'Off'}</em></li></ul>`
             + (isOwner() ? `<button class="gps-btn" id="gac-reqsess">${d.config.requireSessions ? 'Allow legacy identity again' : 'Require verified sessions'}</button><p class="gps-hint">When required, AI and chat refuse clients that only assert a username. Turn it on once everyone runs the updated console.</p>` : ''), 'controls')
           + (isOwner() ? card('Access requests', `<div id="gac-access-req"><p class="gps-hint">Loading…</p></div>`, 'key') : '')
+          + (isOwner() ? card('Subscribers', `<div id="gac-subs"><p class="gps-hint">Loading…</p></div>`, 'timer', 'gac-subs-card') : '')
           + (isOwner() ? card('Allowed users', `<p class="gps-hint">When on, only these usernames (and you) can create an account, sign in or use the console. Everyone else sees “Unable to create account”, and anyone already signed in who isn’t listed is signed out.</p>`
             + `<div class="gac-allow-row"><span>Only allow listed users</span><button class="gps-switch${d.config.allowlist && d.config.allowlist.on ? ' primary' : ''}" id="gac-allow-on" type="button" aria-pressed="${d.config.allowlist && d.config.allowlist.on ? 'true' : 'false'}" aria-label="Only allow listed users">Only allow listed users</button></div>`
             + `<label class="gac-allow-label">Usernames, one per line or separated by commas<textarea class="gpa-sync-box gac-allow-list" id="gac-allow-users" rows="6" spellcheck="false" autocapitalize="off" placeholder="kj&#10;dub&#10;sam">${esc(((d.config.allowlist && d.config.allowlist.users) || []).join('\n'))}</textarea></label>`
@@ -18928,6 +18955,75 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               + (a.claimed ? `<div class="gac-req-actions">${a.signedIn ? '<button class="gps-btn" data-acct="revokesessions" type="button">Sign out</button>' : ''}<button class="gps-btn" data-acct="release" type="button">Reset PIN</button></div>` : '')
               + `</li>`).join('') + `</ul>` : ''), 'account') : '')
           + `<div id="gac-legacy-security"></div></aside></div>`;
+        // ---- Subscribers: paid access for a set time ----
+        const subsEl = b.querySelector('#gac-subs');
+        const fmtDay = (ts) => new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric', year: new Date(ts).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+        let subsPeriod = '1m';
+        const renderSubs = (d) => {
+          const periods = d.periods || { '1m': '1 month' };
+          const active = d.subscriptions.filter((s) => s.active);
+          subsEl.innerHTML = `<p class="gps-hint">Add someone who paid for access. They can sign in right away, and when their time is up they’re signed out (“Your subscription has ended”) and taken off Allowed users. You get a phone alert 3 days before and when it ends.</p>`
+            + (d.allowlistOn ? '' : `<div class="gac-subs-warn" role="note"><span>Subscriptions only matter while <b>Only allow listed users</b> is on; right now everyone can get in.</span><button class="gps-btn primary" id="gac-subs-allow" type="button">Turn it on</button></div>`)
+            + `<form class="gac-subs-form" id="gac-subs-form" autocomplete="off">`
+            + `<label>Username<input class="gpa-input" id="gac-subs-name" placeholder="e.g. renzo" spellcheck="false" autocapitalize="off" maxlength="40" required></label>`
+            + `<label>Length<select class="gpa-input" id="gac-subs-period">${Object.entries(periods).map(([k, v]) => `<option value="${esc(k)}" ${k === subsPeriod ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>`
+            + `<label class="gac-subs-note-l">Note (optional)<input class="gpa-input" id="gac-subs-note" placeholder="$10 · Cash App" maxlength="120"></label>`
+            + `<button class="gps-btn primary" type="submit">Add subscriber</button></form>`
+            + (d.subscriptions.length ? `<p class="gps-hint gac-subs-count">${active.length} active${d.subscriptions.length > active.length ? ' · ' + (d.subscriptions.length - active.length) + ' ended' : ''}</p><ul class="gac-acct-list gac-subs-list">` + d.subscriptions.map((s) => {
+              const soon = s.active && s.expiresAt - Date.now() <= 3 * 864e5;
+              const badge = !s.active ? 'Ended' : s.daysLeft <= 1 ? 'Ends today' : s.daysLeft + ' days left';
+              return `<li class="gac-acct gac-subscr${s.active ? '' : ' is-ended'}${soon ? ' is-soon' : ''}" data-user="${esc(s.user)}"><div class="gac-acct-top"><span class="gac-req-name">${esc(s.user)}</span><span class="gac-req-badge ${s.active && !soon ? 'pending' : ''}">${esc(badge)}</span></div>`
+                + `<div class="gac-req-meta">${s.active ? 'Since ' + esc(fmtDay(s.startedAt)) + ' · ends ' + esc(fmtDay(s.expiresAt)) : 'Ended ' + esc(fmtDay(s.endedAt || s.expiresAt))}${s.note ? ' · ' + esc(s.note) : ''}</div>`
+                + `<div class="gac-req-actions"><button class="gps-btn${s.active ? '' : ' primary'}" data-sub="renew" type="button">Renew +${esc(periods[subsPeriod] || '1 month')}</button>`
+                + (s.active ? '<button class="gps-btn" data-sub="end" type="button">End now</button>' : '<button class="gps-btn" data-sub="delete" type="button">Remove</button>') + `</div></li>`;
+            }).join('') + `</ul>` : `<p class="gps-hint">No subscribers yet.</p>`);
+          const form = subsEl.querySelector('#gac-subs-form');
+          subsEl.querySelector('#gac-subs-period').addEventListener('change', (e) => { subsPeriod = e.target.value; subsEl.querySelectorAll('[data-sub="renew"]').forEach((x) => { x.textContent = 'Renew +' + (periods[subsPeriod] || '1 month'); }); });
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const user = subsEl.querySelector('#gac-subs-name').value.trim();
+            if (!user) return;
+            const btn = form.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            try {
+              const r = await api('/admin/subscriptions', { method: 'POST', body: { action: 'add', user, period: subsPeriod, note: subsEl.querySelector('#gac-subs-note').value } });
+              const s = r.subscriptions.find((x) => x.user.toLowerCase() === user.toLowerCase());
+              showToast(user + ' is subscribed until ' + fmtDay(s.expiresAt) + '.');
+              renderSubs(r);
+            } catch (err) { btn.disabled = false; showToast(err.message, { type: 'danger' }); }
+          });
+          const allowBtn = subsEl.querySelector('#gac-subs-allow');
+          if (allowBtn) allowBtn.addEventListener('click', async () => {
+            allowBtn.disabled = true;
+            try {
+              await api('/admin/config', { method: 'POST', body: { allowlist: { on: true } } });   // keeps the list as it is
+              showToast('Only listed users can get in now.');
+              RENDER.security().catch((err) => errorBox('security', err));
+            } catch (err) { allowBtn.disabled = false; showToast(err.message, { type: 'danger' }); }
+          });
+        };
+        const loadSubs = async () => {
+          if (!subsEl) return;
+          try { renderSubs(await api('/admin/subscriptions', { method: 'POST', body: { action: 'list' } })); }
+          catch (e) { subsEl.innerHTML = '<p class="gps-hint">Couldn’t load subscribers: ' + esc(e.message) + '</p>'; }
+        };
+        if (subsEl) {
+          subsEl.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button[data-sub]');
+            if (!btn) return;
+            const user = btn.closest('.gac-subscr').dataset.user, action = btn.dataset.sub;
+            if (action === 'end' && !confirm('End ' + user + '’s subscription now? They’re signed out and can’t get back in until you renew it.')) return;
+            if (action === 'delete' && !confirm('Remove ' + user + ' from the subscribers list? (Their access stays as Allowed users says.)')) return;
+            btn.disabled = true;
+            try {
+              const r = await api('/admin/subscriptions', { method: 'POST', body: { action, user, period: subsPeriod } });
+              const s = r.subscriptions.find((x) => x.user.toLowerCase() === user.toLowerCase());
+              showToast(action === 'renew' ? user + ' is subscribed until ' + fmtDay(s.expiresAt) + '.' : action === 'end' ? user + '’s subscription ended.' : user + ' removed from subscribers.');
+              renderSubs(r);
+            } catch (err) { btn.disabled = false; showToast(err.message, { type: 'danger' }); }
+          });
+          loadSubs();
+        }
         const reqEl = b.querySelector('#gac-access-req');
         const acctEl = b.querySelector('#gac-allow-accts');
         if (acctEl) acctEl.addEventListener('click', async (e) => {
@@ -19291,6 +19387,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       else if (sec === 'security' && p.focus === 'allow') await land(() => (user && byUser('.gac-acct', user)) || gac.querySelector('#gac-sec-events'));
       else if (sec === 'security' && p.focus === 'events') await land(() => gac.querySelector('#gac-sec-events'));
+      else if (sec === 'security' && p.focus === 'subs') {
+        await land(() => {
+          const box = gac.querySelector('#gac-subs');
+          if (!box || /Loading/.test(box.textContent)) return null;
+          return (user && byUser('.gac-subscr', user)) || box.closest('.gac-card');
+        });
+      }
       else if (sec === 'moderation' && p.report) await land(() => [...gac.querySelectorAll('.gac-report')].find((a) => a.dataset.report === p.report));
       else if (sec === 'automation' && p.job) await land(() => { const b = [...gac.querySelectorAll('[data-runjob]')].find((x) => x.dataset.runjob === p.job); return b && b.closest('.gac-job'); });
     }

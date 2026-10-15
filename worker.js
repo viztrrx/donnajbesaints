@@ -412,6 +412,57 @@ function appLink(tab, params) {
 }
 const adminLink = (sec, params) => appLink('admin', { sec, ...(params || {}) });
 
+// ---- Subscribers ---------------------------------------------------------
+// The owner can register a name as a paying subscriber for a set time (a
+// month by default). While the allowed-users list is on, a subscriber gets
+// in exactly until the end of their paid time, then is refused and signed
+// out ("Your subscription has ended"); the 5-minute cron takes the name off
+// the allowed list and tells the owner, three days ahead and at the end.
+// Records live in config.subscriptions, keyed by lowercase name.
+const SUB_PERIODS = { '1w': { days: 7 }, '2w': { days: 14 }, '1m': { months: 1 }, '3m': { months: 3 }, '6m': { months: 6 }, '12m': { months: 12 } };
+const SUB_PERIOD_LABEL = { '1w': '1 week', '2w': '2 weeks', '1m': '1 month', '3m': '3 months', '6m': '6 months', '12m': '1 year' };
+const SUB_REMIND_MS = 3 * 24 * 3600 * 1000;
+function addSubPeriod(from, period) {
+  const p = SUB_PERIODS[period] || SUB_PERIODS['1m'];
+  if (p.days) return from + p.days * 24 * 3600 * 1000;
+  // Calendar months, same time of day; Jan 31 + 1 month = Feb 28/29.
+  const d = new Date(from);
+  const day = d.getUTCDate();
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + p.months, 1, d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds()));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  t.setUTCDate(Math.min(day, last));
+  return t.getTime();
+}
+async function sweepSubscriptions(env, now = Date.now()) {
+  const kv = env && env.TELEMETRY;
+  if (!kv) return { ended: [], reminded: [] };
+  const cfg = await kv.get('config', 'json');
+  const subs = cfg && cfg.subscriptions;
+  if (!subs || !Object.keys(subs).length) return { ended: [], reminded: [] };
+  const ended = [], reminded = [];
+  for (const [key, s] of Object.entries(subs)) {
+    if (!s || s.ended) continue;
+    if (s.expiresAt <= now) {
+      s.ended = true; s.endedAt = now;
+      if (cfg.allowlist && Array.isArray(cfg.allowlist.users)) cfg.allowlist.users = cfg.allowlist.users.filter((u) => u !== key);
+      ended.push(s.user);
+    } else if (!s.reminded && s.expiresAt - now <= SUB_REMIND_MS) {
+      s.reminded = true;
+      reminded.push(s);
+    }
+  }
+  if (!ended.length && !reminded.length) return { ended, reminded: [] };
+  await kv.put('config', JSON.stringify(cfg));
+  const when = (ts) => new Date(ts).toLocaleString('en-US', { timeZone: (env && env.OWNER_TZ) || 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  for (const u of ended) {
+    await notifyOwner(env, { cat: 'subs', title: u + '’s subscription ended', body: u + ' was taken off your allowed users and can’t sign in until you renew it.', url: adminLink('security', { focus: 'subs', user: u }) }).catch(() => {});
+  }
+  for (const s of reminded) {
+    await notifyOwner(env, { cat: 'subs', title: s.user + '’s subscription ends soon', body: 'Ends ' + when(s.expiresAt) + '. Renew it in Admin → Security → Subscribers.', url: adminLink('security', { focus: 'subs', user: s.user }) }).catch(() => {});
+  }
+  return { ended, reminded: reminded.map((s) => s.user) };
+}
+
 async function checkPresence(env, ownerName, origin, { force = false } = {}) {
   const kv = env && env.TELEMETRY;
   if (!kv || !(await anySubscriberWants(env, 'presence'))) return null;
@@ -572,6 +623,7 @@ export default {
     if (event.cron === PRESENCE_CRON) {
       ctx.waitUntil(checkPresence(env, env.OWNER, null, { force: true }).catch(() => {}));
       ctx.waitUntil(maybeSendDailyDigest(env).catch(() => {}));
+      ctx.waitUntil(sweepSubscriptions(env).catch(() => {}));
       return;
     }
     // Daily jobs. The cron expression is recorded so the Automation section
@@ -959,6 +1011,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     const CONFIG_DEFAULTS = {
       privateMode: false, broadcast: '', reloadVersion: 0, features: {}, announcement: null,
       allowlist: { on: false, users: [] },
+      subscriptions: {},    // paying subscribers: { name: { user, startedAt, expiresAt, period, note, ended } }
       dailyQuota: 0,        // OpenAI requests/day per non-owner user; 0 = unlimited
       brandName: '',        // '' = client keeps its own built-in "Agent Console" name
       defaultTheme: '',     // '' = client keeps its own built-in default theme
@@ -989,15 +1042,28 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // (and the owner) may sign in, create an account or use anything here.
     const ACCESS_DENIED = 'Unable to create account';
     const accessReqKey = (u) => 'accessreq:u:' + String(u || '').trim().toLowerCase().slice(0, 40);
+    const SUB_ENDED = 'Your subscription has ended. Ask the owner to renew it.';
+    const subscriptionOf = (cfg, user) => {
+      const u = String(user || '').trim().toLowerCase();
+      return (u && cfg && cfg.subscriptions && cfg.subscriptions[u]) || null;
+    };
     const allowedUser = (cfg, user) => {
       const a = cfg && cfg.allowlist;
       if (!a || !a.on) return true;
       const u = String(user || '').trim().toLowerCase();
-      return !!u && (u === OWNER || (Array.isArray(a.users) && a.users.includes(u)));
+      if (!u) return false;
+      if (u === OWNER) return true;
+      // A subscriber gets in exactly while their paid time lasts, whatever
+      // the list says (so a stale list can't let an expired one back in).
+      const sub = subscriptionOf(cfg, u);
+      if (sub) return sub.expiresAt > Date.now();
+      return Array.isArray(a.users) && a.users.includes(u);
     };
+    // Why a name is refused, in words for that person.
+    const deniedReason = (cfg, user) => (subscriptionOf(cfg, user) ? SUB_ENDED : ACCESS_DENIED);
     const resolveState = (mod, cfg, user) => {
       if (String(user).toLowerCase() === OWNER) return { state: 'active', reason: '', kickNonce: 0, owner: true };
-      if (!allowedUser(cfg, user)) return { state: 'blocked', reason: ACCESS_DENIED, kickNonce: mod.kickNonce || 0, notAllowed: true };
+      if (!allowedUser(cfg, user)) return { state: 'blocked', reason: deniedReason(cfg, user), kickNonce: mod.kickNonce || 0, notAllowed: true, subscriptionEnded: !!subscriptionOf(cfg, user) };
       if (mod.mutedUntil && mod.mutedUntil > Date.now()) {
         return { state: 'blocked', reason: mod.reason || 'Temporarily muted.', kickNonce: mod.kickNonce || 0, muted: true, mutedUntil: mod.mutedUntil };
       }
@@ -1244,6 +1310,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       '/admin/config':         { method: 'POST', perm: 'system.manage' },
       '/admin/access-requests':        { method: 'GET',  perm: 'system.manage' },
       '/admin/access-requests/decide': { method: 'POST', perm: 'system.manage' },
+      '/admin/subscriptions':          { method: 'POST', perm: 'system.manage' },
       '/admin/assignkey':      { method: 'POST', perm: 'keys.manage' },
       '/admin/clear':          { method: 'POST', perm: 'danger.execute' },
       '/admin/audit':          { method: 'GET',  perm: 'audit.view' },
@@ -1362,6 +1429,60 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       items.sort((a, b) => (rank[a.status] - rank[b.status]) || (b.ts - a.ts));
       return json({ ok: true, requests: items.map(({ ip, ...r }) => r), pending: items.filter((r) => r.status === 'pending').length });
     }
+    // Subscribers (Admin → Security → Subscribers). POST { action: 'list' |
+    // 'add' | 'renew' | 'end' | 'delete', user, period, note }.
+    if (url.pathname === '/admin/subscriptions') {
+      const kv = env.TELEMETRY;
+      let body = {};
+      try { body = JSON.parse(await req.text()) || {}; } catch (e) { return json({ error: 'invalid request' }, 400); }
+      const cfg = await getConfig(kv);
+      cfg.subscriptions = cfg.subscriptions && typeof cfg.subscriptions === 'object' ? cfg.subscriptions : {};
+      const now = Date.now();
+      const view = () => {
+        const list = Object.values(cfg.subscriptions).map((s) => ({ ...s, active: s.expiresAt > now, daysLeft: Math.max(0, Math.ceil((s.expiresAt - now) / 864e5)) }));
+        list.sort((a, b) => (b.active - a.active) || (a.active ? a.expiresAt - b.expiresAt : b.expiresAt - a.expiresAt));
+        return { ok: true, subscriptions: list, allowlistOn: !!(cfg.allowlist && cfg.allowlist.on), periods: SUB_PERIOD_LABEL };
+      };
+      const action = String(body.action || 'list');
+      if (action === 'list') return json(view());
+      const name = String(body.user || '').trim().replace(/^@/, '');
+      if (!/^[A-Za-z0-9_.-]{1,40}$/.test(name)) return json({ error: 'Enter a username (letters, numbers, . _ -).' }, 400);
+      const key = name.toLowerCase();
+      if (key === OWNER) return json({ error: 'You don’t need a subscription.' }, 400);
+      const period = SUB_PERIODS[body.period] ? body.period : '1m';
+      const note = String(body.note || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const users = new Set(((cfg.allowlist && cfg.allowlist.users) || []).map((u) => String(u).toLowerCase()));
+      const cur = cfg.subscriptions[key];
+      if (action === 'add' || action === 'renew') {
+        if (action === 'add' && cur && cur.expiresAt > now) return json({ error: name + ' is already subscribed until ' + new Date(cur.expiresAt).toISOString().slice(0, 10) + '. Use Renew to add time.' }, 409);
+        if (action === 'renew' && !cur) return json({ error: name + ' isn’t a subscriber yet. Add them first.' }, 404);
+        // Renewing early adds the time on top of what is left.
+        const from = action === 'renew' && cur.expiresAt > now ? cur.expiresAt : now;
+        const rec = {
+          user: cur && action === 'renew' ? cur.user : name,
+          startedAt: cur && action === 'renew' && cur.expiresAt > now ? cur.startedAt : now,
+          expiresAt: addSubPeriod(from, period), period, note: note || (cur && cur.note) || '',
+          history: [...((cur && cur.history) || []), { at: now, action, period, note }].slice(-24)
+        };
+        cfg.subscriptions[key] = rec;
+        users.add(key);
+        // A request this person left on the sign-in screen is settled.
+        try { const rq = await kv.get(accessReqKey(key), 'json'); if (rq && rq.status === 'pending') { rq.status = 'approved'; rq.decidedAt = now; await kv.put(accessReqKey(key), JSON.stringify(rq), { expirationTtl: 60 * 60 * 24 * 30 }); } } catch (e) { /* best-effort */ }
+      } else if (action === 'end') {
+        if (!cur) return json({ error: 'No subscription for ' + name }, 404);
+        cur.expiresAt = now; cur.ended = true; cur.endedAt = now;
+        users.delete(key);
+      } else if (action === 'delete') {
+        if (!cur) return json({ error: 'No subscription for ' + name }, 404);
+        delete cfg.subscriptions[key];
+        if (cur.expiresAt > now) users.delete(key);
+      } else return json({ error: 'action must be list, add, renew, end or delete' }, 400);
+      cfg.allowlist = { on: !!(cfg.allowlist && cfg.allowlist.on), users: [...users].slice(0, 500) };
+      await kv.put('config', JSON.stringify(cfg));
+      await logAudit(kv, { route: url.pathname, action: 'subscription_' + action, target: key, meta: { period, note } });
+      return json(view());
+    }
+
     if (url.pathname === '/admin/access-requests/decide') {
       const kv = env.TELEMETRY;
       let body = {};
@@ -1377,6 +1498,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const users = new Set(((cfg.allowlist && cfg.allowlist.users) || []).map((u) => String(u).toLowerCase()));
         users.add(rec.user.toLowerCase());
         cfg.allowlist = { on: !!(cfg.allowlist && cfg.allowlist.on), users: [...users].slice(0, 500) };
+        // Approving someone whose subscription ended lets them in for free:
+        // their (ended) subscription record no longer decides.
+        const subKey = rec.user.toLowerCase();
+        if (cfg.subscriptions && cfg.subscriptions[subKey] && cfg.subscriptions[subKey].expiresAt <= Date.now()) delete cfg.subscriptions[subKey];
         await kv.put('config', JSON.stringify(cfg));
       }
       rec.status = action === 'approve' ? 'approved' : 'denied';
@@ -2063,7 +2188,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       // Not on the owner's allowed-users list: nothing is recorded for them.
       if (!allowedUser(cfg, user)) {
         if (body.event === 'open') await noteSec('not_allowed', { user, note: 'sign-in' });
-        return json({ ok: false, state: 'blocked', reason: ACCESS_DENIED, notAllowed: true }, 200);
+        return json({ ok: false, state: 'blocked', reason: deniedReason(cfg, user), notAllowed: true, subscriptionEnded: !!subscriptionOf(cfg, user) }, 200);
       }
       const rec = {
         user,
@@ -2161,7 +2286,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const rec = await kv.get(accessReqKey(name), 'json');
         if (rec) request = { status: rec.status, ts: rec.ts };
       }
-      return json({ allowed: false, error: ACCESS_DENIED, request });
+      const sub = subscriptionOf(cfg, name);
+      return json({ allowed: false, error: deniedReason(cfg, name), request, subscriptionEnded: sub ? sub.expiresAt : undefined });
     }
 
     // Someone not on the allowed-users list asks the owner to let them in.
@@ -2212,7 +2338,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       let dismissed = null;
       if (kv && statusUser) { try { dismissed = await kv.get('dismiss:' + statusUser.toLowerCase(), 'json'); } catch (e) { /* best-effort */ } }
       return json({
-        state: r.state, reason: r.reason, kickNonce: r.kickNonce, notAllowed: !!r.notAllowed,
+        state: r.state, reason: r.reason, kickNonce: r.kickNonce, notAllowed: !!r.notAllowed, subscriptionEnded: !!r.subscriptionEnded,
         sessionRequired: !!statusId.sessionRequired, sessionProblem: statusId.sessionRequired ? (sessionProblem || 'none') : undefined,
         owner: !!r.owner, private: !!r.private,
         broadcast: cfg.broadcast || '', reloadVersion: cfg.reloadVersion || 0,
@@ -2380,7 +2506,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if ('privateMode' in body) cfg.privateMode = !!body.privateMode;
       if ('allowlist' in body) {
         const a = body.allowlist && typeof body.allowlist === 'object' ? body.allowlist : {};
-        const users = [...new Set((Array.isArray(a.users) ? a.users : String(a.users || '').split(/[\s,;]+/))
+        // Just flipping the switch ({ on }) keeps the current list.
+        const users = !('users' in a) ? ((cfg.allowlist && cfg.allowlist.users) || []) : [...new Set((Array.isArray(a.users) ? a.users : String(a.users || '').split(/[\s,;]+/))
           .map((u) => String(u || '').trim().replace(/^@/, '').toLowerCase()).filter((u) => /^[a-z0-9_.-]{1,40}$/.test(u)))].slice(0, 500);
         cfg.allowlist = { on: !!a.on, users };
       }

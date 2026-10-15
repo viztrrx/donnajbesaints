@@ -94,6 +94,16 @@ into KV `push:vapid`), `OWNER_TZ`, `CONSOLE_SCRIPT_URL`, `AUDIUS_API`,
 
 All on `main`. Each has tests; see section 6.
 
+0. **Subscribers**: `config.subscriptions[name] = { user, startedAt,
+   expiresAt, period, note, ended, reminded, history }`. `allowedUser()`:
+   with the list on, a name that has a subscription is allowed exactly while
+   `expiresAt > now` (list membership ignored for them). Owner route
+   `POST /admin/subscriptions` (list/add/renew/end/delete); calendar months
+   via `addSubPeriod`. `sweepSubscriptions()` on the 5-minute cron removes
+   ended names from the list and pushes `subs` alerts (3 days before, at
+   the end). UI: Admin → Security → Subscribers (`#gac-subs`, rows
+   `.gac-subscr`). Tests: worker.test.mjs (simulated clock), push.test.mjs,
+   `tests/browser/subscribers.mjs`.
 0. **Chat rooms in Durable Objects + AI usage meter**: the lost-message bug
    was the KV read-modify-write room log (`roomlog:<id>`) racing across
    locations; rooms now live in `ChatRoom` (`chat/room.js`, binding
@@ -157,9 +167,9 @@ All on `main`. Each has tests; see section 6.
    (RFC 8291 aes128gcm + RFC 8292 VAPID, implemented with WebCrypto, no
    npm deps). Owner-only subscribe (`/push/subscribe` needs owner token,
    owner session or OWNER_CODE), per-device manage key (`/push/update`,
-   `/push/status`, `/push/test`, `/push/unsubscribe`). 16 categories in
+   `/push/status`, `/push/test`, `/push/unsubscribe`). 17 categories in
    `PUSH_CATEGORIES` (chat, chatrooms, mentions, reports, signin, newuser,
-   approval, access, presence, aierror, limits, error, security, admin, jobs,
+   approval, access, subs, presence, aierror, limits, error, security, admin, jobs,
    digest), quiet hours (urgent ones bypass), "Who's online" live alert with
    app-icon badge (closest thing to iOS Live Activities, which web apps
    can't use). UI: Settings → Account → Phone notifications (app mode).
@@ -215,7 +225,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (69 tests)
+npm test                                   # node --test tests/*.test.mjs (72 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -229,6 +239,7 @@ node tests/browser/usage-meter.mjs         # 16 (meter states, Ask AI refresh, s
 node tests/browser/usage-meter-sizes.mjs   # 25 (meter + one-line header at every panel size preset)
 node tests/browser/chat-burst.mjs          # 4 (50 simultaneous messages, none lost)
 node tests/browser/read-receipts.mjs       # 13 (three phones: Delivered → Read by …)
+node tests/browser/subscribers.mjs         # 12 (add, sign in, ended, ask to renew, renew)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 

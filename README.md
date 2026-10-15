@@ -139,6 +139,8 @@ add a name when that person is ready to sign up, and check that it shows
 up as theirs (you also get a "New account" notification). If someone else
 got there first, use **Reset PIN**.
 
+**Subscribers (paid access).** **Admin → Security → Subscribers** registers a name as a paying subscriber for a set time: 1 week, 2 weeks, 1 month (default), 3 months, 6 months or 1 year, with an optional note such as "$10 · Cash App". Adding someone puts them on Allowed users and lets them sign in right away. While **Only allow listed users** is on (the card offers to turn it on), a subscriber gets in exactly until their end time; at that moment the Worker refuses them, they're signed out with "Your subscription has ended. Ask the owner to renew it.", and within 5 minutes they're taken off Allowed users. You get a phone alert ("Subscriptions ending") 3 days before and when it ends. **Renew** adds the chosen length (on top of any time left, or from today if it already ended); **End now** cuts them off immediately; **Remove** forgets an ended record. Months are calendar months (Oct 15 → Nov 15; Jan 31 → Feb 28). An ended subscriber can tap **Ask to renew** on the sign-in screen; approving that request in Access requests lets them in for free (Renew is the paid way back). A subscription decides on its own, so a name left on the Allowed users text box doesn't let an expired subscriber back in.
+
 **Requesting access.** Under "Unable to create account" the sign-in screen
 offers **Request access**: the person can add a short note and send it. You
 get an "Access request" phone notification (People → Access requests) and the
