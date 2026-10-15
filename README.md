@@ -98,16 +98,33 @@ aren't signed in with the owner code or an owner session, the app asks for
 your admin token once to prove you are the owner; it isn't saved. The Worker
 then sends standard Web Push notifications straight to your iPhone:
 
-| Alert | What it says |
-|---|---|
-| Chat messages | `kj in #public`: the message (or "Sent a photo"), for every room |
-| Sign-ins | `kj signed in`: time, place and the site they opened it on (at most once per 10 minutes per user) |
-| New users | First sign-in of a new username, and new server accounts |
-| AI request failures | Who, the error type and status, the reason (API keys are never included) |
-| Worker errors | Unexpected Worker errors, with the route |
-| Chat reports | Who reported whom, in which room, and the message |
-| Security alerts | Sign-in lockouts, owner-name and identity spoofing, refused notification sign-ups |
-| Failed scheduled jobs | The nightly jobs, if one fails |
+| Group | Alert | What it says |
+|---|---|---|
+| Chat | Public chat messages | `kj in #public`: the message (or "Sent a photo") |
+| Chat | Private room messages | `kj in #Study Group`: the message |
+| Chat | Mentions of you | `kj mentioned you in #public` when a message says `@yourname`; comes through during quiet hours |
+| Chat | Chat reports | Who reported whom, in which room, and the message |
+| People | Sign-ins | `kj signed in`: time, place and site (at most once per 10 minutes per user) |
+| People | New users and accounts | First sign-in of a new username, and new server accounts |
+| People | Waiting for your approval | A new user held by the approval queue |
+| People | Who's online (live) | Off by default. One alert, replaced as people come and go ("Joined: kj · Left: dub", who's on now), and the count as the app icon badge |
+| AI | AI request failures | Who, the error type and status, the reason (API keys are never included) |
+| AI | Rate limits and quotas reached | Who hit a rate limit or quota |
+| System | Worker errors | Unexpected Worker errors, with the route |
+| System | Security alerts | Sign-in lockouts, owner-name and identity spoofing, refused notification sign-ups |
+| System | Actions by your admins | What a moderator or admin (not you) did, and to whom |
+| System | Failed scheduled jobs | The nightly jobs, if one fails |
+| System | Daily summary | Once a day: people who used the console, new users, AI requests and failures, limits, security events |
+
+**Quiet hours** hold ordinary alerts between the hours you pick; errors,
+security alerts and mentions still come through.
+
+iPhones don't let web apps use Live Activities (those need a native App Store
+app), so "Who's online" is the closest equivalent: a single notification
+that updates as people join and leave, plus the number on the app icon.
+The Worker checks at most once a minute while people are active and every 5
+minutes by cron (see `triggers` in `wrangler.jsonc`, which also keeps the
+daily job at 05:00 UTC), and does nothing unless a phone has it switched on.
 
 Each kind has its own switch. **Send a test notification** checks delivery,
 and tapping a notification opens the app on the right tab. Your own chats and

@@ -13,15 +13,25 @@
 // before calling addSubscription. Each one gets a random manage key, which
 // the device uses to change its own categories, test or unsubscribe.
 
+// Every kind of alert, its group in the app's settings and whether a new
+// device gets it by default. Keys are stored per device, so new kinds added
+// later start at their default on devices that subscribed before.
 export const PUSH_CATEGORIES = {
-  chat: 'Chat messages',
-  signin: 'Sign-ins',
-  newuser: 'New users',
-  aierror: 'AI request failures',
-  error: 'Worker errors',
-  reports: 'Chat reports',
-  security: 'Security alerts',
-  jobs: 'Failed scheduled jobs'
+  chat: { label: 'Public chat messages', group: 'Chat', on: true },
+  chatrooms: { label: 'Private room messages', group: 'Chat', on: true },
+  mentions: { label: 'Mentions of you (@name)', group: 'Chat', on: true },
+  reports: { label: 'Chat reports', group: 'Chat', on: true },
+  signin: { label: 'Sign-ins', group: 'People', on: true },
+  newuser: { label: 'New users and accounts', group: 'People', on: true },
+  approval: { label: 'Waiting for your approval', group: 'People', on: true },
+  presence: { label: 'Who’s online (live)', group: 'People', on: false },
+  aierror: { label: 'AI request failures', group: 'AI', on: true },
+  limits: { label: 'Rate limits and quotas reached', group: 'AI', on: true },
+  error: { label: 'Worker errors', group: 'System', on: true },
+  security: { label: 'Security alerts', group: 'System', on: true },
+  admin: { label: 'Actions by your admins', group: 'System', on: true },
+  jobs: { label: 'Failed scheduled jobs', group: 'System', on: true },
+  digest: { label: 'Daily summary', group: 'System', on: true }
 };
 const MAX_SUBS = 10;
 // Only real push services: the endpoint comes from the browser, and the
@@ -140,14 +150,28 @@ export function validSubscription(s) {
 }
 export function cleanCategories(cats) {
   const out = {};
-  for (const k of Object.keys(PUSH_CATEGORIES)) out[k] = !(cats && typeof cats === 'object' && cats[k] === false);
+  const given = cats && typeof cats === 'object' ? cats : {};
+  for (const [k, c] of Object.entries(PUSH_CATEGORIES)) out[k] = typeof given[k] === 'boolean' ? given[k] : c.on;
   return out;
 }
+const wants = (s, cat) => (s.categories && typeof s.categories[cat] === 'boolean' ? s.categories[cat] : PUSH_CATEGORIES[cat].on);
+// Quiet hours: { start, end } whole hours in the owner's time zone, or null.
+export function cleanQuiet(q) {
+  if (!q || typeof q !== 'object') return null;
+  const ok = (h) => Number.isInteger(h) && h >= 0 && h <= 23;
+  return ok(q.start) && ok(q.end) && q.start !== q.end ? { start: q.start, end: q.end } : null;
+}
+export function ownerHour(env, ts = Date.now()) {
+  try {
+    return Number(new Intl.DateTimeFormat('en-US', { timeZone: env.OWNER_TZ || 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(new Date(ts))) % 24;
+  } catch (e) { return new Date(ts).getUTCHours(); }
+}
+const inQuiet = (q, h) => !!q && (q.start < q.end ? h >= q.start && h < q.end : h >= q.start || h < q.end);
 const readSubs = async (kv) => { try { return (await kv.get('push:subs', 'json')) || []; } catch (e) { return []; } };
 const writeSubs = (kv, subs) => kv.put('push:subs', JSON.stringify(subs));
-const publicSub = (s) => ({ id: s.id, categories: s.categories, created: s.created, name: s.name });
+const publicSub = (s) => ({ id: s.id, categories: cleanCategories(s.categories), quiet: s.quiet || null, created: s.created, name: s.name });
 
-export async function addSubscription(env, sub, { categories, name } = {}) {
+export async function addSubscription(env, sub, { categories, name, quiet } = {}) {
   const kv = env.TELEMETRY;
   const subs = (await readSubs(kv)).filter((s) => s.endpoint !== sub.endpoint);
   if (subs.length >= MAX_SUBS) subs.splice(0, subs.length - MAX_SUBS + 1);   // drop the oldest
@@ -155,7 +179,7 @@ export async function addSubscription(env, sub, { categories, name } = {}) {
   const rec = {
     id: crypto.randomUUID(), keyHash: await sha256hex(manageKey), endpoint: sub.endpoint,
     p256dh: sub.keys.p256dh, auth: sub.keys.auth, categories: cleanCategories(categories),
-    name: String(name || 'iPhone').slice(0, 40), created: Date.now()
+    quiet: cleanQuiet(quiet), name: String(name || 'iPhone').slice(0, 40), created: Date.now()
   };
   subs.push(rec);
   await writeSubs(kv, subs);
@@ -167,10 +191,11 @@ async function findOwn(kv, id, manageKey) {
   const i = subs.findIndex((s) => s.id === id && s.keyHash === hash);
   return { subs, i };
 }
-export async function updateSubscription(env, id, manageKey, categories) {
+export async function updateSubscription(env, id, manageKey, categories, quiet) {
   const { subs, i } = await findOwn(env.TELEMETRY, id, manageKey);
   if (i < 0) return null;
-  subs[i].categories = cleanCategories(categories);
+  if (categories !== undefined) subs[i].categories = cleanCategories({ ...cleanCategories(subs[i].categories), ...categories });
+  if (quiet !== undefined) subs[i].quiet = cleanQuiet(quiet);
   await writeSubs(env.TELEMETRY, subs);
   return publicSub(subs[i]);
 }
@@ -194,13 +219,15 @@ export function ownerTime(env, ts = Date.now()) {
   } catch (e) { return new Date(ts).toISOString().slice(11, 16) + ' UTC'; }
 }
 
-// event: { cat, title, body, tag?, url?, throttle?: { key, seconds } }
+// event: { cat, title, body, tag?, url?, urgent?, badge?, silent?, throttle?: { key, seconds } }
+// Urgent alerts (errors, security) still arrive during quiet hours.
 // Never throws: a notification must never break the request that caused it.
 export async function notifyOwner(env, event, origin) {
   try {
     const kv = env && env.TELEMETRY;
     if (!kv || !PUSH_CATEGORIES[event.cat]) return { sent: 0 };
-    const subs = (await readSubs(kv)).filter((s) => s.categories && s.categories[event.cat] !== false);
+    const hour = ownerHour(env);
+    const subs = (await readSubs(kv)).filter((s) => wants(s, event.cat) && (event.urgent || !inQuiet(s.quiet, hour)));
     if (!subs.length) return { sent: 0 };
     if (event.throttle) {
       const tk = 'push:rl:' + (await sha256hex(event.throttle.key)).slice(0, 32);
@@ -217,6 +244,8 @@ export async function notifyOwner(env, event, origin) {
       url: event.url || '/console/',
       cat: event.cat,
       ts: Date.now(),
+      badge: Number.isInteger(event.badge) ? event.badge : undefined,
+      silent: event.silent ? true : undefined,
       urgency: event.urgent ? 'high' : 'normal'
     };
     const results = await Promise.all(subs.map((s) => sendPush(s, message, keys, subject)));
@@ -229,4 +258,8 @@ export async function notifyOwner(env, event, origin) {
   } catch (e) {
     return { sent: 0, error: String(e && e.message || e) };
   }
+}
+
+export async function anySubscriberWants(env, cat) {
+  try { return (await readSubs(env.TELEMETRY)).some((s) => wants(s, cat)); } catch (e) { return false; }
 }

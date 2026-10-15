@@ -1,6 +1,6 @@
 import { webApp } from './web/handler.js';
 import { consoleApp } from './web/console/handler.js';
-import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime } from './web/console/push.js';
+import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime, cleanCategories, anySubscriberWants } from './web/console/push.js';
 import { validateMutation } from './mobile/backend/validation.js';
 import { AdminMobileState, stateCall, digest, randomToken, validSource, relayCall, queueEvent } from './mobile/backend/state.js';
 export { AdminMobileState };
@@ -392,9 +392,79 @@ async function runJob(kv, id, trigger) {
   return rec;
 }
 
+// ---- "Who's online" for the owner's phone ------------------------------------
+// Web apps can't have iOS Live Activities, so this is the closest thing: one
+// alert that is replaced (tag "presence") whenever the set of people online
+// changes, carrying the count as the app icon badge. Checked at most once a
+// minute from heartbeats, and every 5 minutes by cron so departures show up
+// even when nobody is sending heartbeats. Costs nothing unless a device has
+// "Who's online" switched on.
+async function checkPresence(env, ownerName, origin, { force = false } = {}) {
+  const kv = env && env.TELEMETRY;
+  if (!kv || !(await anySubscriberWants(env, 'presence'))) return null;
+  if (!force) {
+    if (await kv.get('push:presence:chk')) return null;
+    await kv.put('push:presence:chk', '1', { expirationTtl: 60 });
+  }
+  const owner = String(ownerName || (env && env.OWNER) || 'viztrrx').toLowerCase();
+  const names = new Map();
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: 'session:', cursor });
+    for (const k of page.keys) {
+      const v = await kv.get(k.name, 'json');
+      if (v && v.user && v.user.toLowerCase() !== owner && v.user.toLowerCase() !== 'anonymous') names.set(v.user.toLowerCase(), v.user);
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor && names.size < 200);
+  const now = [...names.values()].sort((a, b) => a.localeCompare(b));
+  const last = (await kv.get('push:presence:last', 'json')) || [];
+  if (JSON.stringify(now) === JSON.stringify(last)) return { changed: false, online: now };
+  await kv.put('push:presence:last', JSON.stringify(now));
+  const lower = (a) => a.map((x) => x.toLowerCase());
+  const joined = now.filter((n) => !lower(last).includes(n.toLowerCase()));
+  const left = last.filter((n) => !lower(now).includes(n.toLowerCase()));
+  const list = now.length ? now.slice(0, 12).join(', ') + (now.length > 12 ? ` +${now.length - 12} more` : '') : 'Nobody is using the console right now.';
+  const change = [joined.length ? 'Joined: ' + joined.join(', ') : '', left.length ? 'Left: ' + left.join(', ') : ''].filter(Boolean).join(' · ');
+  await notifyOwner(env, {
+    cat: 'presence', tag: 'presence', badge: now.length, silent: true, url: '/console/#tab=admin',
+    title: now.length === 1 ? '1 person online' : `${now.length} people online`,
+    body: (change ? change + '\n' : '') + list
+  }, origin);
+  return { changed: true, online: now, joined, left };
+}
+
+// Daily summary for the owner (runs with the daily cron).
+async function sendDailyDigest(env) {
+  const kv = env && env.TELEMETRY;
+  if (!kv || !(await anySubscriberWants(env, 'digest'))) return null;
+  const since = Date.now() - 24 * 3600 * 1000;
+  let active = 0, fresh = 0, scanned = 0, cursor;
+  do {
+    const page = await kv.list({ prefix: 'user:', cursor });
+    for (const k of page.keys) {
+      if (++scanned > 1000) break;
+      const u = await kv.get(k.name, 'json');
+      if (u && u.lastSeen >= since) active++;
+      if (u && u.firstSeen >= since) fresh++;
+    }
+    cursor = page.list_complete || scanned > 1000 ? undefined : page.cursor;
+  } while (cursor);
+  const day = dayKey(Date.now() - 12 * 3600 * 1000);
+  let n = 0, fail = 0, rl = 0;
+  const usage = await kv.list({ prefix: `usage:${day}:` });
+  for (const k of usage.keys) { const u = parseUsage(await kv.get(k.name)); n += u.n; fail += u.fail; rl += u.rl; }
+  let secEvents = 0;
+  try { const sec = await kv.get('sec:' + day, 'json'); if (sec && sec.counts) secEvents = Object.values(sec.counts).reduce((a, b) => a + b, 0); } catch (e) { /* none */ }
+  const parts = [`${active} ${active === 1 ? 'person' : 'people'} used the console`, `${fresh} new`, `${n} AI requests` + (fail ? ` (${fail} failed)` : ''),
+    rl ? `${rl} hit a limit` : '', secEvents ? `${secEvents} security events` : ''].filter(Boolean);
+  return notifyOwner(env, { cat: 'digest', title: 'Daily summary', body: parts.join(' · ') + '.', url: '/console/#tab=admin' });
+}
+
 // Who made each /v1 (AI) request, so the fetch wrapper can tell the owner
 // when one fails without threading the name through every early return.
 const aiCallers = new WeakMap();
+const PRESENCE_CRON = '*/5 * * * *';
 async function reportAiFailure(req, res, env, ctx) {
   const user = aiCallers.get(req);
   if (!user || String(user).toLowerCase() === String((env && env.OWNER) || 'viztrrx').toLowerCase()) return;
@@ -405,7 +475,8 @@ async function reportAiFailure(req, res, env, ctx) {
     type = String(e.type || e.code || type).slice(0, 40);
     message = String(e.message || message).replace(/sk-[A-Za-z0-9_-]{6,}/g, 'sk-…').slice(0, 180);
   } catch (e) { /* non-JSON upstream body */ }
-  const p = notifyOwner(env, { cat: 'aierror', title: 'AI request failed: ' + user,
+  const isLimit = res.status === 429 || /rate_limit|quota/.test(type);
+  const p = notifyOwner(env, { cat: isLimit ? 'limits' : 'aierror', title: (isLimit ? 'Limit reached: ' : 'AI request failed: ') + user,
     body: `${type} (${res.status}) · ${message} · ${ownerTime(env)}`, url: '/console/#tab=admin',
     throttle: { key: 'ai:' + String(user).toLowerCase() + ':' + type, seconds: 300 } }, new URL(req.url).origin);
   if (ctx && ctx.waitUntil) ctx.waitUntil(p);
@@ -459,11 +530,14 @@ export default {
   async scheduled(event, env, ctx) {
     const kv = env && env.TELEMETRY;
     if (!kv) return;
+    // Every 5 minutes: only the "who's online" check (see checkPresence).
+    if (event.cron === PRESENCE_CRON) { ctx.waitUntil(checkPresence(env, env.OWNER, null, { force: true }).catch(() => {})); return; }
     // Daily jobs. The cron expression is recorded so the Automation section
     // can show the schedule and compute the next run.
     ctx.waitUntil((async () => {
       try { await kv.put('job:cron', JSON.stringify({ cron: event.cron || null, ts: Date.now() })); } catch (e) { /* best-effort */ }
       for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron');if(!r.ok){queueEvent(env,ctx,'jobs',3);await notifyOwner(env,{cat:'jobs',title:'Scheduled job failed',body:`${id} · ${String(r.detail||'no detail').slice(0,160)} · ${ownerTime(env)}`});}}
+      try { await sendDailyDigest(env); } catch (e) { /* the summary is best-effort */ }
     })());
   }
 };
@@ -793,6 +867,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         };
         await kv.put(`audit:${String(ts).padStart(13, '0')}:${rand}`, JSON.stringify(rec), { expirationTtl: AUDIT_TTL });
         if (rec.result === 'ok' && !['diagnostics','key_test','auth_failed','forbidden'].includes(rec.action)) queueEvent(env,ctx,'audit',2);
+        if (p && p.role && p.role !== 'owner' && rec.result === 'ok' && !['diagnostics','key_test','auth_failed','forbidden','view','export'].includes(rec.action)) {
+          notify({ cat: 'admin', title: (rec.actor || p.role) + ': ' + String(rec.action).replace(/_/g, ' '),
+            body: (rec.target ? 'Target: ' + rec.target + ' · ' : '') + p.role + ' · ' + ownerTime(env, ts), url: '/console/#tab=admin',
+            throttle: { key: 'admin:' + rec.actor + ':' + rec.action + ':' + rec.target, seconds: 120 } });
+        }
       } catch (e) { /* auditing must never block the real action */ }
     };
     // Global, owner-controlled settings pushed to every client on its next
@@ -1838,6 +1917,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
               throttle: { key: 'signin:' + userLower, seconds: 600 } });
           }
           if (!prev && cfg.approvalMode && userLower !== OWNER) {
+            notify({ cat: 'approval', title: user + ' is waiting for approval', body: 'New user held by the approval queue · ' + ownerTime(env, now) + '. Approve them in Admin.', url: '/console/#tab=admin' });
             const modKey = 'mod:' + userLower;
             const curMod = (await kv.get(modKey, 'json')) || { state: 'active', reason: '', kickNonce: 0 };
             curMod.pending = true;
@@ -1845,6 +1925,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           }
         }
       } catch (e) { return json({ ok: false }, 200); }
+      if (ctx && ctx.waitUntil) ctx.waitUntil(checkPresence(env, OWNER, url.origin).catch(() => {}));
       // Hand the caller its own effective state back on every beat, so a
       // block/lock/kick/private-mode change reaches them within one heartbeat
       // even without the separate /status poll.
@@ -1922,19 +2003,19 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         }
         if (!validSubscription(body.subscription)) return json({ error: 'That is not a push subscription from a supported browser.' }, 400);
         await vapidKeys(env, { create: true });
-        const rec = await addSubscription(env, body.subscription, { categories: body.categories, name: body.name });
+        const rec = await addSubscription(env, body.subscription, { categories: body.categories, name: body.name, quiet: body.quiet });
         return json({ ok: true, subscription: rec });
       }
       const id = String(body.id || ''), key = String(body.key || '');
       if (!/^[0-9a-f-]{36}$/.test(id) || !key) return json({ error: 'unknown device' }, 404);
       if (url.pathname === '/push/update') {
-        const r = await updateSubscription(env, id, key, body.categories);
+        const r = await updateSubscription(env, id, key, body.categories, body.quiet);
         return r ? json({ ok: true, subscription: r }) : json({ error: 'unknown device' }, 404);
       }
       if (url.pathname === '/push/unsubscribe') return json({ ok: await removeSubscription(env, id, key) });
       if (url.pathname === '/push/status') {
         const sub = await getSubscription(env, id, key);
-        return sub ? json({ ok: true, subscription: { id: sub.id, categories: sub.categories, name: sub.name } }) : json({ error: 'unknown device' }, 404);
+        return sub ? json({ ok: true, subscription: { id: sub.id, categories: cleanCategories(sub.categories), quiet: sub.quiet || null, name: sub.name } }) : json({ error: 'unknown device' }, 404);
       }
       if (url.pathname === '/push/test') {
         const sub = await getSubscription(env, id, key);
@@ -2291,8 +2372,14 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       }
       if (userLower !== OWNER) {
         const roomLabel = access.id === 'public' ? '#public' : '#' + ((access.room && access.room.name) || access.id);
-        notify({ cat: 'chat', title: user + ' in ' + roomLabel, body: text || (media ? 'Sent a photo' : ''),
-          url: '/console/#tab=chat' });
+        const said = text || (media ? 'Sent a photo' : '');
+        // "@owner" (or the owner's name as a word) is a mention: it gets its
+        // own, louder alert instead of the ordinary chat one.
+        if (new RegExp('(^|[^a-z0-9_])@?' + OWNER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(text)) {
+          notify({ cat: 'mentions', title: user + ' mentioned you in ' + roomLabel, body: said, url: '/console/#tab=chat', urgent: true });
+        } else {
+          notify({ cat: access.id === 'public' ? 'chat' : 'chatrooms', title: user + ' in ' + roomLabel, body: said, url: '/console/#tab=chat' });
+        }
       }
       return json({ ok: true, ts });
     }

@@ -2,7 +2,7 @@
 // app's own files are cached (shell, icons and the console script); API
 // calls, chat, AI answers and anything from other origins always go to the
 // network. Push messages come from the Worker (web/console/push.js).
-const CACHE = 'agent-console-app-v2';
+const CACHE = 'agent-console-app-v3';
 const SHELL = ['/console/', '/console/app.css', '/console/app.js', '/console/manifest.webmanifest',
   '/console/icon-180.png', '/console/icon-192.png', '/console/icon-512.png', '/console/icon-maskable-512.png'];
 const SCRIPT = '/console/script.js';
@@ -30,12 +30,18 @@ self.addEventListener('push', (event) => {
   let m = {};
   try { m = event.data ? event.data.json() : {}; } catch (e) { m = { body: event.data ? event.data.text() : '' }; }
   const title = m.title || 'Agent Console';
+  // "Who's online" carries the count for the app icon badge (iOS 16.4+).
+  if (typeof m.badge === 'number' && self.navigator && self.navigator.setAppBadge) {
+    try { (m.badge > 0 ? self.navigator.setAppBadge(m.badge) : self.navigator.clearAppBadge()).catch(() => {}); } catch (e) { /* unsupported */ }
+  }
   event.waitUntil(self.registration.showNotification(title, {
     body: m.body || '',
     tag: m.tag || undefined,
     icon: '/console/icon-192.png',
     badge: '/console/icon-192.png',
     timestamp: m.ts || Date.now(),
+    silent: m.silent === true,
+    renotify: false,
     data: { url: typeof m.url === 'string' && m.url.startsWith('/console/') ? m.url : '/console/' }
   }));
 });

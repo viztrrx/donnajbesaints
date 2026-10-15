@@ -78,27 +78,39 @@ try {
   await page.waitForFunction(() => !document.getElementById('gpa-root-host').shadowRoot.querySelector('#gpa-push-cats').hidden, null, { timeout: 15000 }).catch(() => {});
   const on = await R(page, (r) => ({
     btn: r.querySelector('#gpa-push-toggle').textContent,
-    cats: [...r.querySelectorAll('.gpa-push-cat')].map((c) => c.textContent + ':' + c.querySelector('.gps-switch').getAttribute('aria-pressed')),
+    cats: [...r.querySelectorAll('#gpa-push-cats .gpa-push-cat')].map((c) => c.querySelector('span').textContent + ':' + c.querySelector('.gps-switch').getAttribute('aria-pressed')),
     token: r.querySelector('#gpa-push-token').value
   }));
   check('With the admin token, notifications turn on', on.btn === 'Turn off', on.btn);
-  check('All alert types listed and on', on.cats.length === 8 && on.cats.every((c) => c.endsWith(':true')), on.cats.join(', '));
+  check('All 15 alert types listed, grouped, on except Who’s online', on.cats.length === 15 && on.cats.filter((c) => c.endsWith(':false')).length === 1 && on.cats.some((c) => /online.*:false$/.test(c)), on.cats.join(', '));
+  check('Switches are grouped (Chat, People, AI, System)', (await R(page, (r) => [...r.querySelectorAll('.gpa-push-group')].map((g) => g.textContent).join(','))) === 'Chat,People,AI,System');
   check('Admin token cleared from the field (not kept)', on.token === '');
   check('Token never written to storage', !(await page.evaluate((t) => Object.values(localStorage).some((v) => v.includes(t)), ADMIN)));
   await page.screenshot({ path: path.join(OUT, '02-on.png') });
 
   // Turn one kind off: saved on the Worker.
-  await R(page, (r) => [...r.querySelectorAll('.gpa-push-cat')].find((c) => /Sign-ins/.test(c.textContent)).querySelector('.gps-switch').click());
+  await R(page, (r) => [...r.querySelectorAll('#gpa-push-cats .gpa-push-cat')].find((c) => /^Sign-ins/.test(c.textContent)).querySelector('.gps-switch').click());
   await page.waitForTimeout(800);
   const dev = await page.evaluate(() => JSON.parse(localStorage.getItem('gpa_push_device')));
   const st = await fetch(env.workerUrl + '/push/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dev) }).then((r) => r.json());
   check('Switching off Sign-ins is saved on the Worker', st.subscription && st.subscription.categories.signin === false && st.subscription.categories.chat === true, JSON.stringify(st.subscription && st.subscription.categories));
+
+  // Turn on "Who's online" and quiet hours 10 PM to 7 AM.
+  await R(page, (r) => [...r.querySelectorAll('#gpa-push-cats .gpa-push-cat')].find((c) => /online/.test(c.textContent)).querySelector('.gps-switch').click());
+  await page.waitForTimeout(600);
+  await R(page, (r) => r.querySelector('#gpa-push-quiet-sw').click());
+  await page.waitForTimeout(600);
+  const qs = await fetch(env.workerUrl + '/push/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dev) }).then((r) => r.json());
+  check('Who’s online and quiet hours (10 PM–7 AM) saved', qs.subscription.categories.presence === true && qs.subscription.quiet && qs.subscription.quiet.start === 22 && qs.subscription.quiet.end === 7, JSON.stringify(qs.subscription.quiet));
+  await page.locator(sr('#gpa-push-quiet')).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(OUT, '03-quiet.png') });
 
   // Reopen the app: the card remembers this device.
   await page.reload();
   await page.waitForFunction(() => !!document.getElementById('gpa-root-host'), null, { timeout: 30000 });
   await page.waitForTimeout(1500);
   check('After a restart the device is still on', await R(page, (r) => r.querySelector('#gpa-push-toggle').textContent === 'Turn off'));
+  check('…with its quiet hours shown', await R(page, (r) => !r.querySelector('#gpa-push-quiet-times').hidden && r.querySelector('#gpa-push-quiet-start').value === '22'));
 
   // A notification tap opens /console/#tab=chat on the Chat tab.
   await page.goto(env.workerUrl + '/console/#tab=chat');

@@ -710,7 +710,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-14T23:00:00-04:00', commit: '', title: 'Dismissed announcements stay dismissed', parts: {
       console: ['fix', 'Owner banner and popup remember a dismissal for your account on every site and in the app; banner is tappable in the iPhone app'] } },
     { at: '2026-10-15T01:00:00-04:00', commit: '', title: 'Owner phone notifications in the iPhone app', parts: {
-      theme: ['feature', 'Settings → Account → Phone notifications: chats with name and room, sign-ins with time, new users, AI failures, errors, reports, security, jobs'] } }
+      theme: ['feature', 'Settings → Account → Phone notifications: chats with name and room, sign-ins with time, new users, AI failures, errors, reports, security, jobs'] } },
+    { at: '2026-10-15T12:00:00-04:00', commit: '', title: 'More phone notifications, quiet hours and a live “who’s online” alert', parts: {
+      theme: ['feature', 'Grouped switches: private rooms, mentions, approval queue, who’s online with icon badge, limits, admin actions, daily summary; quiet hours'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1887,6 +1889,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-push-cats { display: flex; flex-direction: column; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); overflow: hidden; }
       .gpa-push-cat { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; font-size: 13px; }
       .gpa-push-cat + .gpa-push-cat { border-top: 1px solid var(--gpa-border); }
+      .gpa-push-cat > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+      .gpa-push-cat small { font-size: 11.5px; color: var(--gpa-sub); }
+      .gpa-push-group {
+        padding: 12px 12px 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+        color: color-mix(in srgb, var(--gpa-sub) 80%, transparent); background: color-mix(in srgb, var(--gpa-text) 2%, transparent);
+      }
+      .gpa-push-group + .gpa-push-cat { border-top: none; }
+      .gpa-push-cat + .gpa-push-group { border-top: 1px solid var(--gpa-border); }
+      .gpa-push-quiet { border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); overflow: hidden; }
+      .gpa-push-quiet[hidden], .gpa-push-quiet-times[hidden] { display: none; }
+      .gpa-push-quiet-times { display: flex; gap: 10px; padding: 0 12px 12px; }
+      .gpa-push-quiet-times label { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--gpa-sub); }
       #gpa-push-msg:empty { display: none; }
 
       /* ---- App mode (home-screen web app): edge to edge, safe areas ---- */
@@ -3952,6 +3966,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                     <input id="gpa-push-token" class="gpa-input" type="password" autocomplete="off" aria-label="Admin token, used once to turn on notifications">
                   </label>
                   <div class="gpa-push-cats" id="gpa-push-cats" hidden></div>
+                  <div class="gpa-push-quiet" id="gpa-push-quiet" hidden>
+                    <div class="gpa-push-cat">
+                      <span>Quiet hours<small>Errors, security alerts and mentions still come through.</small></span>
+                      <button class="gps-switch" id="gpa-push-quiet-sw" type="button" aria-pressed="false" aria-label="Quiet hours">Quiet hours</button>
+                    </div>
+                    <div class="gpa-push-quiet-times" id="gpa-push-quiet-times" hidden>
+                      <label>From <select id="gpa-push-quiet-start" class="gpa-input" aria-label="Quiet hours start"></select></label>
+                      <label>To <select id="gpa-push-quiet-end" class="gpa-input" aria-label="Quiet hours end"></select></label>
+                    </div>
+                  </div>
                   <div class="gps-row" id="gpa-push-actions" hidden><button id="gpa-push-test" class="gps-btn" type="button">Send a test notification</button></div>
                   <p class="gps-hint" id="gpa-push-msg" role="status" aria-live="polite"></p>
                 </div>
@@ -17354,7 +17378,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const DEVICE_KEY = 'gpa_push_device';
     const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    let device = null, categories = {};
+    let device = null, categories = {}, quiet = null;
+    const quietBox = $('#gpa-push-quiet'), quietSw = $('#gpa-push-quiet-sw'), quietTimes = $('#gpa-push-quiet-times');
+    const quietStart = $('#gpa-push-quiet-start'), quietEnd = $('#gpa-push-quiet-end');
+    const hourName = (h) => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
+    [quietStart, quietEnd].forEach((sel) => { for (let h = 0; h < 24; h++) { const o = document.createElement('option'); o.value = String(h); o.textContent = hourName(h); sel.appendChild(o); } });
     try { device = JSON.parse(localStorage.getItem(DEVICE_KEY) || 'null'); } catch (e) { device = null; }
     const api = (path, body, extra) => fetch(telemetryEndpoint() + path, {
       method: body === undefined ? 'GET' : 'POST',
@@ -17367,29 +17395,60 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       device = d;
       try { if (d) localStorage.setItem(DEVICE_KEY, JSON.stringify(d)); else localStorage.removeItem(DEVICE_KEY); } catch (e) { /* ignore */ }
     }
-    function renderCats(labels) {
+    // defs: { key: { label, group, on } } from the Worker, in display order.
+    async function saveSettings(patch) {
+      const r = await api('/push/update', { id: device.id, key: device.key, ...patch }).catch(() => null);
+      if (r && r.ok) { categories = r.data.subscription.categories; quiet = r.data.subscription.quiet; say(''); return true; }
+      say('Couldn’t save that. Check your connection.');
+      return false;
+    }
+    function renderCats(defs) {
       catsEl.innerHTML = '';
-      Object.keys(labels).forEach((k) => {
+      let group = null;
+      Object.keys(defs).forEach((k) => {
+        const def = typeof defs[k] === 'string' ? { label: defs[k], group: '', on: true } : defs[k];
+        if (def.group && def.group !== group) {
+          group = def.group;
+          const h = document.createElement('div');
+          h.className = 'gpa-push-group';
+          h.textContent = group;
+          catsEl.appendChild(h);
+        }
+        const on = typeof categories[k] === 'boolean' ? categories[k] : def.on;
         const row = document.createElement('div');
         row.className = 'gpa-push-cat';
         const name = document.createElement('span');
-        name.textContent = labels[k];
+        name.textContent = def.label;
         const sw = document.createElement('button');
         sw.type = 'button';
-        sw.className = 'gps-switch' + (categories[k] !== false ? ' primary' : '');
-        sw.setAttribute('aria-pressed', categories[k] !== false ? 'true' : 'false');
-        sw.setAttribute('aria-label', labels[k]);
-        sw.textContent = labels[k];
+        sw.className = 'gps-switch' + (on ? ' primary' : '');
+        sw.setAttribute('aria-pressed', on ? 'true' : 'false');
+        sw.setAttribute('aria-label', def.label);
+        sw.textContent = def.label;
         sw.addEventListener('click', async () => {
-          const next = { ...categories, [k]: categories[k] === false };
-          const r = await api('/push/update', { id: device.id, key: device.key, categories: next }).catch(() => null);
-          if (r && r.ok) { categories = r.data.subscription.categories; renderCats(labels); say(''); }
-          else say('Couldn’t save that. Check your connection.');
+          if (await saveSettings({ categories: { [k]: !on } })) renderCats(defs);
         });
         row.appendChild(name); row.appendChild(sw);
         catsEl.appendChild(row);
       });
+      renderQuiet();
     }
+    function renderQuiet() {
+      const on = !!quiet;
+      quietSw.classList.toggle('primary', on);
+      quietSw.setAttribute('aria-pressed', on ? 'true' : 'false');
+      quietTimes.hidden = !on;
+      quietStart.value = String(on ? quiet.start : 22);
+      quietEnd.value = String(on ? quiet.end : 7);
+    }
+    quietSw.addEventListener('click', async () => {
+      const next = quiet ? null : { start: Number(quietStart.value || 22), end: Number(quietEnd.value || 7) };
+      if (await saveSettings({ quiet: next })) renderQuiet();
+    });
+    [quietStart, quietEnd].forEach((sel) => sel.addEventListener('change', async () => {
+      if (Number(quietStart.value) === Number(quietEnd.value)) { say('Pick different start and end hours.'); renderQuiet(); return; }
+      if (await saveSettings({ quiet: { start: Number(quietStart.value), end: Number(quietEnd.value) } })) renderQuiet();
+    }));
     let labelsCache = null;
     async function labels() {
       if (labelsCache) return labelsCache;
@@ -17403,6 +17462,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       toggle.textContent = on ? 'Turn off' : 'Turn on';
       toggle.classList.toggle('primary', !on);
       catsEl.hidden = !on;
+      quietBox.hidden = !on;
       actions.hidden = !on;
       if (!supported) {
         toggle.disabled = true;
@@ -17446,6 +17506,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         tokenRow.hidden = true;
         saveDevice({ id: r.data.subscription.id, key: r.data.subscription.manageKey });
         categories = r.data.subscription.categories;
+        quiet = r.data.subscription.quiet || null;
         renderCats(info.categories);
         say('Notifications are on. Send a test to check.');
       } catch (e) {
@@ -17479,7 +17540,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // Re-check a remembered device with the Worker (it may have been removed).
     if (device && supported) {
       Promise.all([api('/push/status', { id: device.id, key: device.key }), labels()]).then(([r, info]) => {
-        if (r.ok) { categories = r.data.subscription.categories; renderCats(info.categories); }
+        if (r.ok) { categories = r.data.subscription.categories; quiet = r.data.subscription.quiet || null; renderCats(info.categories); }
         else if (r.status === 404) { saveDevice(null); say('This device was removed from notifications. Turn them on again.'); }
         render();
       }).catch(() => { /* offline: keep showing the remembered state */ });
