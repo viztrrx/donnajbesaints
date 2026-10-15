@@ -63,11 +63,16 @@ try {
         rowFits: el.querySelector('.gpa-usage-row').scrollWidth <= el.querySelector('.gpa-usage-row').clientWidth + 1,
         barW: Math.round(parts[1].getBoundingClientRect().width),
         onTop: !!top && el.contains(top),
-        left: parts[2].textContent, cls: el.className
+        left: parts[2].textContent, cls: el.className,
+        // The header title stays on one line (shortened with … if needed).
+        titleH: Math.round(r.querySelector('.gpa-title').getBoundingClientRect().height),
+        titleFull: r.querySelector('.gpa-title').scrollWidth <= r.querySelector('.gpa-title').clientWidth + 1,
+        headerH: Math.round(hb.height)
       };
     });
     check(`${size} (${g.panelW}×${g.panelH}): meter on screen right under the header`, g.shown && g.underHeader && g.onTop, JSON.stringify(g));
     check(`${size}: fits inside the panel, nothing cut off, bar ${g.barW}px wide`, g.inside && g.rowFits && !g.clipped.length && g.barW >= 40, JSON.stringify(g));
+    check(`${size}: header title on one line, full name showing (header ${g.headerH}px tall)`, g.titleH <= 22 && g.headerH <= 52 && g.titleFull, JSON.stringify({ titleH: g.titleH, headerH: g.headerH, fullName: g.titleFull }));
     check(`${size}: still says 4 left (amber)`, g.left === '4 left' && /is-low/.test(g.cls), g.left + ' ' + g.cls);
     await page.locator('#gpa-root-host').screenshot({ path: path.join(OUT, `size-${size}.png`) });
   }

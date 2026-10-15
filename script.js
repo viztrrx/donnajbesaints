@@ -732,7 +732,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       theme: ['feature', 'The daily summary notification now arrives at noon Eastern every day (it used to come around 1 AM)'] } },
     { at: '2026-10-16T11:00:00-04:00', commit: '', title: 'AI usage meter, and chat messages no longer go missing', parts: {
       console: ['feature', 'People with a daily or monthly AI limit (or a per-minute rate) see a meter under the header: used, left and when it resets; amber near the end, red at the limit'],
-      chat: ['fix', 'Messages sent at the same moment from different places could erase each other (the notification still arrived); each room now keeps one always-consistent log'] } }
+      chat: ['fix', 'Messages sent at the same moment from different places could erase each other (the notification still arrived); each room now keeps one always-consistent log'] } },
+    { at: '2026-10-16T12:00:00-04:00', commit: '', title: 'Header title stays on one line', parts: {
+      console: ['fix', 'The console name no longer wraps onto two lines at the Compact panel size; a tighter header fits it, and a long custom brand name ends in “…”'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1780,9 +1782,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       #gpa-sidebar-toggle, #gpa-min, #gpa-reload, #gpa-console-fullscreen, #gpa-close { width: 32px; height: 32px; }
       #gpa-sidebar-toggle svg, #gpa-min svg, #gpa-reload svg, #gpa-console-fullscreen svg, #gpa-close svg { width: 17px; height: 17px; }
       #gpa-sidebar-toggle.active { background: color-mix(in srgb, var(--gpa-accent) 16%, transparent); color: var(--gpa-text); }
-      .gpa-title { display: flex; align-items: center; gap: 9px; font-size: 13.5px; letter-spacing: -0.01em; margin-left: 2px; min-width: 0; }
+      /* One line always: on a narrow panel (Compact) the name ends in "…"
+         instead of wrapping onto a second line. Block, not flex, because an
+         ellipsis only works on text in a block box. */
+      .gpa-title {
+        display: block; font-size: 13.5px; line-height: 20px; letter-spacing: -0.01em; margin-left: 2px; min-width: 0;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .gpa-panel.gpa-tiny .gpa-header { gap: 2px; padding-left: 8px; padding-right: 8px; }
+      .gpa-panel.gpa-tiny #gpa-sidebar-toggle, .gpa-panel.gpa-tiny #gpa-min, .gpa-panel.gpa-tiny #gpa-reload,
+      .gpa-panel.gpa-tiny #gpa-console-fullscreen, .gpa-panel.gpa-tiny #gpa-close { width: 28px; height: 28px; }
+      .gpa-panel.gpa-tiny .gpa-title::before { margin-right: 7px; }
       .gpa-title::before {
-        content: ''; width: 18px; height: 18px; flex-shrink: 0; border-radius: 6px;
+        content: ''; display: inline-block; vertical-align: -4px; margin-right: 9px;
+        width: 18px; height: 18px; flex-shrink: 0; border-radius: 6px;
         background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2, var(--gpa-accent)));
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 14px -2px color-mix(in srgb, var(--gpa-glow, var(--gpa-accent)) 70%, transparent);
       }
@@ -6331,6 +6344,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const narrowObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         panel.classList.toggle('gpa-narrow', entry.contentRect.width < 640);
+        // The Compact size: tighter header so the full name still fits.
+        panel.classList.toggle('gpa-tiny', entry.contentRect.width < 340);
       }
     });
     narrowObserver.observe(panel);
