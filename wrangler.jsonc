@@ -36,13 +36,15 @@
 			"remote": true
 		}
 	],
-	"durable_objects": {"bindings": [{"name":"ADMIN_MOBILE","class_name":"AdminMobileState"}]},
-	"migrations": [{"tag":"admin-mobile-v1","new_sqlite_classes":["AdminMobileState"]}],
+	// ADMIN_MOBILE: Saints Command state. CHAT_ROOMS: one consistent log per
+	// chat room (chat/room.js), so messages sent at once can't erase each other.
+	"durable_objects": {"bindings": [{"name":"ADMIN_MOBILE","class_name":"AdminMobileState"},{"name":"CHAT_ROOMS","class_name":"ChatRoom"}]},
+	"migrations": [{"tag":"admin-mobile-v1","new_sqlite_classes":["AdminMobileState"]},{"tag":"chat-rooms-v1","new_sqlite_classes":["ChatRoom"]}],
 	// Cron triggers (worker.js `scheduled`). Listing them here replaces any set
 	// in the dashboard, so both are kept here:
-	//   "0 5 * * *"    daily jobs (chat cleanup, memory maintenance) and the
-	//                  owner's daily summary notification
+	//   "0 5 * * *"    daily jobs (chat cleanup, memory maintenance)
 	//   "*/5 * * * *"  the owner's "Who's online" notification notices people
-	//                  leaving (does nothing unless a phone turned it on)
+	//                  leaving (does nothing unless a phone turned it on), and
+	//                  the daily summary goes out at 12 PM New York time
 	"triggers": { "crons": ["0 5 * * *", "*/5 * * * *"] }
 }

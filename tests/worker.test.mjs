@@ -794,3 +794,38 @@ test('one sign-in per name: a listed username is useless without its PIN, and on
   assert.equal((await login('kj', '4321', '8.8.8.9')).status, 200);
   assert.equal((await c.call('/status?user=kj')).data.state, 'active');
 });
+
+test('usage meter: limited people get their own usage on /status and /track; others get none', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  const ask = (user) => c.call('/v1/chat/completions', { method: 'POST', headers: { 'X-GPA-User': user, ...userKey }, body: { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'hi' }] } });
+  // No limits anywhere: no meter.
+  assert.equal((await c.call('/status?user=free')).data.usage, null);
+  // A daily quota for kj only.
+  await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'kj', action: 'quota', quotaDaily: 3 } });
+  let u = (await c.call('/status?user=kj')).data.usage;
+  assert.equal(u.daily.used, 0);
+  assert.equal(u.daily.limit, 3);
+  const now = new Date();
+  assert.equal(u.daily.resetAt, Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1), 'resets at midnight UTC');
+  assert.equal(u.monthly, undefined);
+  assert.equal((await c.call('/status?user=free')).data.usage, null, 'other people still have no meter');
+  for (let i = 0; i < 2; i++) assert.equal((await ask('kj')).status, 200);
+  await c.settle();
+  u = (await c.call('/status?user=kj')).data.usage;
+  assert.equal(u.daily.used, 2, 'counts each AI request');
+  assert.equal((await ask('kj')).status, 200);
+  assert.equal((await ask('kj')).status, 429, 'the 4th is refused');
+  await c.settle();
+  u = (await c.call('/track', { method: 'POST', body: { user: 'kj', event: 'beat', sid: 'k1' } })).data.usage;
+  assert.deepEqual([u.daily.used, u.daily.limit], [3, 3], 'the heartbeat carries it too, capped at the limit');
+  // Monthly quota and a per-minute rate show up as well.
+  await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'dub', action: 'quota', quotaMonthly: 50, rpm: 5 } });
+  u = (await c.call('/status?user=dub')).data.usage;
+  assert.deepEqual([u.monthly.used, u.monthly.limit, u.rpm, u.daily], [0, 50, 5, undefined]);
+  assert.equal(u.monthly.resetAt, Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  // A quota for everyone applies to everyone except the owner.
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { dailyQuota: 10 } });
+  assert.equal((await c.call('/status?user=free')).data.usage.daily.limit, 10);
+  assert.equal((await c.call('/status?user=kj')).data.usage.daily.limit, 3, 'a personal quota wins');
+  assert.equal((await c.call('/status?user=boss', { headers: { 'X-GPA-Owner': OWNER_CODE } })).data.usage, null, 'never for the owner');
+});

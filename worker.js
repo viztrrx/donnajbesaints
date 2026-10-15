@@ -5,6 +5,8 @@ import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateS
 import { validateMutation } from './mobile/backend/validation.js';
 import { AdminMobileState, stateCall, digest, randomToken, validSource, relayCall, queueEvent } from './mobile/backend/state.js';
 export { AdminMobileState };
+import { ChatRoom, chatRoomCall } from './chat/room.js';
+export { ChatRoom };
 // Agent Console — Cloudflare Worker proxy
 // Deploy through the repository Wrangler build: npx wrangler deploy.
 // Mobile helpers are bundled imports; do not paste this file alone in the dashboard.
@@ -378,11 +380,11 @@ async function memoryMaintenance(kv) {
 }
 
 // Runs one named job and records its outcome under job:<id>:last.
-async function runJob(kv, id, trigger) {
+async function runJob(kv, id, trigger, env) {
   const t0 = Date.now();
   let ok = true, detail = '';
   try {
-    if (id === 'chat-cleanup') detail = `${await clearAllChatMessages(kv)} chat keys deleted`;
+    if (id === 'chat-cleanup') detail = `${await clearAllChatMessages(kv, env)} chat keys deleted`;
     else if (id === 'memory-maintenance') {
       const r = await memoryMaintenance(kv);
       detail = `${r.docs} memory docs checked, ${r.changed} updated, ${r.removed} items removed`;
@@ -576,7 +578,7 @@ export default {
     // can show the schedule and compute the next run.
     ctx.waitUntil((async () => {
       try { await kv.put('job:cron', JSON.stringify({ cron: event.cron || null, ts: Date.now() })); } catch (e) { /* best-effort */ }
-      for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron');if(!r.ok){queueEvent(env,ctx,'jobs',3);await notifyOwner(env,{cat:'jobs',title:'Scheduled job failed',url:adminLink('automation',{job:id}),body:`${id} · ${String(r.detail||'no detail').slice(0,160)} · ${ownerTime(env)}`});}}
+      for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron',env);if(!r.ok){queueEvent(env,ctx,'jobs',3);await notifyOwner(env,{cat:'jobs',title:'Scheduled job failed',url:adminLink('automation',{job:id}),body:`${id} · ${String(r.detail||'no detail').slice(0,160)} · ${ownerTime(env)}`});}}
     })());
   }
 };
@@ -1005,6 +1007,30 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       return { state: 'active', reason: '', kickNonce: mod.kickNonce || 0 };
     };
     const resolve = async (kv, user) => resolveState(await getMod(kv, user), await getConfig(kv), user);
+    // The caller's own AI allowance, for the usage meter at the top of the
+    // console. Only people with a limit get one (not the owner): a daily or
+    // monthly request quota, or a per-minute rate. Counted exactly the way
+    // /v1/* enforces it, so the meter and the cut-off agree. Quotas reset
+    // at midnight UTC (daily) and on the 1st, UTC (monthly).
+    const usageMeter = async (kv, user, mod, cfg) => {
+      const u = String(user || '').trim().toLowerCase();
+      if (!kv || !u || u === OWNER || u === 'anonymous') return null;
+      const daily = (mod && mod.quotaDaily) || (cfg && cfg.dailyQuota) || 0;
+      const monthly = (mod && mod.quotaMonthly) || (cfg && cfg.monthlyQuota) || 0;
+      const rpm = (mod && mod.rpm) || (cfg && cfg.rpm) || 0;
+      if (!daily && !monthly && !rpm) return null;
+      const now = new Date();
+      const out = { rpm };
+      if (daily) {
+        const used = parseUsage(await kv.get(`usage:${dayKey()}:${u}`)).n || 0;
+        out.daily = { used: Math.min(used, daily), limit: daily, resetAt: Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) };
+      }
+      if (monthly) {
+        const used = parseInt(await kv.get(`usagem:${monthKey()}:${u}`), 10) || 0;
+        out.monthly = { used: Math.min(used, monthly), limit: monthly, resetAt: Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) };
+      }
+      return out;
+    };
     // Resolves one provider's assigned key for one user: a key aimed at this
     // exact username wins; otherwise an "assign to everyone" key (see
     // /admin/assignkey) applies.
@@ -2112,6 +2138,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || '',
         maintenance: cfg.maintenance && cfg.maintenance.on ? { on: true, message: cfg.maintenance.message || '' } : null,
         memoryEnabled: cfg.memoryEnabled !== false, session: trackId.verified ? 'ok' : (sessionProblem || 'none'),
+        usage: r.state === 'active' ? await usageMeter(kv, user, mod, cfg) : null,
         yourStats: { opens: (uRec && uRec.opens) || 0, firstSeen: (uRec && uRec.firstSeen) || now },
         dismissed: dismissed ? { broadcast: dismissed.broadcast || null, announcement: dismissed.announcement || null } : null
       });
@@ -2194,6 +2221,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         brandName: cfg.brandName || '', defaultTheme: cfg.defaultTheme || '',
         maintenance: cfg.maintenance && cfg.maintenance.on ? { on: true, message: cfg.maintenance.message || '' } : null,
         memoryEnabled: cfg.memoryEnabled !== false,
+        usage: r.state === 'active' ? await usageMeter(kv, statusUser, mod, cfg) : null,
         // What this account already dismissed (banner text hash, popup id), so
         // a dismissal sticks on every site, browser and the home-screen app.
         dismissed: dismissed ? { broadcast: dismissed.broadcast || null, announcement: dismissed.announcement || null } : null
@@ -2416,7 +2444,13 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     const CHAT_TTL = 60 * 60 * 24 * 7;   // a room's log lives a week at most
     const CHAT_MAX = 120;                // messages kept (and returned) per room
     const roomLogKey = (id) => 'roomlog:' + String(id).toLowerCase().slice(0, 40);
+    // With the CHAT_ROOMS binding (production) every room's log lives in its
+    // own Durable Object, which fixes the lost-message race described above:
+    // see chat/room.js. Without it (unit tests, an old config) the KV log
+    // below is used as before.
+    const chatInRooms = !!(env && env.CHAT_ROOMS);
     const readRoomLog = async (kv, id) => {
+      if (chatInRooms) return (await chatRoomCall(env, id, 'read', { since: 0 })).messages;
       const stored = await kv.get(roomLogKey(id), 'json');
       return Array.isArray(stored) ? stored : [];
     };
@@ -2641,19 +2675,24 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         }
         await kv.put(coolKey, String(Date.now()), { expirationTtl: Math.max(roomCfg.slowModeSec, 60) + 5 });
       }
-      const ts = Date.now();
+      let ts = Date.now();
       // Shadow mute: report success so the sender is none the wiser, but
       // store nothing — /chat/poll (for anyone, including the sender's other
       // devices) never has it to return.
       const mod = await getMod(kv, user);
       if (mod.shadowMuted) return json({ ok: true, ts });
       try {
+        if (chatInRooms) {
+          // The room appends it and assigns its timestamp (in log order).
+          ts = (await chatRoomCall(env, access.id, 'append', { msg: { u: user, t: text, owner: userLower === OWNER, ...(media ? { media } : {}) } })).ts;
+        } else {
         const log = await readRoomLog(kv, access.id);
         log.push({ u: user, t: text, ts, owner: userLower === OWNER, ...(media?{media}:{}) });
         // Keep the newest CHAT_MAX so one room's log can't grow past the
         // 25MB per-value ceiling however long it runs.
         const trimmed = log.slice(-CHAT_MAX);
         await kv.put(roomLogKey(access.id), JSON.stringify(trimmed), { expirationTtl: CHAT_TTL });
+        }
       } catch (e) {
         return json({ ok: false, error: 'could not store message' }, 200);
       }
@@ -2685,7 +2724,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       // readable error and an empty list rather than throwing.
       let messages;
       try {
-        messages = (await readRoomLog(kv, access.id))
+        messages = (chatInRooms ? (await chatRoomCall(env, access.id, 'read', { since })).messages : await readRoomLog(kv, access.id))
           .filter((m) => m && m.ts > since)
           .sort((a, b) => a.ts - b.ts)
           .slice(-CHAT_MAX);
@@ -3099,9 +3138,12 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         if (!rep) return json({ error: 'not found' }, 404);
         const action = String(body.action || '');
         if (action === 'delete_message') {
-          const log = await readRoomLog(kv, rep.room);
-          const kept = log.filter((m) => !(m && m.ts === rep.msgTs && m.u === rep.msgUser));
-          await kv.put(roomLogKey(rep.room), JSON.stringify(kept), { expirationTtl: CHAT_TTL });
+          if (chatInRooms) await chatRoomCall(env, rep.room, 'delete', { ts: rep.msgTs, u: rep.msgUser });
+          else {
+            const log = await readRoomLog(kv, rep.room);
+            const kept = log.filter((m) => !(m && m.ts === rep.msgTs && m.u === rep.msgUser));
+            await kv.put(roomLogKey(rep.room), JSON.stringify(kept), { expirationTtl: CHAT_TTL });
+          }
           rep.status = 'resolved'; rep.resolution = 'message deleted';
         } else if (action === 'resolve') { rep.status = 'resolved'; rep.resolution = String(body.note || 'resolved').slice(0, 200); }
         else if (action === 'dismiss') { rep.status = 'dismissed'; rep.resolution = String(body.note || 'dismissed').slice(0, 200); }
@@ -3160,7 +3202,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const id = String(body.id || '');
         const job = JOBS.find((j) => j.id === id);
         if (!job) return json({ error: 'unknown job' }, 400);
-        const rec = await runJob(kv, id, 'manual');
+        const rec = await runJob(kv, id, 'manual', env);
         if(!rec.ok) queueEvent(env,ctx,'jobs',3);
         await logAudit(kv, { route: url.pathname, action: 'job_run', target: id, result: rec.ok ? 'ok' : 'failed', meta: { detail: rec.detail } });
         return json({ ok: true, run: rec });
@@ -3238,7 +3280,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (!kv) return json({ error: 'chat storage not configured' }, 500);
       const denied = await requireStaff(req, url, env);
       if (denied) return denied;
-      const deleted = await clearAllChatMessages(kv);
+      const deleted = await clearAllChatMessages(kv, env);
       await logAudit(kv, { route: '/admin/clearchat', action: 'clearchat', target: null, admin: authedLevel });
       return json({ ok: true, deleted });
     }
@@ -3273,6 +3315,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         await kv.delete(roomKey(id));
         await kv.delete(roomCfgKey(id));
         await kv.delete(roomLogKey(id));
+        if (chatInRooms) await chatRoomCall(env, id, 'clear');
         await logAudit(kv, { route: '/admin/rooms', action, target: id, admin });
         return json({ ok: true, deleted: id });
       }
@@ -3857,8 +3900,20 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
 // The msg: prefix is the old one-key-per-message layout. It is swept too so a
 // worker upgraded mid-life doesn't strand the previous scheme's keys in KV
 // (they also carry their own TTL, so this only hurries them along).
-async function clearAllChatMessages(kv) {
+async function clearAllChatMessages(kv, env) {
   let deleted = 0;
+  // Room logs in their Durable Objects (see chat/room.js): #public plus every
+  // private room on record.
+  if (env && env.CHAT_ROOMS) {
+    const ids = ['public'];
+    let cursor;
+    do {
+      const listed = await kv.list({ prefix: 'room:', cursor });
+      for (const k of listed.keys) ids.push(k.name.slice('room:'.length));
+      cursor = listed.list_complete ? undefined : listed.cursor;
+    } while (cursor);
+    for (const id of ids) deleted += (await chatRoomCall(env, id, 'clear')).deleted || 0;
+  }
   for (const prefix of ['roomlog:', 'msg:']) {
     let cursor;
     do {

@@ -729,7 +729,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       chat: ['feature', 'Chat notifications open the room the message was in'],
       theme: ['fix', 'The test notification opens Phone notifications'] } },
     { at: '2026-10-16T09:00:00-04:00', commit: '', title: 'Daily summary at 12 PM New York time', parts: {
-      theme: ['feature', 'The daily summary notification now arrives at noon Eastern every day (it used to come around 1 AM)'] } }
+      theme: ['feature', 'The daily summary notification now arrives at noon Eastern every day (it used to come around 1 AM)'] } },
+    { at: '2026-10-16T11:00:00-04:00', commit: '', title: 'AI usage meter, and chat messages no longer go missing', parts: {
+      console: ['feature', 'People with a daily or monthly AI limit (or a per-minute rate) see a meter under the header: used, left and when it resets; amber near the end, red at the limit'],
+      chat: ['fix', 'Messages sent at the same moment from different places could erase each other (the notification still arrived); each room now keeps one always-consistent log'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1783,6 +1786,35 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2, var(--gpa-accent)));
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 14px -2px color-mix(in srgb, var(--gpa-glow, var(--gpa-accent)) 70%, transparent);
       }
+
+      /* ---- AI usage meter (only for people the owner limited) ---- */
+      .gpa-usage {
+        display: flex; flex-direction: column; gap: 4px; padding: 7px 14px 8px;
+        border-bottom: 1px solid var(--gpa-border);
+        background: color-mix(in srgb, var(--gpa-text) 2%, var(--gpa-panel-t, var(--gpa-panel)));
+        --gpa-usage-fill: var(--gpa-accent);
+      }
+      .gpa-usage[hidden] { display: none; }
+      .gpa-usage-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .gpa-usage-label { font-size: 12px; font-weight: 600; color: var(--gpa-text); white-space: nowrap; }
+      .gpa-usage-track {
+        flex: 1; min-width: 60px; height: 8px; border-radius: 999px; overflow: hidden;
+        background: color-mix(in srgb, var(--gpa-text) 10%, transparent);
+      }
+      .gpa-usage-track > i {
+        display: block; height: 100%; width: 0; border-radius: inherit; background: var(--gpa-usage-fill);
+        transition: width .4s ease, background-color .3s ease;
+      }
+      .gpa-usage-left { font-size: 12px; font-weight: 600; color: var(--gpa-text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .gpa-usage-note { font-size: 11.5px; color: var(--gpa-sub); line-height: 1.35; }
+      .gpa-usage.is-low { --gpa-usage-fill: var(--gpa-warning, #e0a63b); }
+      .gpa-usage.is-out { --gpa-usage-fill: var(--gpa-danger, #e5484d); background: color-mix(in srgb, var(--gpa-danger, #e5484d) 10%, var(--gpa-panel-t, var(--gpa-panel))); }
+      .gpa-usage.is-out .gpa-usage-left, .gpa-usage.is-out .gpa-usage-note { color: var(--gpa-danger, #e5484d); }
+      .gpa-usage.is-rate .gpa-usage-track { display: none; }
+      .gpa-usage.is-rate .gpa-usage-left { margin-left: auto; }
+      .gpa-panel.gpa-minimized .gpa-usage { display: none; }
+      .gpa-app .gpa-usage { padding-left: calc(14px + env(safe-area-inset-left)); padding-right: calc(14px + env(safe-area-inset-right)); }
+      @media (prefers-reduced-motion: reduce) { .gpa-usage-track > i { transition: none; } }
 
       /* ---- Sidebar: labelled sections, softer active state ---- */
       .gpa-sidebar { width: 200px; padding: 10px 10px 16px; }
@@ -2844,6 +2876,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       <button id="gpa-reload" title="Reload the console — fetches the latest script and restarts it" aria-label="Reload the console">${GPS_ICONS.refresh}</button>
       <button id="gpa-console-fullscreen" title="Fullscreen the whole console" aria-label="Fullscreen the whole console">${GPS_ICONS.maximize}</button>
       <button id="gpa-close" title="Close" aria-label="Close Agent Console">${GPS_ICONS.x}</button>
+    </div>
+    <div class="gpa-usage" id="gpa-usage" hidden>
+      <div class="gpa-usage-row">
+        <span class="gpa-usage-label" id="gpa-usage-label">AI requests today</span>
+        <div class="gpa-usage-track" id="gpa-usage-bar" role="progressbar" aria-valuemin="0" aria-labelledby="gpa-usage-label"><i></i></div>
+        <span class="gpa-usage-left" id="gpa-usage-left"></span>
+      </div>
+      <div class="gpa-usage-note" id="gpa-usage-note" role="status" aria-live="polite"></div>
     </div>
     <div class="gpa-toast-wrap" id="gpa-toast-wrap"></div>
     <div class="gpa-login" id="gpa-login">
@@ -7811,6 +7851,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       headers,
       body: JSON.stringify(payload)
     });
+    if (OPENAI_PROXY) refreshUsageSoon();   // the meter moves right after each request
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       throw new Error(`OpenAI API error (${res.status}): ${redactSecrets(errText).slice(0, 300)}`);
@@ -17466,6 +17507,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const cloudKeyInput = panel.querySelector('#gpa-cloud-key');
 
   function signOutWith(message, isError) {
+    renderUsageMeter(null);
     saveProgress();
     closeLanguagePicker();
     clearServerSession(true);
@@ -17774,6 +17816,68 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     appliedServerTheme = defaultTheme;
     applyTheme(defaultTheme);
   }
+  // ---- AI usage meter --------------------------------------------------------
+  // A strip under the header for people the owner gave a daily or monthly
+  // request quota (or a per-minute rate): how much they've used, how much is
+  // left and when it resets. The Worker sends `usage` on every status poll
+  // and heartbeat, and null for everyone without a limit (and the owner), so
+  // they never see it. It counts exactly what the Worker enforces.
+  const usageEl = panel.querySelector('#gpa-usage');
+  let usageRefreshTimer = 0;
+  function refreshUsageSoon() {
+    clearTimeout(usageRefreshTimer);
+    usageRefreshTimer = setTimeout(() => { if (typeof pollStatus === 'function') pollStatus(); }, 700);
+  }
+  function usageResetText(ts) {
+    const d = new Date(ts);
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const sameDay = d.toDateString() === new Date().toDateString();
+    const tomorrow = d.toDateString() === new Date(Date.now() + 864e5).toDateString();
+    return sameDay ? time : tomorrow ? 'tomorrow ' + time : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+  function renderUsageMeter(u) {
+    if (!usageEl) return;
+    if (!u || !currentUser || (!u.daily && !u.monthly && !u.rpm)) { usageEl.hidden = true; return; }
+    // The tighter of the two quotas leads; the other goes in the note.
+    const quotas = [u.daily && { ...u.daily, kind: 'daily' }, u.monthly && { ...u.monthly, kind: 'monthly' }].filter(Boolean);
+    quotas.sort((a, b) => (a.limit - a.used) - (b.limit - b.used));
+    const lead = quotas[0];
+    const label = usageEl.querySelector('#gpa-usage-label');
+    const bar = usageEl.querySelector('#gpa-usage-bar');
+    const left = usageEl.querySelector('#gpa-usage-left');
+    const note = usageEl.querySelector('#gpa-usage-note');
+    usageEl.classList.remove('is-low', 'is-out', 'is-rate');
+    if (!lead) {
+      usageEl.classList.add('is-rate');
+      label.textContent = 'AI limit';
+      left.textContent = u.rpm + ' a minute';
+      note.textContent = 'You can send up to ' + u.rpm + ' AI requests a minute. Past that, wait a moment and try again.';
+      usageEl.hidden = false;
+      return;
+    }
+    const remaining = Math.max(0, lead.limit - lead.used);
+    const pct = Math.min(100, Math.round((lead.used / lead.limit) * 100));
+    const period = lead.kind === 'daily' ? 'today' : 'this month';
+    label.textContent = 'AI requests ' + period;
+    left.textContent = remaining + ' left';
+    bar.querySelector('i').style.width = pct + '%';
+    bar.setAttribute('aria-valuemax', String(lead.limit));
+    bar.setAttribute('aria-valuenow', String(lead.used));
+    bar.setAttribute('aria-valuetext', lead.used + ' of ' + lead.limit + ' used, ' + remaining + ' left');
+    const extra = [];
+    const other = quotas[1];
+    if (other) extra.push(Math.max(0, other.limit - other.used) + ' left ' + (other.kind === 'daily' ? 'today' : 'this month'));
+    if (u.rpm) extra.push('up to ' + u.rpm + ' a minute');
+    if (remaining === 0) {
+      usageEl.classList.add('is-out');
+      note.textContent = (lead.kind === 'daily' ? 'Daily' : 'Monthly') + ' limit reached. AI requests are paused until ' + usageResetText(lead.resetAt) + '.';
+    } else {
+      if (pct >= 80) usageEl.classList.add('is-low');
+      note.textContent = lead.used + ' of ' + lead.limit + ' used · resets ' + usageResetText(lead.resetAt) + (extra.length ? ' · ' + extra.join(' · ') : '');
+    }
+    usageEl.hidden = false;
+  }
+
   function applyModeration(s) {
     if (!s || typeof s !== 'object') return;
     if (s.sessionRequired && currentUser) {
@@ -17786,6 +17890,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     if (s.notAllowed && currentUser) { hideModOverlay(); signOutWith(ACCESS_DENIED_MSG, true); return; }
     if (s.yourStats && typeof renderYourStats === 'function') renderYourStats(s.yourStats);
+    if ('usage' in s) renderUsageMeter(s.usage);
     if (s.assignedKeys && typeof s.assignedKeys === 'object') applyAssignedKeys(s.assignedKeys);
     if (typeof s.brandName === 'string') applyBrandName(s.brandName);
     if (typeof s.defaultTheme === 'string') maybeApplyServerDefaultTheme(s.defaultTheme);

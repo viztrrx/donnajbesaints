@@ -94,6 +94,16 @@ into KV `push:vapid`), `OWNER_TZ`, `CONSOLE_SCRIPT_URL`, `AUDIUS_API`,
 
 All on `main`. Each has tests; see section 6.
 
+0. **Chat rooms in Durable Objects + AI usage meter**: the lost-message bug
+   was the KV read-modify-write room log (`roomlog:<id>`) racing across
+   locations; rooms now live in `ChatRoom` (`chat/room.js`, binding
+   `CHAT_ROOMS`, migration `chat-rooms-v1`, SQLite class) which appends one
+   message at a time and assigns strictly increasing `ts`. Unit tests fall
+   back to the KV path (no binding). Proof: `tests/chat-rooms.test.mjs`,
+   `tests/browser/chat-burst.mjs` (old code kept 1/50). Usage meter:
+   `usageMeter()` in worker.js adds `usage` to `/status` and `/track` for
+   people with a daily/monthly quota or rpm; `renderUsageMeter()` draws
+   `#gpa-usage` under the header. Test: `tests/browser/usage-meter.mjs`.
 0. **Notification deep links**: every `notify()` carries a link built by
    `appLink(tab, params)` / `adminLink(sec, params)` in `worker.js`, e.g.
    `/console/#tab=admin&sec=users&user=renzo&focus=key`. In `script.js`,
@@ -200,7 +210,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (63 tests)
+npm test                                   # node --test tests/*.test.mjs (68 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -209,7 +219,9 @@ node tests/browser/allowlist.mjs           # 6
 node tests/browser/access-requests.mjs     # 12 (+ screenshots of every step)
 node tests/browser/music.mjs               # 15 (+ screenshots)
 node tests/browser/one-session.mjs         # 15 (impostor scenarios + screenshots)
-node tests/browser/notification-links.mjs  # 14 (every notification tap lands on its spot)
+node tests/browser/notification-links.mjs  # 15 (every notification tap lands on its spot)
+node tests/browser/usage-meter.mjs         # 16 (meter states, Ask AI refresh, screenshots)
+node tests/browser/chat-burst.mjs          # 4 (50 simultaneous messages, none lost)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 

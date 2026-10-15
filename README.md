@@ -341,6 +341,12 @@ Settings are saved per account. The owner can turn the whole assistant off, or s
 
 Public and private chat rooms that run through your Worker. Signed\-in users can report a message; reports land in Admin → Moderation.
 
+Each room's messages live in their own Durable Object (`CHAT_ROOMS`, see `chat/room.js`), which takes one message at a time and stamps it in order. Before, a room was a single Workers KV value rewritten on every send; KV can take up to a minute to sync between Cloudflare locations, so two people sending at about the same time from different places could erase each other's message (the push notification still went out). Messages from before the change are carried over the first time a room is opened.
+
+### AI usage meter {#usage-meter}
+
+Anyone you give a limit to (Admin → Users → a person → **Quota overrides**, or a quota for everyone in AI & Usage) sees a slim meter under the console's header on every tab: **AI requests today** (or **this month**), a progress bar, how many are left, and when it resets. It turns amber at 80% and red at the limit ("Daily limit reached. AI requests are paused until …"). A per\-minute rate shows as a short note instead of a bar. People without a limit, and you, never see it. The numbers come from the same counters the Worker enforces, refreshed on every status check and right after each AI request. Daily quotas reset at midnight UTC (8 PM New York time in summer, 7 PM in winter); monthly ones on the 1st.
+
 ### Study {#study}
 
 ![A flashcard deck built from the page](docs/screenshots/study.png)
