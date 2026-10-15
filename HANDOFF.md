@@ -221,6 +221,7 @@ node tests/browser/music.mjs               # 15 (+ screenshots)
 node tests/browser/one-session.mjs         # 15 (impostor scenarios + screenshots)
 node tests/browser/notification-links.mjs  # 15 (every notification tap lands on its spot)
 node tests/browser/usage-meter.mjs         # 16 (meter states, Ask AI refresh, screenshots)
+node tests/browser/usage-meter-sizes.mjs   # 20 (meter at every panel size preset + collapse)
 node tests/browser/chat-burst.mjs          # 4 (50 simultaneous messages, none lost)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
