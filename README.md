@@ -68,6 +68,30 @@ Pasting the command also works; the problem only happens when it's typed. You ca
 
 * * *
 
+## Music without keys {#music}
+
+The Music tab needs no YouTube key and no sign-in:
+
+- **Search** looks in the shared library and on [Audius](https://audius.co),
+  a free music platform whose public API needs no key or account. Results
+  play full songs, streamed through your Worker (`/music/...`), so listeners
+  only ever talk to your Worker. Audius is mostly independent artists; big
+  label releases usually aren't there.
+- **Shared** is a library everyone can play. You and your admins add songs
+  with **Add songs** (MP3, M4A, AAC, OGG, WAV, FLAC or WebM, up to 25 MB
+  each); "Artist - Title.mp3" file names fill in the artist and title. Files
+  go to the Worker's R2 bucket under `music/` (about 9.5 GB in total, inside
+  R2's free tier). Only upload music you have the rights to share.
+- One **now-playing bar** plays either source with previous/next, seeking and
+  iPhone lock-screen controls, and keeps playing on other tabs. **SoundCloud**
+  links and **This device** (your own offline files) work as before, and
+  YouTube search is still there for anyone who saved a key.
+- The allowed-users list applies to music too.
+
+Owners can point at a different Audius gateway with the Worker variable
+`AUDIUS_API`. Checks: `node --test tests/music.test.mjs` and
+`node tests/browser/music.mjs`.
+
 ## Allowed users {#allowed-users}
 
 **Admin → Security → Allowed users** (owner only) limits the console to the

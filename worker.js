@@ -1,5 +1,6 @@
 import { webApp } from './web/handler.js';
 import { consoleApp } from './web/console/handler.js';
+import { audiusSearch, audiusStream, listLibrary, addToLibrary, removeFromLibrary, serveLibraryFile } from './web/music.js';
 import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime, cleanCategories, anySubscriberWants } from './web/console/push.js';
 import { validateMutation } from './mobile/backend/validation.js';
 import { AdminMobileState, stateCall, digest, randomToken, validSource, relayCall, queueEvent } from './mobile/backend/state.js';
@@ -2340,6 +2341,67 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (!(await timingSafeEqualStr(h, room.codeHash))) return { ok: false, error: 'wrong room code' };
       return { ok: true, id, room };
     };
+
+    // ---- Music (Music tab): Audius search/streams and the shared library ----
+    // No keys or sign-ins for listeners. The allowed-users list applies (the
+    // player passes ?user= because audio elements can't send headers);
+    // uploading and deleting is for the owner and admins only.
+    if (url.pathname.startsWith('/music/')) {
+      const kv = env && env.TELEMETRY;
+      const cfg = await getConfig(kv);
+      const listener = (await effectiveUser(url.searchParams.get('user'))).user;
+      const staff = async () => {
+        const p = await resolvePrincipal();
+        if (p && (ROLE_RANK_V2[p.role] || 0) >= 2) return p.user || p.actor || p.role;
+        const code = req.headers.get('X-GPA-Owner') || '';
+        if (env.OWNER_CODE && code && await timingSafeEqualStr(code, env.OWNER_CODE)) return OWNER;
+        return null;
+      };
+      const isUpload = url.pathname === '/music/upload' || url.pathname === '/music/delete';
+      if (!isUpload && !allowedUser(cfg, listener)) return json({ ok: false, error: ACCESS_DENIED }, 403);
+      if (!isUpload) {
+        const st = await resolve(kv, listener || 'anonymous');
+        if (listener && st.state === 'blocked') return json({ ok: false, error: 'blocked by the owner' }, 403);
+      }
+      try {
+        if (url.pathname === '/music/search' && req.method === 'GET') {
+          const q = url.searchParams.get('q') || '';
+          const shared = kv ? (await listLibrary(kv, q)).slice(0, 10) : [];
+          let audius = [], audiusError = null;
+          try { audius = await audiusSearch(env, q); } catch (e) { audiusError = e.message; }
+          return json({ ok: true, shared, audius, audiusError });
+        }
+        if (url.pathname === '/music/library' && req.method === 'GET') {
+          return json({ ok: true, tracks: kv ? await listLibrary(kv, url.searchParams.get('q') || '') : [], canUpload: !!(await staff()), storage: !!(env && env.donnajbe_eaglercraft_client) });
+        }
+        let m = /^\/music\/file\/([0-9a-f-]{36})$/.exec(url.pathname);
+        if (m && (req.method === 'GET' || req.method === 'HEAD')) return await serveLibraryFile(env, m[1], req);
+        m = /^\/music\/audius\/stream\/([A-Za-z0-9]{1,24})$/.exec(url.pathname);
+        if (m && (req.method === 'GET' || req.method === 'HEAD')) return await audiusStream(env, m[1], req);
+        if (url.pathname === '/music/upload' && req.method === 'POST') {
+          const who = await staff();
+          if (!who) return json({ ok: false, error: 'Only the owner and admins can add songs to the shared library.' }, 403);
+          const len = Number(req.headers.get('Content-Length') || 0);
+          if (len > 26 * 1024 * 1024) return json({ ok: false, error: 'Each song must be 25 MB or less' }, 413);
+          let form;
+          try { form = await req.formData(); } catch (e) { return json({ ok: false, error: 'Invalid upload' }, 400); }
+          const track = await addToLibrary(env, form, who);
+          await logAudit(kv, { route: url.pathname, action: 'music_upload', target: track.title + ' — ' + track.artist });
+          return json({ ok: true, track });
+        }
+        if (url.pathname === '/music/delete' && req.method === 'POST') {
+          if (!(await staff())) return json({ ok: false, error: 'Only the owner and admins can remove songs.' }, 403);
+          let body = {};
+          try { body = JSON.parse(await req.text()) || {}; } catch (e) { return json({ ok: false, error: 'invalid request' }, 400); }
+          const ok = await removeFromLibrary(env, String(body.id || ''));
+          if (ok) await logAudit(kv, { route: url.pathname, action: 'music_delete', target: String(body.id) });
+          return json({ ok }, ok ? 200 : 404);
+        }
+        return json({ error: 'not found' }, 404);
+      } catch (e) {
+        return json({ ok: false, error: e.status ? e.message : 'Music is unavailable right now.' }, e.status || 502);
+      }
+    }
 
     // Public chat gallery. Store untrusted uploads outside KV and under a
     // dedicated prefix so other R2 assets (including Eaglercraft) are untouched.

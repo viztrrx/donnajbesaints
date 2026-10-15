@@ -718,7 +718,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       console: ['feature', 'Sign-in and account creation check the allowed-users list; removed users are signed out'] } },
     { at: '2026-10-15T18:00:00-04:00', commit: '', title: 'Request access, and allowed names in any capitalization', parts: {
       admin: ['feature', 'Security → Access requests: approve (adds to Allowed users), deny or clear; phone notification for each request'],
-      console: ['feature', 'Unlisted names see “Unable to create account” with a Request access form and its status'] } }
+      console: ['feature', 'Unlisted names see “Unable to create account” with a Request access form and its status'] } },
+    { at: '2026-10-15T22:00:00-04:00', commit: '', title: 'Music without keys or sign-ins: free search and a shared library', parts: {
+      music: ['redesign', 'Search Audius (free full songs) and the shared library, owner/admin uploads, one now-playing bar with lock-screen controls'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1885,6 +1887,63 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-ann-title { display: flex; align-items: center; justify-content: center; gap: 8px; }
       .gpa-ann-title svg { width: 18px; height: 18px; }
       .gpa-ann-text { font-size: 13px; }
+
+      /* ---- Music: now-playing bar and song lists ---- */
+      .gpa-np[hidden] { display: none; }
+      .gpa-np {
+        display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: var(--gps-r3);
+        border: 1px solid color-mix(in srgb, var(--gpa-accent) 30%, var(--gpa-border));
+        background: linear-gradient(120deg, color-mix(in srgb, var(--gpa-accent) 14%, var(--gpa-card-bg)), var(--gpa-card-bg) 70%);
+        box-shadow: var(--gpr-lift);
+      }
+      .gpa-np-art, .gpa-track-art {
+        position: relative; flex-shrink: 0; display: grid; place-items: center; overflow: hidden; color: var(--gpa-accent);
+        background: color-mix(in srgb, var(--gpa-accent) 14%, var(--gpa-field)); border: 1px solid var(--gpa-border);
+      }
+      .gpa-np-art { width: 56px; height: 56px; border-radius: 12px; }
+      .gpa-np-art svg { width: 24px; height: 24px; }
+      .gpa-np-art img, .gpa-track-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      .gpa-np.is-playing .gpa-np-art { box-shadow: 0 0 0 2px color-mix(in srgb, var(--gpa-accent) 45%, transparent); }
+      .gpa-np-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .gpa-np-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gpa-np-artist { font-size: 12px; color: var(--gpa-sub); display: flex; gap: 8px; align-items: center; min-width: 0; }
+      .gpa-np-artist > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gpa-np-src, .gpa-track-src {
+        flex-shrink: 0; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; padding: 1px 7px; border-radius: 999px;
+        border: 1px solid var(--gpa-border); color: var(--gpa-sub);
+      }
+      .gpa-track-src.shared { color: var(--gpa-accent); border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); }
+      .gpa-np-seekrow { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+      .gpa-np-seekrow .gpa-range { flex: 1; min-width: 0; }
+      .gpa-np-time { font-size: 11px; color: var(--gpa-sub); font-variant-numeric: tabular-nums; min-width: 32px; }
+      .gpa-np-time:last-child { text-align: right; }
+      .gpa-np-ctrls { display: flex; gap: 6px; flex-shrink: 0; }
+      .gpa-panel.gpa-narrow .gpa-np { flex-wrap: wrap; }
+      .gpa-panel.gpa-narrow .gpa-np-ctrls { width: 100%; justify-content: center; }
+      .gpa-music-hint { margin: 2px 0 6px; }
+      .gpa-music-yt[hidden] { display: none; }
+      .gpa-tracks-wrap:empty { display: none; }
+      .gpa-tracks-head { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gpa-sub); margin: 14px 2px 6px; }
+      .gpa-tracks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+      .gpa-track { display: flex; align-items: center; gap: 4px; border-radius: var(--gps-r2); }
+      .gpa-track-main {
+        flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: var(--gps-r2);
+        border: 1px solid transparent; background: transparent; color: var(--gpa-text); font: inherit; text-align: left; cursor: pointer;
+        transition: background var(--gps-t1) ease, border-color var(--gps-t1) ease;
+      }
+      .gpa-track-main:hover { background: var(--gpa-field); border-color: var(--gpa-border); }
+      .gpa-track-main:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: 1px; }
+      .gpa-track.is-playing .gpa-track-main { background: color-mix(in srgb, var(--gpa-accent) 12%, var(--gpa-field)); border-color: color-mix(in srgb, var(--gpa-accent) 40%, var(--gpa-border)); }
+      .gpa-track-art { width: 42px; height: 42px; border-radius: 9px; }
+      .gpa-track-art svg { width: 18px; height: 18px; }
+      .gpa-track-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+      .gpa-track-title { font-size: 13.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gpa-track-meta { font-size: 12px; color: var(--gpa-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gpa-track-play { flex-shrink: 0; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: var(--gpa-sub); }
+      .gpa-track-play svg { width: 15px; height: 15px; }
+      .gpa-track-main:hover .gpa-track-play, .gpa-track.is-playing .gpa-track-play { color: var(--gpa-accent-fg); background: var(--gpa-accent); }
+      .gpa-panel.gpa-narrow .gpa-track-src { display: none; }
+      @media (pointer: coarse) { .gpa-track-main { min-height: 56px; } }
 
       /* ---- Sign-in: request access ---- */
       .gpa-login-request[hidden] { display: none; }
@@ -3121,21 +3180,53 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       <div class="gpa-pane" data-pane="music">
         <div class="gpx-room">
           ${gpxHero({ room: 'music', title: 'Music', status: 'Nothing playing',
-            desc: 'Search YouTube, play a SoundCloud link, or keep an offline library on this device. Playback keeps going while you use other tabs.',
+            desc: 'Search free music, play the shared library, a SoundCloud link or your own files. No key or sign-in needed. Playback keeps going while you use other tabs.',
             meta: '<span class="gpx-now" id="gpx-music-now"></span>' })}
+          <div class="gpa-np" id="gpa-np" hidden>
+            <div class="gpa-np-art" id="gpa-np-art" aria-hidden="true">${GPS_ICONS.music}</div>
+            <div class="gpa-np-info">
+              <div class="gpa-np-title" id="gpa-np-title"></div>
+              <div class="gpa-np-artist"><span id="gpa-np-artist"></span><span class="gpa-np-src" id="gpa-np-src"></span></div>
+              <div class="gpa-np-seekrow">
+                <span class="gpa-np-time" id="gpa-np-cur">0:00</span>
+                <input type="range" id="gpa-np-seek" class="gpa-range" min="0" max="1000" value="0" aria-label="Seek" />
+                <span class="gpa-np-time" id="gpa-np-dur">0:00</span>
+              </div>
+            </div>
+            <div class="gpa-np-ctrls">
+              <button id="gpa-np-prev" class="gpa-btn gpx-icon-btn" type="button" aria-label="Previous song">${GPS_ICONS.prev}</button>
+              <button id="gpa-np-play" class="gpa-btn primary gpx-icon-btn" type="button" aria-label="Play or pause">${GPS_ICONS.play}</button>
+              <button id="gpa-np-next" class="gpa-btn gpx-icon-btn" type="button" aria-label="Next song">${GPS_ICONS.next}</button>
+            </div>
+            <audio id="gpa-np-audio" preload="none"></audio>
+          </div>
           <div class="gps-seg gpx-seg" role="group" aria-label="Music source">
             <button class="gps-seg-btn gpx-src" data-src="search">${gpxLbl('search', 'Search')}</button>
+            <button class="gps-seg-btn gpx-src" data-src="shared">${gpxLbl('users', 'Shared')}</button>
             <button class="gps-seg-btn gpx-src" data-src="soundcloud">${gpxLbl('link', 'SoundCloud')}</button>
-            <button class="gps-seg-btn gpx-src" data-src="library">${gpxLbl('music', 'Library')}</button>
+            <button class="gps-seg-btn gpx-src" data-src="library">${gpxLbl('music', 'This device')}</button>
           </div>
           <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="search">
-            <div class="gpx-card-head">${GPS_ICONS.search}<div class="gpa-card-title">Search and play</div></div>
+            <div class="gpx-card-head">${GPS_ICONS.search}<div class="gpa-card-title">Search songs</div></div>
             <div class="gpa-row gpx-composer">
-              <input id="gpa-music-query" class="gpa-input" placeholder="Type a song name or description…" aria-label="Song to search for" />
-              <button id="gpa-music-search" class="gpa-btn primary">Play</button>
+              <input id="gpa-music-query" class="gpa-input" placeholder="Song, artist or mood…" aria-label="Song to search for" />
+              <button id="gpa-music-search" class="gpa-btn primary">Search</button>
             </div>
-            <div id="gpa-music-status" class="gpa-sub"></div>
+            <p class="gpa-sub gpa-music-hint">Searches the shared library and Audius, a free music platform. No key or account needed.</p>
+            <div id="gpa-music-status" class="gpa-sub" role="status" aria-live="polite"></div>
+            <div id="gpa-music-results" class="gpa-tracks-wrap"></div>
+            <div class="gpa-music-yt" id="gpa-music-yt-row" hidden><button id="gpa-music-yt" class="gpa-btn gpx-btn-ghost" type="button">${gpxLbl('external', 'Search YouTube instead (uses your saved key)')}</button></div>
             <div id="gpa-music-wrap" class="gpa-sc-wrap"></div>
+          </section>
+          <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="shared">
+            <div class="gpx-card-head">${GPS_ICONS.users}<div class="gpa-card-title">Shared library</div>
+              <button id="gpa-shared-add" class="gpa-btn" type="button" hidden>${gpxLbl('upload', 'Add songs')}</button>
+              <input type="file" id="gpa-shared-file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.wav,.flac,.webm" multiple hidden />
+            </div>
+            <p class="gpa-sub" id="gpa-shared-hint">Songs added by the owner and admins. Everyone who can use the console can play them.</p>
+            <div class="gpa-row gpx-composer"><input id="gpa-shared-filter" class="gpa-input" placeholder="Filter by title or artist…" aria-label="Filter the shared library" /></div>
+            <div id="gpa-shared-status" class="gpa-sub" role="status" aria-live="polite"></div>
+            <div id="gpa-shared-list" class="gpa-tracks-wrap"></div>
           </section>
           <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="soundcloud">
             <div class="gpx-card-head">${GPS_ICONS.link}<div class="gpa-card-title">SoundCloud link</div></div>
@@ -3161,9 +3252,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <div class="gpa-row gpx-player-row">
                 <span id="gpa-local-time" class="gpa-sub">0:00 / 0:00</span>
                 <div class="gpx-player-ctrls">
-                  <button id="gpa-local-prev" class="gpa-btn gpx-icon-btn" aria-label="Previous track">⏮</button>
+                  <button id="gpa-local-prev" class="gpa-btn gpx-icon-btn" aria-label="Previous track">${GPS_ICONS.prev}</button>
                   <button id="gpa-local-playpause" class="gpa-btn primary gpx-icon-btn gpx-play" aria-label="Play or pause">${GPS_ICONS.play}</button>
-                  <button id="gpa-local-next" class="gpa-btn gpx-icon-btn" aria-label="Next track">⏭</button>
+                  <button id="gpa-local-next" class="gpa-btn gpx-icon-btn" aria-label="Next track">${GPS_ICONS.next}</button>
                 </div>
                 <label class="gpx-volume"><span aria-hidden="true">${GPS_ICONS.volume}</span><input type="range" id="gpa-local-volume" class="gpa-range" min="0" max="100" value="80" aria-label="Volume" /></label>
               </div>
@@ -9672,30 +9763,269 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   scLoadBtn.addEventListener('click', loadSoundCloud);
   scInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadSoundCloud(); });
 
-  // ---- Music search & play (YouTube Data API + official embed player) ----
+  // ---- Music: keyless search, shared library and the now-playing bar ------
+  // Search asks the Worker, which searches the shared library and Audius (a
+  // free music platform with an open API: no key, no account). Everything
+  // plays through the Worker (/music/...), so listeners never sign in to
+  // anything. YouTube stays available for anyone who saved a key.
   const musicQuery = panel.querySelector('#gpa-music-query');
   const musicSearchBtn = panel.querySelector('#gpa-music-search');
   const musicStatus = panel.querySelector('#gpa-music-status');
   const musicWrap = panel.querySelector('#gpa-music-wrap');
+  const musicResults = panel.querySelector('#gpa-music-results');
+  const ytRow = panel.querySelector('#gpa-music-yt-row');
+  const musicBase = () => (typeof telemetryEndpoint === 'function' ? telemetryEndpoint() : '');
+  const withUser = (path) => path + (path.includes('?') ? '&' : '?') + 'user=' + encodeURIComponent(currentUser || '');
+  const fmtDur = (sec) => { sec = Math.max(0, Math.round(sec || 0)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); };
+  function musicStaffHeaders() {
+    const h = {};
+    const tok = admGet(ADMIN_KEYS.TELE_TOKEN);
+    if (tok) h.Authorization = 'Bearer ' + tok;
+    const code = admGet(ADMIN_KEYS.OWNER_CODE);
+    if (code) h['X-GPA-Owner'] = code;
+    if (sessionToken()) h['X-GPA-Session'] = sessionToken();
+    return h;
+  }
+  async function musicGet(path) {
+    const r = await fetch(musicBase() + withUser(path), { cache: 'no-store', headers: musicStaffHeaders() });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.ok === false) throw new Error(d.error || ('Music is unavailable (' + r.status + ')'));
+    return d;
+  }
 
-  async function playMusicSearch() {
+  // ---- Now playing ----
+  const np = {
+    bar: panel.querySelector('#gpa-np'), audio: panel.querySelector('#gpa-np-audio'),
+    art: panel.querySelector('#gpa-np-art'), title: panel.querySelector('#gpa-np-title'), artist: panel.querySelector('#gpa-np-artist'),
+    src: panel.querySelector('#gpa-np-src'), seek: panel.querySelector('#gpa-np-seek'), cur: panel.querySelector('#gpa-np-cur'),
+    dur: panel.querySelector('#gpa-np-dur'), play: panel.querySelector('#gpa-np-play'), queue: [], index: -1, seeking: false
+  };
+  function markPlaying() {
+    const t = np.queue[np.index];
+    panel.querySelectorAll('.gpa-track').forEach((row) => row.classList.toggle('is-playing', !!t && row.dataset.key === t.source + ':' + t.id));
+  }
+  function playTrack(list, index) {
+    const t = list[index];
+    if (!t) return;
+    np.queue = list.slice();
+    np.index = index;
+    try { if (!localAudio.paused) localAudio.pause(); } catch (e) { /* ignore */ }
+    musicWrap.innerHTML = '';   // stop a YouTube embed if one was playing
+    np.audio.src = musicBase() + withUser(t.stream);
+    np.audio.play().catch(() => { /* needs a tap on some phones; the play button works */ });
+    np.bar.hidden = false;
+    np.title.textContent = t.title;
+    np.artist.textContent = t.artist || 'Unknown artist';
+    np.src.textContent = t.source === 'audius' ? 'Audius' : 'Shared';
+    np.art.innerHTML = GPS_ICONS.music;
+    if (t.art) {
+      const img = document.createElement('img');
+      img.alt = '';
+      img.onerror = () => { np.art.innerHTML = GPS_ICONS.music; };
+      img.src = t.art;
+      np.art.innerHTML = '';
+      np.art.appendChild(img);
+    }
+    np.dur.textContent = fmtDur(t.duration);
+    np.seek.value = '0';
+    np.cur.textContent = '0:00';
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist || '', album: t.source === 'audius' ? 'Audius' : 'Shared library', artwork: t.art ? [{ src: t.art, sizes: '150x150' }] : [] });
+      } catch (e) { /* older browsers */ }
+    }
+    markPlaying();
+  }
+  const step = (d) => { if (np.queue.length) playTrack(np.queue, (np.index + d + np.queue.length) % np.queue.length); };
+  np.play.addEventListener('click', () => { if (np.audio.paused) np.audio.play().catch(() => {}); else np.audio.pause(); });
+  panel.querySelector('#gpa-np-prev').addEventListener('click', () => { if (np.audio.currentTime > 4) np.audio.currentTime = 0; else step(-1); });
+  panel.querySelector('#gpa-np-next').addEventListener('click', () => step(1));
+  np.audio.addEventListener('play', () => { np.play.innerHTML = GPS_ICONS.pause; np.play.setAttribute('aria-label', 'Pause'); np.bar.classList.add('is-playing'); });
+  np.audio.addEventListener('pause', () => { np.play.innerHTML = GPS_ICONS.play; np.play.setAttribute('aria-label', 'Play'); np.bar.classList.remove('is-playing'); });
+  np.audio.addEventListener('ended', () => { if (np.index < np.queue.length - 1) step(1); });
+  np.audio.addEventListener('loadedmetadata', () => { if (isFinite(np.audio.duration)) np.dur.textContent = fmtDur(np.audio.duration); });
+  np.audio.addEventListener('timeupdate', () => {
+    np.cur.textContent = fmtDur(np.audio.currentTime);
+    if (!np.seeking && np.audio.duration) np.seek.value = String(Math.round((np.audio.currentTime / np.audio.duration) * 1000));
+  });
+  np.audio.addEventListener('error', () => { if (np.audio.getAttribute('src')) musicStatus.textContent = 'That song couldn’t be played. Try another one.'; });
+  np.seek.addEventListener('input', () => { np.seeking = true; if (np.audio.duration) np.cur.textContent = fmtDur((np.seek.value / 1000) * np.audio.duration); });
+  np.seek.addEventListener('change', () => { if (np.audio.duration) np.audio.currentTime = (np.seek.value / 1000) * np.audio.duration; np.seeking = false; });
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.setActionHandler('play', () => np.audio.play().catch(() => {}));
+      navigator.mediaSession.setActionHandler('pause', () => np.audio.pause());
+      navigator.mediaSession.setActionHandler('previoustrack', () => step(-1));
+      navigator.mediaSession.setActionHandler('nexttrack', () => step(1));
+    } catch (e) { /* lock-screen controls are optional */ }
+  }
+
+  // ---- Track lists ----
+  function renderTracks(container, tracks, opts = {}) {
+    container.innerHTML = '';
+    if (opts.heading) {
+      const h = document.createElement('div');
+      h.className = 'gpa-tracks-head';
+      h.textContent = opts.heading;
+      container.appendChild(h);
+    }
+    const list = document.createElement('ul');
+    list.className = 'gpa-tracks';
+    tracks.forEach((t, i) => {
+      const li = document.createElement('li');
+      li.className = 'gpa-track';
+      li.dataset.key = t.source + ':' + t.id;
+      const play = document.createElement('button');
+      play.type = 'button';
+      play.className = 'gpa-track-main';
+      play.setAttribute('aria-label', 'Play ' + t.title + ' by ' + (t.artist || 'unknown artist'));
+      const art = document.createElement('span');
+      art.className = 'gpa-track-art';
+      art.innerHTML = GPS_ICONS.music;
+      if (t.art) { const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.onerror = () => { img.remove(); }; img.src = t.art; art.appendChild(img); }
+      const text = document.createElement('span');
+      text.className = 'gpa-track-text';
+      const title = document.createElement('span'); title.className = 'gpa-track-title'; title.textContent = t.title;
+      const meta = document.createElement('span'); meta.className = 'gpa-track-meta';
+      meta.textContent = [t.artist || 'Unknown artist', t.duration ? fmtDur(t.duration) : '', t.genre || ''].filter(Boolean).join(' · ');
+      text.appendChild(title); text.appendChild(meta);
+      const badge = document.createElement('span');
+      badge.className = 'gpa-track-src ' + t.source;
+      badge.textContent = t.source === 'audius' ? 'Audius' : 'Shared';
+      const icon = document.createElement('span');
+      icon.className = 'gpa-track-play';
+      icon.innerHTML = GPS_ICONS.play;
+      play.appendChild(art); play.appendChild(text); play.appendChild(badge); play.appendChild(icon);
+      play.addEventListener('click', () => playTrack(tracks, i));
+      li.appendChild(play);
+      if (opts.deletable) {
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'gpa-btn gpx-icon-btn gpx-btn-ghost gpa-track-del';
+        del.innerHTML = GPS_ICONS.trash;
+        del.title = 'Remove from the shared library';
+        del.setAttribute('aria-label', 'Remove ' + t.title + ' from the shared library');
+        del.addEventListener('click', () => opts.onDelete(t));
+        li.appendChild(del);
+      }
+      list.appendChild(li);
+    });
+    container.appendChild(list);
+    markPlaying();
+  }
+
+  // ---- Search ----
+  async function runMusicSearch() {
     const q = musicQuery.value.trim();
     if (!q) return;
     musicStatus.textContent = 'Searching…';
-    musicWrap.innerHTML = '';
+    musicResults.innerHTML = '';
     musicSearchBtn.disabled = true;
     try {
+      const d = await musicGet('/music/search?q=' + encodeURIComponent(q));
+      const shared = d.shared || [], audius = d.audius || [];
+      if (!shared.length && !audius.length) {
+        musicStatus.textContent = d.audiusError ? 'Nothing in the shared library, and ' + d.audiusError.charAt(0).toLowerCase() + d.audiusError.slice(1) : 'No songs found. Try different words.';
+      } else {
+        musicStatus.textContent = d.audiusError ? 'Audius isn’t reachable right now; showing the shared library.' : '';
+      }
+      if (shared.length) { const box = document.createElement('div'); renderTracks(box, shared, { heading: 'Shared library' }); musicResults.appendChild(box); }
+      if (audius.length) { const box = document.createElement('div'); renderTracks(box, audius, { heading: 'Audius · free full songs' }); musicResults.appendChild(box); }
+    } catch (e) {
+      musicStatus.textContent = e.message || 'Search failed. Check your connection.';
+    } finally {
+      musicSearchBtn.disabled = false;
+      if (ytRow) ytRow.hidden = !localStorage.getItem(YT_STORAGE_KEY);
+    }
+  }
+  musicSearchBtn.addEventListener('click', runMusicSearch);
+  musicQuery.addEventListener('keydown', (e) => { if (e.key === 'Enter') runMusicSearch(); });
+
+  // YouTube, only for people who already saved a key.
+  async function playMusicSearch() {
+    const q = musicQuery.value.trim();
+    if (!q) return;
+    musicStatus.textContent = 'Searching YouTube…';
+    musicWrap.innerHTML = '';
+    try {
       const match = await searchYoutube(q);
+      np.audio.pause();
       musicStatus.textContent = `Playing closest match: "${match.title}" — ${match.channel}`;
       musicWrap.innerHTML = `<iframe class="gpa-sc-frame" allow="autoplay; encrypted-media" src="https://www.youtube.com/embed/${match.id}?autoplay=1"></iframe>`;
     } catch (e) {
       showError(musicStatus, e, 'YouTube');
-    } finally {
-      musicSearchBtn.disabled = false;
     }
   }
-  musicSearchBtn.addEventListener('click', playMusicSearch);
-  musicQuery.addEventListener('keydown', (e) => { if (e.key === 'Enter') playMusicSearch(); });
+  const ytBtn = panel.querySelector('#gpa-music-yt');
+  if (ytBtn) ytBtn.addEventListener('click', playMusicSearch);
+  if (ytRow) ytRow.hidden = !localStorage.getItem(YT_STORAGE_KEY);
+
+  // ---- Shared library ----
+  const sharedList = panel.querySelector('#gpa-shared-list');
+  const sharedStatus = panel.querySelector('#gpa-shared-status');
+  const sharedFilter = panel.querySelector('#gpa-shared-filter');
+  const sharedAdd = panel.querySelector('#gpa-shared-add');
+  const sharedFile = panel.querySelector('#gpa-shared-file');
+  let sharedCanUpload = false, sharedTimer = null;
+  async function loadShared() {
+    try {
+      const d = await musicGet('/music/library?q=' + encodeURIComponent(sharedFilter.value.trim()));
+      sharedCanUpload = !!d.canUpload && d.storage !== false;
+      sharedAdd.hidden = !sharedCanUpload;
+      if (!d.tracks.length) {
+        sharedList.innerHTML = '';
+        sharedStatus.textContent = sharedFilter.value.trim() ? 'No songs match.' : (sharedCanUpload ? 'The shared library is empty. Add songs to share them with everyone.' : 'The shared library is empty for now.');
+        return;
+      }
+      sharedStatus.textContent = d.tracks.length + (d.tracks.length === 1 ? ' song' : ' songs');
+      renderTracks(sharedList, d.tracks, { deletable: sharedCanUpload, onDelete: async (t) => {
+        if (!confirm('Remove “' + t.title + '” from the shared library for everyone?')) return;
+        const r = await fetch(musicBase() + '/music/delete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...musicStaffHeaders() }, body: JSON.stringify({ id: t.id }) });
+        if (r.ok) loadShared(); else sharedStatus.textContent = 'Couldn’t remove that song.';
+      } });
+    } catch (e) {
+      sharedList.innerHTML = '';
+      sharedStatus.textContent = e.message;
+    }
+  }
+  sharedFilter.addEventListener('input', () => { clearTimeout(sharedTimer); sharedTimer = setTimeout(loadShared, 250); });
+  sharedAdd.addEventListener('click', () => sharedFile.click());
+  // Length in seconds, read by the browser before upload (best-effort).
+  const audioLength = (file) => new Promise((resolve) => {
+    const a = document.createElement('audio');
+    const url = URL.createObjectURL(file);
+    let settled = false;
+    const done = (v) => { if (settled) return; settled = true; URL.revokeObjectURL(url); resolve(v); };
+    a.preload = 'metadata';
+    a.onloadedmetadata = () => done(isFinite(a.duration) ? a.duration : 0);
+    a.onerror = () => done(0);
+    setTimeout(() => done(0), 4000);
+    a.src = url;
+  });
+  sharedFile.addEventListener('change', async () => {
+    const files = [...sharedFile.files];
+    sharedFile.value = '';
+    let ok = 0;
+    for (let i = 0; i < files.length; i++) {
+      sharedStatus.textContent = `Uploading ${i + 1} of ${files.length}: ${files[i].name}…`;
+      const fd = new FormData();
+      fd.append('file', files[i]);
+      fd.append('duration', String(await audioLength(files[i])));
+      try {
+        const r = await fetch(musicBase() + '/music/upload', { method: 'POST', headers: musicStaffHeaders(), body: fd });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) ok++;
+        else { sharedStatus.textContent = files[i].name + ': ' + (d.error || 'upload failed'); await new Promise((res) => setTimeout(res, 1500)); }
+      } catch (e) { sharedStatus.textContent = files[i].name + ': upload failed'; }
+    }
+    await loadShared();
+    if (ok) sharedStatus.textContent = `Added ${ok} ${ok === 1 ? 'song' : 'songs'}. ` + sharedStatus.textContent;
+  });
+  panel.querySelectorAll('.gpx-src[data-src="shared"]').forEach((b) => b.addEventListener('click', loadShared));
+  panel.querySelectorAll('.gpa-dropdown-item[data-tab="music"]').forEach((b) => b.addEventListener('click', () => {
+    const active = panel.querySelector('.gpx-src.primary');
+    if (active && active.dataset.src === 'shared') loadShared();
+  }));
 
   // ---- Local file player (fully offline — no network, no website involved) --
   // Files are read straight from disk via the browser's File API and played
@@ -9799,6 +10129,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   let localCurrentIndex = -1;
   let savedBytes = 0;
   const localAudio = new Audio();
+  // Only one thing plays at a time: songs saved on this device pause the
+  // search/shared player, and starting that one pauses these (playTrack).
+  localAudio.addEventListener('play', () => { const a = panel.querySelector('#gpa-np-audio'); if (a && !a.paused) a.pause(); });
   localAudio.volume = 0.8;
   renderLocalPlaylist(); // show the preloaded list immediately; nothing auto-plays (browsers block that without a click anyway)
 
@@ -9847,7 +10180,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       b.style.opacity = off ? '0.5' : '';
     });
     const musicStatus = panel.querySelector('#gpa-music-status');
-    if (musicStatus && off) musicStatus.textContent = 'Offline — YouTube search and SoundCloud need a connection. Your saved library below still works.';
+    if (musicStatus && off) musicStatus.textContent = 'Offline — search, the shared library and SoundCloud need a connection. Songs saved on this device still play.';
   }
   onWin('online', applyConnectivity);
   onWin('offline', applyConnectivity);
@@ -20995,6 +21328,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         return roomName ? 'Connected · ' + roomName : 'Connecting';
       },
       music() {
+        const npa = q('#gpa-np-audio');
+        if (npa && npa.getAttribute('src') && (!npa.paused || localAudio.paused)) {
+          if (!npa.paused) return 'Playing';
+          return npa.ended ? 'Finished' : 'Paused';
+        }
         if (!localAudio.paused && localAudio.src) return 'Playing';
         if (localAudio.src && localAudio.ended) return 'Finished';
         if (localAudio.src) return 'Paused';
@@ -21124,20 +21462,26 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
     // ---- Music: real playback state from the local player ----
     let musicRaf = 0;
+    const npAudio = q('#gpa-np-audio');
     function syncMusic() {
       musicRaf = 0;
-      const playing = !localAudio.paused && !!localAudio.src;
+      // Whichever player is active: the now-playing bar (search/shared) or
+      // the files saved on this device.
+      const useNp = !!(npAudio && npAudio.src) && (!npAudio.paused || localAudio.paused);
+      const a = useNp ? npAudio : localAudio;
+      const playing = !a.paused && !!a.src;
       setData('music', 'playing', playing ? 1 : 0);
       const h = heroes.music;
-      const pct = localAudio.duration ? (localAudio.currentTime / localAudio.duration) * 100 : 0;
+      const pct = a.duration ? (a.currentTime / a.duration) * 100 : 0;
       if (h) h.style.setProperty('--p', pct.toFixed(1));
       const now = q('#gpx-music-now');
-      const title = (q('#gpa-local-nowplaying') || {}).textContent || '';
-      if (now) now.textContent = localAudio.src && title ? title : '';
+      const title = useNp ? (((q('#gpa-np-title') || {}).textContent || '') + ' — ' + ((q('#gpa-np-artist') || {}).textContent || '')) : ((q('#gpa-local-nowplaying') || {}).textContent || '');
+      if (now) now.textContent = a.src && title.trim() !== '—' ? title : '';
       refreshIdle('music');
     }
     const queueMusic = () => { if (!musicRaf) musicRaf = requestAnimationFrame(syncMusic); };
-    ['play', 'pause', 'ended', 'emptied', 'loadedmetadata'].forEach((ev) => localAudio.addEventListener(ev, queueMusic));
+    ['play', 'pause', 'ended', 'emptied', 'loadedmetadata'].forEach((ev) => { localAudio.addEventListener(ev, queueMusic); if (npAudio) npAudio.addEventListener(ev, queueMusic); });
+    if (npAudio) npAudio.addEventListener('timeupdate', () => { if (heroes.music && heroes.music.offsetParent) queueMusic(); });
     // timeupdate fires ~4x/s; the ring only needs that cadence while visible.
     localAudio.addEventListener('timeupdate', () => { if (heroes.music && heroes.music.offsetParent) queueMusic(); });
     observe(q('#gpa-music-wrap'), { childList: true }, queueMusic);
@@ -21156,7 +21500,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     panel.querySelectorAll('.gpx-src').forEach((b) => b.addEventListener('click', () => showSource(b.dataset.src)));
     let savedSrc = null;
     try { savedSrc = localStorage.getItem(SRC_KEY); } catch (e) { savedSrc = null; }
-    showSource(['search', 'soundcloud', 'library'].includes(savedSrc) ? savedSrc : 'search');
+    showSource(['search', 'shared', 'soundcloud', 'library'].includes(savedSrc) ? savedSrc : 'search');
 
     // ---- Proxy: mirror the frame's own status ----
     const proxyRoom = q('.gpa-pane[data-pane="browser"] .gpx-room');

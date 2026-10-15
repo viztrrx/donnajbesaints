@@ -19,3 +19,5 @@ notifications-out/
 allowlist-out/
 # Default output folder of tests/browser/access-requests.mjs
 access-requests-out/
+# Default output folder of tests/browser/music.mjs
+music-out/
