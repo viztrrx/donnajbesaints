@@ -15,3 +15,5 @@ console-app-out/
 announcements-out/
 # Default output folder of tests/browser/notifications.mjs
 notifications-out/
+# Default output folder of tests/browser/allowlist.mjs
+allowlist-out/

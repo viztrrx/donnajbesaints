@@ -712,7 +712,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-15T01:00:00-04:00', commit: '', title: 'Owner phone notifications in the iPhone app', parts: {
       theme: ['feature', 'Settings → Account → Phone notifications: chats with name and room, sign-ins with time, new users, AI failures, errors, reports, security, jobs'] } },
     { at: '2026-10-15T12:00:00-04:00', commit: '', title: 'More phone notifications, quiet hours and a live “who’s online” alert', parts: {
-      theme: ['feature', 'Grouped switches: private rooms, mentions, approval queue, who’s online with icon badge, limits, admin actions, daily summary; quiet hours'] } }
+      theme: ['feature', 'Grouped switches: private rooms, mentions, approval queue, who’s online with icon badge, limits, admin actions, daily summary; quiet hours'] } },
+    { at: '2026-10-15T15:00:00-04:00', commit: '', title: 'Allowed users: only the people you list can get in', parts: {
+      admin: ['feature', 'Security → Allowed users: on/off switch and a username list; everyone else gets “Unable to create account”'],
+      console: ['feature', 'Sign-in and account creation check the allowed-users list; removed users are signed out'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1879,6 +1882,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-ann-title { display: flex; align-items: center; justify-content: center; gap: 8px; }
       .gpa-ann-title svg { width: 18px; height: 18px; }
       .gpa-ann-text { font-size: 13px; }
+
+      /* ---- Admin → Security → Allowed users ---- */
+      .gac-allow-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; font-size: 13px; }
+      .gac-allow-label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--gpa-sub); }
+      .gac-allow-list { width: 100%; min-height: 120px; padding: 10px; font: 13px/1.5 'Geist Mono', ui-monospace, monospace; resize: vertical; }
 
       /* ---- Owner phone notifications (Settings → Account) ---- */
       .gpa-push { display: flex; flex-direction: column; gap: 10px; }
@@ -11039,6 +11047,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!telemetryOn()) { chatNote.textContent = 'Chat needs the worker to be set up.'; return; }
     const base = telemetryEndpoint();
     const params = new URLSearchParams({ room: chatRoom, since: String(chatSince) });
+    if (currentUser) params.set('user', currentUser);   // the allowed-users list applies to reading too
     const code = chatCodeFor(chatRoom);
     if (code) params.set('code', code);
     // Snapshot before the request: this poll's messages should only count
@@ -13047,10 +13056,29 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   panel.querySelector('#gpa-login-min').addEventListener('click', toggleAgentConsole);
   panel.querySelector('#gpa-login-close').addEventListener('click', () => host.remove());
 
+  // Owner's allowed-users list (Admin → Security): the Worker says whether
+  // this name may get in. Only an explicit "no" blocks; if the Worker can't be
+  // reached the console still opens, and every server feature (chat, AI,
+  // heartbeats) stays refused for names that aren't listed.
+  const ACCESS_DENIED_MSG = 'Unable to create account';
+  async function accessAllowed(user) {
+    if (typeof telemetryOn !== 'function' || !telemetryOn()) return true;
+    try {
+      const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = ctl ? setTimeout(() => ctl.abort(), 6000) : null;
+      const r = await fetch(telemetryEndpoint() + '/access?user=' + encodeURIComponent(user), { cache: 'no-store', signal: ctl ? ctl.signal : undefined });
+      if (timer) clearTimeout(timer);
+      const d = await r.json().catch(() => ({}));
+      return d.allowed !== false;
+    } catch (e) { return true; }
+  }
+
   async function doSignIn() {
     const user = loginUserInput.value.trim();
     const pin = loginPinInput.value;
     if (!user || !pin) { showLoginMsg('Enter both a profile name and a PIN.', true); return; }
+    showLoginMsg('Checking…');
+    if (!(await accessAllowed(user))) { showLoginMsg(ACCESS_DENIED_MSG, true); return; }
     const profile = readProfile(user);
     if (!profile) { showLoginMsg('No profile by that name here. Use Create, or restore a sync code.', true); return; }
     showLoginMsg('Checking…');
@@ -13076,6 +13104,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!user || !pin) { showLoginMsg('Enter both a profile name and a PIN.', true); return; }
     if (readProfile(user)) { showLoginMsg('That profile already exists here — sign in instead.', true); return; }
     if (String(pin).length < 4) { showLoginMsg('Use a PIN of at least 4 characters.', true); return; }
+    showLoginMsg('Checking…');
+    if (!(await accessAllowed(user))) { showLoginMsg(ACCESS_DENIED_MSG, true); return; }
     showLoginMsg('Securing your PIN…');
     const pinHash = await makePinRecord(user.toLowerCase(), pin);
     // A brand-new profile starts from whatever is currently set up, so you
@@ -16908,7 +16938,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const cloudBinInput = panel.querySelector('#gpa-cloud-bin');
   const cloudKeyInput = panel.querySelector('#gpa-cloud-key');
 
-  panel.querySelector('#gpa-logout-btn').addEventListener('click', () => {
+  function signOutWith(message, isError) {
     saveProgress();
     closeLanguagePicker();
     clearServerSession(true);
@@ -16917,10 +16947,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     refreshAccountUI();
     loginUserInput.value = '';
     loginPinInput.value = '';
-    showLoginMsg('Signed out — your progress is saved.');
+    showLoginMsg(message, isError);
     loginOverlay.style.display = 'flex';
     setLockedChrome(true);
-  });
+  }
+  panel.querySelector('#gpa-logout-btn').addEventListener('click', () => signOutWith('Signed out — your progress is saved.'));
 
   panel.querySelector('#gpa-sync-export').addEventListener('click', () => {
     saveProgress();
@@ -17217,6 +17248,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   function applyModeration(s) {
     if (!s || typeof s !== 'object') return;
+    if (s.notAllowed && currentUser) { hideModOverlay(); signOutWith(ACCESS_DENIED_MSG, true); return; }
     if (s.yourStats && typeof renderYourStats === 'function') renderYourStats(s.yourStats);
     if (s.assignedKeys && typeof s.assignedKeys === 'object') applyAssignedKeys(s.assignedKeys);
     if (typeof s.brandName === 'string') applyBrandName(s.brandName);
@@ -18106,9 +18138,28 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             + `<li class="${d.config.requireSessions ? 'ok' : 'bad'}"><i></i><span>Require verified sessions</span><em>${d.config.requireSessions ? 'On' : 'Off'}</em></li>`
             + `<li class="${d.config.ownerCode ? 'ok' : 'bad'}"><i></i><span>Owner code</span><em>${d.config.ownerCode ? 'Set' : 'Not set'}</em></li>`
             + `<li class="${d.config.legacyQueryToken ? 'bad' : 'ok'}"><i></i><span>Legacy ?token= URLs</span><em>${d.config.legacyQueryToken ? 'Allowed' : 'Refused'}</em></li>`
-            + `<li class="ok"><i></i><span>Approval queue</span><em>${d.config.approvalMode ? 'On' : 'Off'}</em></li><li class="ok"><i></i><span>Private mode</span><em>${d.config.privateMode ? 'On' : 'Off'}</em></li></ul>`
+            + `<li class="ok"><i></i><span>Approval queue</span><em>${d.config.approvalMode ? 'On' : 'Off'}</em></li><li class="ok"><i></i><span>Private mode</span><em>${d.config.privateMode ? 'On' : 'Off'}</em></li>`
+            + `<li class="ok"><i></i><span>Allowed users only</span><em>${d.config.allowlist && d.config.allowlist.on ? 'On (' + d.config.allowlist.users.length + ')' : 'Off'}</em></li></ul>`
             + (isOwner() ? `<button class="gps-btn" id="gac-reqsess">${d.config.requireSessions ? 'Allow legacy identity again' : 'Require verified sessions'}</button><p class="gps-hint">When required, AI and chat refuse clients that only assert a username. Turn it on once everyone runs the updated console.</p>` : ''), 'controls')
+          + (isOwner() ? card('Allowed users', `<p class="gps-hint">When on, only these usernames (and you) can create an account, sign in or use the console. Everyone else sees “Unable to create account”, and anyone already signed in who isn’t listed is signed out.</p>`
+            + `<div class="gac-allow-row"><span>Only allow listed users</span><button class="gps-switch${d.config.allowlist && d.config.allowlist.on ? ' primary' : ''}" id="gac-allow-on" type="button" aria-pressed="${d.config.allowlist && d.config.allowlist.on ? 'true' : 'false'}" aria-label="Only allow listed users">Only allow listed users</button></div>`
+            + `<label class="gac-allow-label">Usernames, one per line or separated by commas<textarea class="gpa-sync-box gac-allow-list" id="gac-allow-users" rows="6" spellcheck="false" autocapitalize="off" placeholder="kj&#10;dub&#10;sam">${esc(((d.config.allowlist && d.config.allowlist.users) || []).join('\n'))}</textarea></label>`
+            + `<div class="gac-allow-row"><span class="gps-hint" id="gac-allow-count">${((d.config.allowlist && d.config.allowlist.users) || []).length} listed</span><button class="gps-btn primary" id="gac-allow-save" type="button">Save list</button></div>`, 'account') : '')
           + `<div id="gac-legacy-security"></div></aside></div>`;
+        const allowOn = b.querySelector('#gac-allow-on'), allowUsers = b.querySelector('#gac-allow-users');
+        const saveAllow = async (on) => {
+          const users = allowUsers.value.split(/[\s,;]+/).map((u) => u.trim().replace(/^@/, '')).filter(Boolean);
+          if (on && !users.length && !confirm('Turn this on with nobody listed? Only you will be able to get in.')) return false;
+          try {
+            await api('/admin/config', { method: 'POST', body: { allowlist: { on, users } } });
+            showToast(on ? 'Only listed users can get in now.' : 'Allowed-users list saved (currently off).');
+            RENDER.security().catch((e) => errorBox('security', e));
+            return true;
+          } catch (e) { showToast(e.message, { type: 'danger' }); return false; }
+        };
+        if (allowOn) allowOn.addEventListener('click', () => saveAllow(allowOn.getAttribute('aria-pressed') !== 'true'));
+        const allowSave = b.querySelector('#gac-allow-save');
+        if (allowSave) allowSave.addEventListener('click', () => saveAllow(allowOn.getAttribute('aria-pressed') === 'true'));
         const rq = b.querySelector('#gac-reqsess');
         if (rq) rq.addEventListener('click', async () => {
           try { await api('/admin/config', { method: 'POST', body: { requireSessions: !d.config.requireSessions } }); RENDER.security().catch((e) => errorBox('security', e)); }

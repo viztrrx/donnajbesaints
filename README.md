@@ -68,6 +68,27 @@ Pasting the command also works; the problem only happens when it's typed. You ca
 
 * * *
 
+## Allowed users {#allowed-users}
+
+**Admin → Security → Allowed users** (owner only) limits the console to the
+usernames you list, one per line or comma-separated. With **Only allow listed
+users** on:
+
+- Anyone else who tries to create an account or sign in sees **Unable to
+  create account**, and no profile or account is created.
+- Someone already signed in who isn't on the list is signed out on their next
+  status check (within about 15 seconds) and sees the same message.
+- The Worker refuses unlisted names for everything it serves: server accounts
+  and logins, heartbeats (nothing is recorded for them), chat sending and
+  reading, page reading and AI. Each attempt is logged under Security and can
+  alert your phone ("Security alerts").
+- You (the owner) are always allowed. Names are case-insensitive.
+
+Turning the switch off lets everyone in again and keeps the list for later.
+The sign-in screen asks the Worker; if the Worker can't be reached the
+console still opens offline, but every server feature stays refused for names
+that aren't listed.
+
 ## Agent Console as an iPhone app {#iphone-app}
 
 The Worker also serves the whole console as a home-screen web app at

@@ -761,11 +761,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       pendingCount++;
       scheduleFlush();
       if (/lockout|owner_claim|identity_mismatch/.test(type)) queueEvent(env,ctx,'security',3);
-      if (/lockout|owner_claim|identity_mismatch|push_subscribe_denied|login_disabled/.test(type)) {
+      if (/lockout|owner_claim|identity_mismatch|push_subscribe_denied|login_disabled|not_allowed/.test(type)) {
         const who = detail && detail.user ? String(detail.user).slice(0, 40) : 'someone';
         const what = { login_lockout: 'Too many wrong PINs: sign-ins are locked for a while', owner_claim: 'Tried to use the owner name without the owner code',
           identity_mismatch: 'A signed-in account claimed another username', push_subscribe_denied: 'A non-owner tried to turn on owner notifications',
-          login_disabled: 'A disabled account tried to sign in' }[type] || type;
+          login_disabled: 'A disabled account tried to sign in', not_allowed: 'Someone not on your allowed-users list tried to get in' }[type] || type;
         notify({ cat: 'security', title: 'Security alert', body: `${what} (${who}) · ${ownerTime(env)}`, urgent: true,
           throttle: { key: 'sec:' + type + ':' + who, seconds: 600 } });
       }
@@ -879,6 +879,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // clients compare against to force-refresh, and feature kill-switches.
     const CONFIG_DEFAULTS = {
       privateMode: false, broadcast: '', reloadVersion: 0, features: {}, announcement: null,
+      allowlist: { on: false, users: [] },
       dailyQuota: 0,        // OpenAI requests/day per non-owner user; 0 = unlimited
       brandName: '',        // '' = client keeps its own built-in "Agent Console" name
       defaultTheme: '',     // '' = client keeps its own built-in default theme
@@ -905,8 +906,18 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // it's still running (self-expires, no manual unblock needed); an
     // explicit block/lock wins next; then private mode blocks anyone without
     // an allow exemption.
+    // Allowed users: when the owner turns it on, only the listed usernames
+    // (and the owner) may sign in, create an account or use anything here.
+    const ACCESS_DENIED = 'Unable to create account';
+    const allowedUser = (cfg, user) => {
+      const a = cfg && cfg.allowlist;
+      if (!a || !a.on) return true;
+      const u = String(user || '').trim().toLowerCase();
+      return !!u && (u === OWNER || (Array.isArray(a.users) && a.users.includes(u)));
+    };
     const resolveState = (mod, cfg, user) => {
       if (String(user).toLowerCase() === OWNER) return { state: 'active', reason: '', kickNonce: 0, owner: true };
+      if (!allowedUser(cfg, user)) return { state: 'blocked', reason: ACCESS_DENIED, kickNonce: mod.kickNonce || 0, notAllowed: true };
       if (mod.mutedUntil && mod.mutedUntil > Date.now()) {
         return { state: 'blocked', reason: mod.reason || 'Temporarily muted.', kickNonce: mod.kickNonce || 0, muted: true, mutedUntil: mod.mutedUntil };
       }
@@ -1261,6 +1272,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         if (!USERNAME_RE.test(user)) return json({ ok: false, error: 'invalid username' }, 400);
         if (!/^[0-9a-f]{64}$/.test(verifier)) return json({ ok: false, error: 'invalid verifier' }, 400);
         const userLower = user.toLowerCase();
+        if (!allowedUser(await getConfig(kv), user)) {
+          await noteSec('not_allowed', { user, note: 'register' });
+          return json({ ok: false, error: ACCESS_DENIED, notAllowed: true }, 403);
+        }
         if (await getAcct(kv, user)) return json({ ok: false, error: 'account exists', exists: true }, 409);
         let ownerVerified = false;
         if (userLower === OWNER) {
@@ -1285,6 +1300,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         if (await isLockedOut(kv, 'login', ip)) { await noteSec('login_lockout'); return json({ ok: false, error: 'too many attempts — try again later' }, 429); }
         const body = await readJson();
         const user = String(body.user || '').trim();
+        if (!allowedUser(await getConfig(kv), user)) {
+          await noteSec('not_allowed', { user, note: 'login' });
+          return json({ ok: false, error: ACCESS_DENIED, notAllowed: true }, 403);
+        }
         const verifier = String(body.verifier || '');
         const acct = await getAcct(kv, user);
         if (!acct) return json({ ok: false, error: 'no account', missing: true }, 404);
@@ -1876,6 +1895,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const now = Date.now();
       const cf = req.cf || {};
       const cfg = await getConfig(kv);
+      // Not on the owner's allowed-users list: nothing is recorded for them.
+      if (!allowedUser(cfg, user)) {
+        if (body.event === 'open') await noteSec('not_allowed', { user, note: 'sign-in' });
+        return json({ ok: false, state: 'blocked', reason: ACCESS_DENIED, notAllowed: true }, 200);
+      }
       const rec = {
         user,
         host: clip(body.host, 120),
@@ -1956,6 +1980,15 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
 
     // Read-only status for one user — the client polls this so a block takes
     // effect fast without waiting for the next (write-costing) heartbeat.
+    // Asked by the sign-in screen before it creates or opens a profile.
+    if (url.pathname === '/access' && req.method === 'GET') {
+      const cfg = await getConfig(env && env.TELEMETRY);
+      const name = String(url.searchParams.get('user') || '').slice(0, 80);
+      const ok = allowedUser(cfg, name);
+      if (!ok && name) await noteSec('not_allowed', { user: name, note: 'sign-in screen' });
+      return json(ok ? { allowed: true } : { allowed: false, error: ACCESS_DENIED });
+    }
+
     if (url.pathname === '/status' && req.method === 'GET') {
       const kv = env && env.TELEMETRY;
       const statusUser = (await effectiveUser(url.searchParams.get('user'))).user || '';
@@ -1966,7 +1999,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       let dismissed = null;
       if (kv && statusUser) { try { dismissed = await kv.get('dismiss:' + statusUser.toLowerCase(), 'json'); } catch (e) { /* best-effort */ } }
       return json({
-        state: r.state, reason: r.reason, kickNonce: r.kickNonce,
+        state: r.state, reason: r.reason, kickNonce: r.kickNonce, notAllowed: !!r.notAllowed,
         owner: !!r.owner, private: !!r.private,
         broadcast: cfg.broadcast || '', reloadVersion: cfg.reloadVersion || 0,
         features: { ...(cfg.features || {}), ...(mod.features || {}) },
@@ -2130,6 +2163,12 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const cfg = await getConfig(kv);
       const cfgBefore = JSON.parse(JSON.stringify(cfg));
       if ('privateMode' in body) cfg.privateMode = !!body.privateMode;
+      if ('allowlist' in body) {
+        const a = body.allowlist && typeof body.allowlist === 'object' ? body.allowlist : {};
+        const users = [...new Set((Array.isArray(a.users) ? a.users : String(a.users || '').split(/[\s,;]+/))
+          .map((u) => String(u || '').trim().replace(/^@/, '').toLowerCase()).filter((u) => /^[a-z0-9_.-]{1,40}$/.test(u)))].slice(0, 500);
+        cfg.allowlist = { on: !!a.on, users };
+      }
       if ('monthlyQuota' in body) cfg.monthlyQuota = Math.max(0, parseInt(body.monthlyQuota, 10) || 0);
       if ('rpm' in body) cfg.rpm = Math.max(0, parseInt(body.rpm, 10) || 0);
       if ('requireSessions' in body) cfg.requireSessions = !!body.requireSessions;
@@ -2387,6 +2426,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     if (url.pathname === '/chat/poll' && req.method === 'GET') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ ok: false, error: 'chat storage not configured', messages: [] }, 200);
+      if (!allowedUser(await getConfig(kv), (await effectiveUser(url.searchParams.get('user'))).user)) {
+        return json({ ok: false, error: ACCESS_DENIED, messages: [] }, 403);
+      }
       const access = await checkRoomAccess(kv, url.searchParams.get('room'), url.searchParams.get('code'));
       if (!access.ok) return json({ ok: false, error: access.error, messages: [] }, 200);
       const since = parseInt(url.searchParams.get('since') || '0', 10) || 0;
@@ -2779,6 +2821,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           config: {
             requireSessions: !!cfg.requireSessions, ownerCode: !!(env && env.OWNER_CODE), coadminToken: !!(env && env.COADMIN_TOKEN),
             legacyQueryToken: env && env.ALLOW_QUERY_TOKEN === '1', approvalMode: !!cfg.approvalMode, privateMode: !!cfg.privateMode,
+            allowlist: { on: !!(cfg.allowlist && cfg.allowlist.on), users: (cfg.allowlist && cfg.allowlist.users) || [] },
             blockedCountries: cfg.blockedCountries || [], allowedOrigins: cfg.allowedOrigins || []
           },
           approximate: true
@@ -3306,6 +3349,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       }
       // A blocked user loses research mode too, not just the model.
       const readUser = (await effectiveUser(req.headers.get('X-GPA-User'))).user;
+      if (env && env.TELEMETRY && !allowedUser(await getConfig(env.TELEMETRY), readUser)) return json({ error: ACCESS_DENIED }, 403);
       if (readUser && env && env.TELEMETRY) {
         const rs = await resolve(env.TELEMETRY, readUser);
         if (rs.state === 'blocked') return json({ error: 'blocked by the owner' }, 403);

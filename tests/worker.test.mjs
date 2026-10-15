@@ -580,3 +580,59 @@ test('dismissals: banner and popup stay dismissed for the account, everywhere', 
   }
   assert.equal((await c.call('/status/dismiss', { method: 'POST', body: 'x'.repeat(2000) })).status, 400);
 });
+
+test('allowed users: only listed names (and the owner) get in; others see "Unable to create account"', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  // Off by default: anyone can get in.
+  assert.equal((await c.call('/access?user=stranger')).data.allowed, true);
+  const before = await signUp(c, 'early');
+  assert.equal(before.status, 200);
+
+  const set = await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['KJ', '@dub', 'bad name!', 'sam'] } } });
+  assert.deepEqual(set.data.config.allowlist, { on: true, users: ['kj', 'dub', 'sam'] }, 'names are cleaned and lowercased; invalid ones dropped');
+  assert.equal((await c.call('/admin/config', { method: 'POST', headers: coadmin, body: { allowlist: { on: false } } })).status, 403, 'co-admins cannot change it');
+
+  // Sign-in screen check.
+  assert.deepEqual((await c.call('/access?user=stranger')).data, { allowed: false, error: 'Unable to create account' });
+  assert.equal((await c.call('/access?user=Kj')).data.allowed, true, 'case-insensitive');
+  assert.equal((await c.call('/access?user=boss')).data.allowed, true, 'the owner is always allowed');
+
+  // Server accounts.
+  const reg = await signUp(c, 'stranger');
+  assert.equal(reg.status, 403);
+  assert.equal(reg.data.error, 'Unable to create account');
+  assert.equal(await env.TELEMETRY.get('acct:stranger', 'json'), null, 'no account created');
+  assert.equal((await signUp(c, 'kj')).status, 200);
+  const login = await c.call('/auth/login', { method: 'POST', body: { user: 'early', verifier: 'a'.repeat(64) } });
+  assert.equal(login.status, 403, 'an existing account not on the list cannot sign in');
+  assert.equal(login.data.error, 'Unable to create account');
+
+  // Heartbeats: nothing recorded for unlisted names; they are told to leave.
+  const beat = await c.call('/track', { method: 'POST', body: { user: 'stranger', event: 'open', sid: 'x1' } });
+  assert.equal(beat.data.notAllowed, true);
+  assert.equal(await env.TELEMETRY.get('user:stranger', 'json'), null);
+  assert.equal(await env.TELEMETRY.get('session:x1'), null);
+  const st = await c.call('/status?user=stranger');
+  assert.equal(st.data.notAllowed, true);
+  assert.equal(st.data.reason, 'Unable to create account');
+  assert.equal((await c.call('/status?user=sam')).data.state, 'active');
+
+  // Chat, page reading and AI are refused too.
+  assert.equal((await c.call('/chat/send', { method: 'POST', body: { user: 'stranger', text: 'hi', room: 'public' } })).data.ok, false);
+  assert.equal((await c.call('/chat/poll?room=public&since=0&user=stranger')).status, 403);
+  assert.equal((await c.call('/chat/poll?room=public&since=0')).status, 403, 'anonymous readers too');
+  assert.equal((await c.call('/chat/poll?room=public&since=0&user=dub')).data.ok, true);
+  assert.equal((await c.call('/read?url=https://example.com', { headers: { 'X-GPA-User': 'stranger' } })).status, 403);
+  const ai = await c.call('/v1/chat/completions', { method: 'POST', headers: { 'X-GPA-User': 'stranger', ...userKey }, body: { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'hi' }] } });
+  assert.equal(ai.status, 403);
+
+  // Blocked attempts show up in the security log.
+  const sec = await c.call('/admin/security', { headers: owner });
+  assert.ok(sec.data.recent.some((e) => e.type === 'not_allowed' && e.user === 'stranger'));
+  assert.deepEqual(sec.data.config.allowlist, { on: true, users: ['kj', 'dub', 'sam'] });
+
+  // Off again: everyone is back in, list kept for later.
+  const off = await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: false, users: ['kj', 'dub', 'sam'] } } });
+  assert.equal(off.data.config.allowlist.on, false);
+  assert.equal((await c.call('/access?user=stranger')).data.allowed, true);
+});
