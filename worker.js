@@ -909,6 +909,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // Allowed users: when the owner turns it on, only the listed usernames
     // (and the owner) may sign in, create an account or use anything here.
     const ACCESS_DENIED = 'Unable to create account';
+    const accessReqKey = (u) => 'accessreq:u:' + String(u || '').trim().toLowerCase().slice(0, 40);
     const allowedUser = (cfg, user) => {
       const a = cfg && cfg.allowlist;
       if (!a || !a.on) return true;
@@ -1135,6 +1136,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       '/admin/clearchat':      { method: 'POST', perm: 'moderation.manage' },
       '/admin/rooms':          { method: 'POST', perm: 'moderation.manage' },
       '/admin/config':         { method: 'POST', perm: 'system.manage' },
+      '/admin/access-requests':        { method: 'GET',  perm: 'system.manage' },
+      '/admin/access-requests/decide': { method: 'POST', perm: 'system.manage' },
       '/admin/assignkey':      { method: 'POST', perm: 'keys.manage' },
       '/admin/clear':          { method: 'POST', perm: 'danger.execute' },
       '/admin/audit':          { method: 'GET',  perm: 'audit.view' },
@@ -1238,6 +1241,45 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     }
 
     // ======================================================================
+    // Access requests (owner): list, approve (adds the name to the allowed
+    // users), deny, or clear.
+    if (url.pathname === '/admin/access-requests') {
+      const kv = env.TELEMETRY;
+      const items = [];
+      let cursor;
+      do {
+        const page = await kv.list({ prefix: 'accessreq:u:', cursor });
+        for (const k of page.keys) { const v = await kv.get(k.name, 'json'); if (v) items.push(v); }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor && items.length < 500);
+      const rank = { pending: 0, denied: 1, approved: 2 };
+      items.sort((a, b) => (rank[a.status] - rank[b.status]) || (b.ts - a.ts));
+      return json({ ok: true, requests: items.map(({ ip, ...r }) => r), pending: items.filter((r) => r.status === 'pending').length });
+    }
+    if (url.pathname === '/admin/access-requests/decide') {
+      const kv = env.TELEMETRY;
+      let body = {};
+      try { body = JSON.parse(await req.text()) || {}; } catch (e) { return json({ error: 'invalid request' }, 400); }
+      const key = accessReqKey(body.user);
+      const rec = await kv.get(key, 'json');
+      if (!rec) return json({ error: 'No request from that user' }, 404);
+      const action = body.action;
+      if (action === 'clear') { await kv.delete(key); await logAudit(kv, { route: url.pathname, action: 'access_request_cleared', target: rec.user }); return json({ ok: true }); }
+      if (!['approve', 'deny'].includes(action)) return json({ error: 'action must be approve, deny or clear' }, 400);
+      if (action === 'approve') {
+        const cfg = await getConfig(kv);
+        const users = new Set(((cfg.allowlist && cfg.allowlist.users) || []).map((u) => String(u).toLowerCase()));
+        users.add(rec.user.toLowerCase());
+        cfg.allowlist = { on: !!(cfg.allowlist && cfg.allowlist.on), users: [...users].slice(0, 500) };
+        await kv.put('config', JSON.stringify(cfg));
+      }
+      rec.status = action === 'approve' ? 'approved' : 'denied';
+      rec.decidedAt = Date.now();
+      await kv.put(key, JSON.stringify(rec), { expirationTtl: 60 * 60 * 24 * 30 });
+      await logAudit(kv, { route: url.pathname, action: 'access_request_' + rec.status, target: rec.user });
+      return json({ ok: true, request: (({ ip, ...r }) => r)(rec) });
+    }
+
     // v2 routes: accounts, memory, reports, and the Admin command center.
     // ======================================================================
     const readJson = async () => { try { return JSON.parse(await req.text()); } catch (e) { return {}; } };
@@ -1982,11 +2024,55 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // effect fast without waiting for the next (write-costing) heartbeat.
     // Asked by the sign-in screen before it creates or opens a profile.
     if (url.pathname === '/access' && req.method === 'GET') {
-      const cfg = await getConfig(env && env.TELEMETRY);
+      const kv = env && env.TELEMETRY;
+      const cfg = await getConfig(kv);
       const name = String(url.searchParams.get('user') || '').slice(0, 80);
       const ok = allowedUser(cfg, name);
-      if (!ok && name) await noteSec('not_allowed', { user: name, note: 'sign-in screen' });
-      return json(ok ? { allowed: true } : { allowed: false, error: ACCESS_DENIED });
+      if (ok) return json({ allowed: true });
+      if (name) await noteSec('not_allowed', { user: name, note: 'sign-in screen' });
+      let request = null;
+      if (kv && name) {
+        const rec = await kv.get(accessReqKey(name), 'json');
+        if (rec) request = { status: rec.status, ts: rec.ts };
+      }
+      return json({ allowed: false, error: ACCESS_DENIED, request });
+    }
+
+    // Someone not on the allowed-users list asks the owner to let them in.
+    // Stored for Admin → Security and pushed to the owner's phone.
+    if (url.pathname === '/access/request' && req.method === 'POST') {
+      const kv = env && env.TELEMETRY;
+      if (!kv) return json({ ok: false, error: 'storage not configured' }, 503);
+      let body = {};
+      try { const raw = await req.text(); if (raw.length > 2048) throw 0; body = JSON.parse(raw) || {}; } catch (e) { return json({ ok: false, error: 'invalid request' }, 400); }
+      const name = String(body.user || '').trim().replace(/^@/, '');
+      if (!/^[A-Za-z0-9_.-]{1,40}$/.test(name)) return json({ ok: false, error: 'Enter the username you want to use (letters, numbers, . _ -).' }, 400);
+      const cfg = await getConfig(kv);
+      if (allowedUser(cfg, name)) return json({ ok: true, allowed: true });
+      const message = String(body.message || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      // At most 5 requests an hour from one network, so this can't be used to
+      // flood the owner's phone.
+      const rlKey = 'accessreq:rl:' + (await sha256hex(clientIp(req) || 'unknown')).slice(0, 28);
+      const sent = parseInt((await kv.get(rlKey)) || '0', 10) || 0;
+      if (sent >= 5) return json({ ok: false, error: 'Too many requests. Try again in an hour.' }, 429);
+      await kv.put(rlKey, String(sent + 1), { expirationTtl: 3600 });
+      const key = accessReqKey(name);
+      const prev = await kv.get(key, 'json');
+      if (prev && prev.status === 'denied' && Date.now() - (prev.decidedAt || 0) < 24 * 3600 * 1000) {
+        return json({ ok: false, status: 'denied', error: 'The owner declined this request. You can ask again tomorrow.' }, 200);
+      }
+      const cf = req.cf || {};
+      const rec = {
+        user: name, message, status: 'pending', ts: Date.now(), firstTs: (prev && prev.status === 'pending' && prev.firstTs) || Date.now(),
+        count: ((prev && prev.status === 'pending' && prev.count) || 0) + 1,
+        country: cf.country || '', region: String(cf.region || cf.city || '').slice(0, 60), ip: await ipTag()
+      };
+      await kv.put(key, JSON.stringify(rec), { expirationTtl: 60 * 60 * 24 * 30 });
+      const where = [rec.region, rec.country].filter(Boolean).join(', ');
+      notify({ cat: 'access', title: 'Access request: ' + name, urgent: true, url: '/console/#tab=admin&sec=security',
+        body: (message ? '“' + message + '” · ' : 'Wants to use the console · ') + ownerTime(env) + (where ? ' · ' + where : ''),
+        throttle: { key: 'accessreq:' + name.toLowerCase(), seconds: 600 } });
+      return json({ ok: true, status: 'pending' });
     }
 
     if (url.pathname === '/status' && req.method === 'GET') {

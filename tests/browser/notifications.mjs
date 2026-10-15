@@ -82,7 +82,7 @@ try {
     token: r.querySelector('#gpa-push-token').value
   }));
   check('With the admin token, notifications turn on', on.btn === 'Turn off', on.btn);
-  check('All 15 alert types listed, grouped, on except Who’s online', on.cats.length === 15 && on.cats.filter((c) => c.endsWith(':false')).length === 1 && on.cats.some((c) => /online.*:false$/.test(c)), on.cats.join(', '));
+  check('All 16 alert types listed, grouped, on except Who’s online', on.cats.length === 16 && on.cats.filter((c) => c.endsWith(':false')).length === 1 && on.cats.some((c) => /online.*:false$/.test(c)), on.cats.join(', '));
   check('Switches are grouped (Chat, People, AI, System)', (await R(page, (r) => [...r.querySelectorAll('.gpa-push-group')].map((g) => g.textContent).join(','))) === 'Chat,People,AI,System');
   check('Admin token cleared from the field (not kept)', on.token === '');
   check('Token never written to storage', !(await page.evaluate((t) => Object.values(localStorage).some((v) => v.includes(t)), ADMIN)));

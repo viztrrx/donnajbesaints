@@ -715,7 +715,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       theme: ['feature', 'Grouped switches: private rooms, mentions, approval queue, who’s online with icon badge, limits, admin actions, daily summary; quiet hours'] } },
     { at: '2026-10-15T15:00:00-04:00', commit: '', title: 'Allowed users: only the people you list can get in', parts: {
       admin: ['feature', 'Security → Allowed users: on/off switch and a username list; everyone else gets “Unable to create account”'],
-      console: ['feature', 'Sign-in and account creation check the allowed-users list; removed users are signed out'] } }
+      console: ['feature', 'Sign-in and account creation check the allowed-users list; removed users are signed out'] } },
+    { at: '2026-10-15T18:00:00-04:00', commit: '', title: 'Request access, and allowed names in any capitalization', parts: {
+      admin: ['feature', 'Security → Access requests: approve (adds to Allowed users), deny or clear; phone notification for each request'],
+      console: ['feature', 'Unlisted names see “Unable to create account” with a Request access form and its status'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1883,6 +1886,33 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-ann-title svg { width: 18px; height: 18px; }
       .gpa-ann-text { font-size: 13px; }
 
+      /* ---- Sign-in: request access ---- */
+      .gpa-login-request[hidden] { display: none; }
+      .gpa-login-request {
+        margin: 2px 0 12px; padding: 12px 12px 14px; border-radius: calc(12px * var(--gpa-rs));
+        border: 1px solid color-mix(in srgb, var(--gpa-accent) 35%, var(--gpa-border));
+        background: color-mix(in srgb, var(--gpa-accent) 7%, var(--gpa-field));
+      }
+      .gpa-login-request-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--gpa-text); }
+      .gpa-login-request-head svg { width: 16px; height: 16px; color: var(--gpa-accent); }
+      .gpa-login-request-text { margin: 6px 0 10px; font-size: 12px; line-height: 1.5; color: var(--gpa-sub); }
+      .gpa-login-request .gpa-login-label[hidden], .gpa-req-msg[hidden] { display: none; }
+      .gpa-req-msg { resize: vertical; min-height: 54px; font-family: inherit; }
+      .gpa-req-send { margin-top: 8px; width: 100%; }
+      .gpa-req-send:disabled { opacity: 0.7; cursor: default; }
+      .gpa-login-request[data-state="denied"] { border-color: color-mix(in srgb, var(--gpa-danger, #e5453a) 40%, var(--gpa-border)); }
+
+      /* ---- Admin → Security → access requests ---- */
+      .gac-req-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+      .gac-req { padding: 10px 12px; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); background: var(--gpa-field); }
+      .gac-req-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .gac-req-name { font-weight: 600; font-size: 13.5px; }
+      .gac-req-meta { font-size: 11.5px; color: var(--gpa-sub); margin-top: 2px; }
+      .gac-req-msg { font-size: 12.5px; margin: 6px 0 0; color: var(--gpa-text); overflow-wrap: anywhere; }
+      .gac-req-actions { display: flex; gap: 8px; margin-top: 8px; }
+      .gac-req-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--gpa-border); color: var(--gpa-sub); text-transform: capitalize; }
+      .gac-req-badge.pending { color: var(--gpa-accent); border-color: color-mix(in srgb, var(--gpa-accent) 50%, var(--gpa-border)); }
+
       /* ---- Admin → Security → Allowed users ---- */
       .gac-allow-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; font-size: 13px; }
       .gac-allow-label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--gpa-sub); }
@@ -2759,6 +2789,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         <label class="gpa-login-label" for="gpa-login-pin">PIN</label>
         <input id="gpa-login-pin" class="gpa-login-input" type="password" placeholder="••••••" autocomplete="off" />
         <div id="gpa-login-msg" class="gpa-login-msg"></div>
+        <div id="gpa-login-request" class="gpa-login-request" hidden>
+          <div class="gpa-login-request-head">${GPS_ICONS.key}<span>Request access</span></div>
+          <p id="gpa-req-text" class="gpa-login-request-text">This console is limited to people the owner has approved. You can ask the owner to let you in.</p>
+          <label class="gpa-login-label" for="gpa-req-msg">Message to the owner (optional)</label>
+          <textarea id="gpa-req-msg" class="gpa-login-input gpa-req-msg" rows="2" maxlength="300" placeholder="e.g. It's Josue from 3rd period"></textarea>
+          <button id="gpa-req-send" class="gpa-login-primary gpa-req-send" type="button">Send request</button>
+        </div>
         <button id="gpa-login-btn" class="gpa-login-primary">Sign in</button>
         <div class="gpa-login-actions">
           <button id="gpa-login-restore" class="gpa-login-link">Transfer access code</button>
@@ -13069,11 +13106,65 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const r = await fetch(telemetryEndpoint() + '/access?user=' + encodeURIComponent(user), { cache: 'no-store', signal: ctl ? ctl.signal : undefined });
       if (timer) clearTimeout(timer);
       const d = await r.json().catch(() => ({}));
-      return d.allowed !== false;
+      if (d.allowed === false) { showAccessRequest(user, d.request); return false; }
+      return true;
     } catch (e) { return true; }
   }
 
+  // "Request access" under the refusal: the person can ask the owner, who
+  // gets it in Admin → Security and as a phone notification.
+  const reqBox = panel.querySelector('#gpa-login-request');
+  const reqText = panel.querySelector('#gpa-req-text');
+  const reqMsg = panel.querySelector('#gpa-req-msg');
+  const reqSend = panel.querySelector('#gpa-req-send');
+  let reqFor = '';
+  function showAccessRequest(user, request) {
+    reqFor = user;
+    reqBox.hidden = false;
+    const status = request && request.status;
+    reqBox.dataset.state = status || 'new';
+    reqMsg.hidden = !!status && status !== 'approved';
+    panel.querySelector('label[for="gpa-req-msg"]').hidden = reqMsg.hidden;
+    if (status === 'pending') {
+      reqText.textContent = 'Your request to join as “' + user + '” was sent. You’ll be able to sign in once the owner approves it.';
+      reqSend.textContent = 'Request sent';
+      reqSend.disabled = true;
+    } else if (status === 'denied') {
+      reqText.textContent = 'The owner declined the request for “' + user + '”. You can ask again tomorrow.';
+      reqSend.textContent = 'Request declined';
+      reqSend.disabled = true;
+    } else {
+      reqText.textContent = 'This console is limited to people the owner has approved. You can ask the owner to let “' + user + '” in.';
+      reqSend.textContent = 'Send request';
+      reqSend.disabled = false;
+    }
+  }
+  function hideAccessRequest() { reqBox.hidden = true; reqFor = ''; }
+  loginUserInput.addEventListener('input', () => { if (reqFor && loginUserInput.value.trim().toLowerCase() !== reqFor.toLowerCase()) hideAccessRequest(); });
+  reqSend.addEventListener('click', async () => {
+    const user = (loginUserInput.value.trim() || reqFor);
+    if (!user) return;
+    reqSend.disabled = true;
+    reqSend.textContent = 'Sending…';
+    try {
+      const r = await fetch(telemetryEndpoint() + '/access/request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user, message: reqMsg.value })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (d.allowed) { hideAccessRequest(); showLoginMsg('You’re on the list now. Sign in or create your account.'); return; }
+      if (d.ok) { reqMsg.value = ''; showAccessRequest(user, { status: 'pending' }); showLoginMsg('Request sent to the owner.'); return; }
+      if (d.status === 'denied') { showAccessRequest(user, { status: 'denied' }); return; }
+      showAccessRequest(user, null);
+      showLoginMsg(d.error || 'Couldn’t send the request. Try again.', true);
+    } catch (e) {
+      showAccessRequest(user, null);
+      showLoginMsg('Couldn’t reach the owner’s server. Check your connection.', true);
+    }
+  });
+
   async function doSignIn() {
+    hideAccessRequest();
     const user = loginUserInput.value.trim();
     const pin = loginPinInput.value;
     if (!user || !pin) { showLoginMsg('Enter both a profile name and a PIN.', true); return; }
@@ -13099,6 +13190,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   async function doSignUp() {
+    hideAccessRequest();
     const user = loginUserInput.value.trim();
     const pin = loginPinInput.value;
     if (!user || !pin) { showLoginMsg('Enter both a profile name and a PIN.', true); return; }
@@ -17584,6 +17676,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const m = /[#&]tab=([a-z]+)/.exec(href || location.hash);
     const item = m && panel.querySelector(`.gpa-dropdown-item[data-tab="${m[1]}"]`);
     if (item && item.style.display !== 'none') item.click();
+    // …and a section inside it (e.g. #tab=admin&sec=security).
+    const sec = /[#&]sec=([a-z]+)/.exec(href || location.hash);
+    if (item && sec) setTimeout(() => { const t = panel.querySelector(`[data-asec="${sec[1]}"].gps-tab, .gps-tab[data-sec="${sec[1]}"]`); if (t && !t.hidden) t.click(); }, 300);
   }
   if (APP_MODE) {
     setTimeout(() => openTabFromUrl(location.hash), 0);
@@ -18141,11 +18236,42 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             + `<li class="ok"><i></i><span>Approval queue</span><em>${d.config.approvalMode ? 'On' : 'Off'}</em></li><li class="ok"><i></i><span>Private mode</span><em>${d.config.privateMode ? 'On' : 'Off'}</em></li>`
             + `<li class="ok"><i></i><span>Allowed users only</span><em>${d.config.allowlist && d.config.allowlist.on ? 'On (' + d.config.allowlist.users.length + ')' : 'Off'}</em></li></ul>`
             + (isOwner() ? `<button class="gps-btn" id="gac-reqsess">${d.config.requireSessions ? 'Allow legacy identity again' : 'Require verified sessions'}</button><p class="gps-hint">When required, AI and chat refuse clients that only assert a username. Turn it on once everyone runs the updated console.</p>` : ''), 'controls')
+          + (isOwner() ? card('Access requests', `<div id="gac-access-req"><p class="gps-hint">Loading…</p></div>`, 'key') : '')
           + (isOwner() ? card('Allowed users', `<p class="gps-hint">When on, only these usernames (and you) can create an account, sign in or use the console. Everyone else sees “Unable to create account”, and anyone already signed in who isn’t listed is signed out.</p>`
             + `<div class="gac-allow-row"><span>Only allow listed users</span><button class="gps-switch${d.config.allowlist && d.config.allowlist.on ? ' primary' : ''}" id="gac-allow-on" type="button" aria-pressed="${d.config.allowlist && d.config.allowlist.on ? 'true' : 'false'}" aria-label="Only allow listed users">Only allow listed users</button></div>`
             + `<label class="gac-allow-label">Usernames, one per line or separated by commas<textarea class="gpa-sync-box gac-allow-list" id="gac-allow-users" rows="6" spellcheck="false" autocapitalize="off" placeholder="kj&#10;dub&#10;sam">${esc(((d.config.allowlist && d.config.allowlist.users) || []).join('\n'))}</textarea></label>`
             + `<div class="gac-allow-row"><span class="gps-hint" id="gac-allow-count">${((d.config.allowlist && d.config.allowlist.users) || []).length} listed</span><button class="gps-btn primary" id="gac-allow-save" type="button">Save list</button></div>`, 'account') : '')
           + `<div id="gac-legacy-security"></div></aside></div>`;
+        const reqEl = b.querySelector('#gac-access-req');
+        const ago = (ts) => { const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+        const loadRequests = async () => {
+          if (!reqEl) return;
+          try {
+            const r = await api('/admin/access-requests');
+            if (!r.requests.length) { reqEl.innerHTML = '<p class="gps-hint">No requests yet. People who aren’t on your list can ask to get in from the sign-in screen.</p>'; return; }
+            reqEl.innerHTML = `<p class="gps-hint">${r.pending ? r.pending + ' waiting for you.' : 'Nothing waiting.'} Approving adds the name to Allowed users.</p><ul class="gac-req-list">`
+              + r.requests.map((q) => `<li class="gac-req" data-user="${esc(q.user)}"><div class="gac-req-top"><span class="gac-req-name">${esc(q.user)}</span><span class="gac-req-badge ${esc(q.status)}">${esc(q.status)}</span></div>`
+                + `<div class="gac-req-meta">${ago(q.ts)}${q.region || q.country ? ' · ' + esc([q.region, q.country].filter(Boolean).join(', ')) : ''}${q.count > 1 ? ' · asked ' + q.count + ' times' : ''}</div>`
+                + (q.message ? `<p class="gac-req-msg">“${esc(q.message)}”</p>` : '')
+                + `<div class="gac-req-actions">${q.status === 'pending' ? '<button class="gps-btn primary" data-act="approve" type="button">Approve</button><button class="gps-btn" data-act="deny" type="button">Deny</button>' : ''}<button class="gps-btn" data-act="clear" type="button">Clear</button></div></li>`).join('')
+              + `</ul>`;
+          } catch (e) { reqEl.innerHTML = '<p class="gps-hint">Couldn’t load requests: ' + esc(e.message) + '</p>'; }
+        };
+        if (reqEl) {
+          reqEl.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button[data-act]');
+            if (!btn) return;
+            const user = btn.closest('.gac-req').dataset.user;
+            btn.disabled = true;
+            try {
+              await api('/admin/access-requests/decide', { method: 'POST', body: { user, action: btn.dataset.act } });
+              showToast(btn.dataset.act === 'approve' ? user + ' can sign in now.' : btn.dataset.act === 'deny' ? 'Request from ' + user + ' declined.' : 'Request cleared.');
+              if (btn.dataset.act === 'approve') RENDER.security().catch((err) => errorBox('security', err));
+              else loadRequests();
+            } catch (err) { btn.disabled = false; showToast(err.message, { type: 'danger' }); }
+          });
+          loadRequests();
+        }
         const allowOn = b.querySelector('#gac-allow-on'), allowUsers = b.querySelector('#gac-allow-users');
         const saveAllow = async (on) => {
           const users = allowUsers.value.split(/[\s,;]+/).map((u) => u.trim().replace(/^@/, '')).filter(Boolean);

@@ -17,3 +17,5 @@ announcements-out/
 notifications-out/
 # Default output folder of tests/browser/allowlist.mjs
 allowlist-out/
+# Default output folder of tests/browser/access-requests.mjs
+access-requests-out/

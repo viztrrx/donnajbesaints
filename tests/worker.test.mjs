@@ -593,7 +593,7 @@ test('allowed users: only listed names (and the owner) get in; others see "Unabl
   assert.equal((await c.call('/admin/config', { method: 'POST', headers: coadmin, body: { allowlist: { on: false } } })).status, 403, 'co-admins cannot change it');
 
   // Sign-in screen check.
-  assert.deepEqual((await c.call('/access?user=stranger')).data, { allowed: false, error: 'Unable to create account' });
+  assert.deepEqual((await c.call('/access?user=stranger')).data, { allowed: false, error: 'Unable to create account', request: null });
   assert.equal((await c.call('/access?user=Kj')).data.allowed, true, 'case-insensitive');
   assert.equal((await c.call('/access?user=boss')).data.allowed, true, 'the owner is always allowed');
 
@@ -635,4 +635,62 @@ test('allowed users: only listed names (and the owner) get in; others see "Unabl
   const off = await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: false, users: ['kj', 'dub', 'sam'] } } });
   assert.equal(off.data.config.allowlist.on, false);
   assert.equal((await c.call('/access?user=stranger')).data.allowed, true);
+});
+
+test('allowed users: any capitalization of a listed name gets in', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['josue'] } } });
+  for (const v of ['josue', 'Josue', 'JOSUE', 'jOsue', 'josUE', 'JoSuE']) {
+    assert.equal((await c.call('/access?user=' + v)).data.allowed, true, v);
+    assert.equal((await c.call('/status?user=' + v)).data.state, 'active', v);
+  }
+  assert.equal((await signUp(c, 'JOSUE')).status, 200, 'server account with capitals');
+  assert.equal((await signUp(c, 'josue')).status, 409, 'same account, any capitalization');
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['JoSuE'] } } });
+  assert.equal((await c.call('/access?user=josue')).data.allowed, true, 'the list itself can be typed in any case');
+  assert.equal((await c.call('/access?user=josuex')).data.allowed, false, 'but not a different name');
+});
+
+test('access requests: unlisted users can ask; the owner is notified and can approve or deny', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['kj'] } } });
+  // A listed name doesn't need to ask.
+  assert.equal((await c.call('/access/request', { method: 'POST', body: { user: 'KJ' } })).data.allowed, true);
+  // Bad names are refused.
+  assert.equal((await c.call('/access/request', { method: 'POST', body: { user: 'bad name!' } })).status, 400);
+  const r = await c.call('/access/request', { method: 'POST', body: { user: 'Josue', message: '  hi it\'s josue from 3rd period  ' } });
+  assert.deepEqual(r.data, { ok: true, status: 'pending' });
+  assert.deepEqual((await c.call('/access?user=JOSUE')).data.request.status, 'pending', 'the sign-in screen sees the pending request');
+  // Only the owner sees and decides.
+  assert.equal((await c.call('/admin/access-requests', { headers: coadmin })).status, 403);
+  const list = await c.call('/admin/access-requests', { headers: owner });
+  assert.equal(list.data.pending, 1);
+  assert.equal(list.data.requests[0].user, 'Josue');
+  assert.equal(list.data.requests[0].message, "hi it's josue from 3rd period");
+  assert.equal(list.data.requests[0].ip, undefined, 'no network tag sent to the admin screen');
+  // Approve: added to the list (lowercase), can now sign in in any case.
+  const ok = await c.call('/admin/access-requests/decide', { method: 'POST', headers: owner, body: { user: 'josue', action: 'approve' } });
+  assert.equal(ok.data.request.status, 'approved');
+  assert.equal((await c.call('/access?user=jOsue')).data.allowed, true);
+  assert.equal((await signUp(c, 'Josue')).status, 200);
+  const cfg = await env.TELEMETRY.get('config', 'json');
+  assert.deepEqual(cfg.allowlist, { on: true, users: ['kj', 'josue'] });
+  // Deny: they can't ask again for a day.
+  await c.call('/access/request', { method: 'POST', body: { user: 'dub' } });
+  await c.call('/admin/access-requests/decide', { method: 'POST', headers: owner, body: { user: 'dub', action: 'deny' } });
+  assert.equal((await c.call('/access?user=dub')).data.request.status, 'denied');
+  const again = await c.call('/access/request', { method: 'POST', body: { user: 'dub' } });
+  assert.equal(again.data.status, 'denied');
+  assert.match(again.data.error, /declined/);
+  assert.equal((await c.call('/access?user=dub')).data.allowed, false);
+  // Clear removes the record.
+  await c.call('/admin/access-requests/decide', { method: 'POST', headers: owner, body: { user: 'dub', action: 'clear' } });
+  assert.equal((await c.call('/access?user=dub')).data.request, null);
+  // Flood protection: 5 an hour from one network.
+  const statuses = [];
+  for (let i = 0; i < 4; i++) statuses.push((await c.call('/access/request', { method: 'POST', body: { user: 'spam' + i } })).status);
+  assert.deepEqual(statuses, [200, 200, 429, 429], 'josue + dub + 3 more = 5, then refused');
+  // Decisions are audited.
+  const audit = await c.call('/admin/audit', { headers: owner });
+  assert.ok(JSON.stringify(audit.data).includes('access_request_approved'));
 });

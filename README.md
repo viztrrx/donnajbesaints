@@ -84,6 +84,18 @@ users** on:
   alert your phone ("Security alerts").
 - You (the owner) are always allowed. Names are case-insensitive.
 
+Names match in any capitalization: if you list `josue`, then `Josue`,
+`JOSUE` and `jOsue` all get in (and are the same account).
+
+**Requesting access.** Under "Unable to create account" the sign-in screen
+offers **Request access**: the person can add a short note and send it. You
+get an "Access request" phone notification (People → Access requests) and the
+request appears in **Admin → Security → Access requests** with the note, when
+and where it came from, and **Approve / Deny / Clear**. Approving adds the
+name to Allowed users, so they can sign in right away; while it's waiting,
+trying again shows that the request was sent. A denied name can ask again
+after a day, and one network can send at most 5 requests an hour.
+
 Turning the switch off lets everyone in again and keeps the list for later.
 The sign-in screen asks the Worker; if the Worker can't be reached the
 console still opens offline, but every server feature stays refused for names
@@ -128,6 +140,7 @@ then sends standard Web Push notifications straight to your iPhone:
 | People | Sign-ins | `kj signed in`: time, place and site (at most once per 10 minutes per user) |
 | People | New users and accounts | First sign-in of a new username, and new server accounts |
 | People | Waiting for your approval | A new user held by the approval queue |
+| People | Access requests | Someone not on your Allowed users list asked to get in, with their note; tapping opens Admin → Security |
 | People | Who's online (live) | Off by default. One alert, replaced as people come and go ("Joined: kj · Left: dub", who's on now), and the count as the app icon badge |
 | AI | AI request failures | Who, the error type and status, the reason (API keys are never included) |
 | AI | Rate limits and quotas reached | Who hit a rate limit or quota |
