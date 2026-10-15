@@ -949,3 +949,61 @@ test('subscribers: month math keeps the day, or the month’s last day', async (
     }
   } finally { Date.now = realNow; }
 });
+
+test('subscribers: a chosen start date, changing it later, amounts paid, and the subscriber’s own countdown', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  const subs = (body) => c.call('/admin/subscriptions', { method: 'POST', headers: owner, body });
+  const realNow = Date.now;
+  try {
+    Date.now = () => Date.parse('2026-10-15T18:00:00Z');
+    await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: [] } } });
+    // Paid on Oct 1 at 9:30 AM New York, added today: ends Nov 1 at 9:30 AM.
+    const oct1 = Date.parse('2026-10-01T13:30:00Z');
+    let r = await subs({ action: 'add', user: 'renzo', period: '1m', startedAt: oct1, amount: '10', note: 'Cash App' });
+    assert.equal(r.status, 200);
+    let s = r.data.subscriptions.find((x) => x.user === 'renzo');
+    assert.equal(s.startedAt, oct1);
+    assert.equal(s.expiresAt, Date.parse('2026-11-01T13:30:00Z'));
+    assert.equal(s.daysLeft, 17);
+    assert.deepEqual(r.data.ledger.map((x) => [x.user, x.amount, x.at]), [['renzo', 10, oct1]]);
+    // The start can't be in the future, or so long ago it's already over.
+    assert.equal((await subs({ action: 'add', user: 'dub', startedAt: Date.parse('2026-10-20T00:00:00Z') })).status, 400);
+    const over = await subs({ action: 'add', user: 'dub', period: '1w', startedAt: Date.parse('2026-10-01T16:00:00Z') });
+    assert.equal(over.status, 400);
+    assert.match(over.data.error, /would already have ended on Oct 8, 2026/);
+    // Without a start date it starts now.
+    r = await subs({ action: 'add', user: 'dub', period: '2w', amount: 5.5 });
+    assert.equal(r.data.subscriptions.find((x) => x.user === 'dub').startedAt, Date.now());
+
+    // renzo sees his own countdown; dub's is his own; the owner and others see none.
+    const mine = (await c.call('/status?user=renzo')).data;
+    assert.equal(mine.sessionRequired, true, 'listed names need a session');
+    const reg = await signUp(c, 'renzo');
+    s = (await c.call('/status?user=renzo', { headers: sess(reg.data.token) })).data.subscription;
+    assert.deepEqual(s, { startedAt: oct1, expiresAt: Date.parse('2026-11-01T13:30:00Z'), period: '1m' });
+    assert.deepEqual((await c.call('/track', { method: 'POST', body: { user: 'renzo', event: 'beat', sid: 'r1', session: reg.data.token } })).data.subscription.expiresAt, Date.parse('2026-11-01T13:30:00Z'));
+    await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: false } } });
+    assert.equal((await c.call('/status?user=kj')).data.subscription, null, 'not a subscriber');
+    await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true } } });
+
+    // Change the start date: the end moves with it.
+    r = await subs({ action: 'setstart', user: 'renzo', startedAt: Date.parse('2026-10-10T13:30:00Z') });
+    assert.equal(r.data.subscriptions.find((x) => x.user === 'renzo').expiresAt, Date.parse('2026-11-10T13:30:00Z'));
+    // …moved far enough back it has already ended: he's cut off.
+    r = await subs({ action: 'setstart', user: 'renzo', startedAt: Date.parse('2026-09-01T13:30:00Z') });
+    s = r.data.subscriptions.find((x) => x.user === 'renzo');
+    assert.deepEqual([s.active, s.expiresAt], [false, Date.parse('2026-10-01T13:30:00Z')]);
+    assert.equal((await c.call('/access?user=renzo')).data.allowed, false);
+    // …and moved forward again: back in.
+    await subs({ action: 'setstart', user: 'renzo', startedAt: oct1 });
+    assert.equal((await c.call('/access?user=renzo')).data.allowed, true);
+    assert.ok((await env.TELEMETRY.get('config', 'json')).allowlist.users.includes('renzo'));
+
+    // Renewals go in the ledger; removing a record keeps what was collected.
+    r = await subs({ action: 'renew', user: 'renzo', period: '1m', amount: 10 });
+    assert.equal(r.data.subscriptions.find((x) => x.user === 'renzo').expiresAt, Date.parse('2026-12-01T13:30:00Z'), 'stacked on the time left');
+    await subs({ action: 'end', user: 'dub' });
+    r = await subs({ action: 'delete', user: 'dub' });
+    assert.equal(r.data.ledger.reduce((n, x) => n + x.amount, 0), 25.5);
+  } finally { Date.now = realNow; }
+});

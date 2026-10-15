@@ -87,15 +87,24 @@ try {
   await owner.page.waitForFunction(() => { const r = document.getElementById('gpa-root-host').shadowRoot; const b = r.querySelector('#gac-subs'); return b && !/Loading/.test(b.textContent) && !r.querySelector('#gac-subs-allow'); }, null, { timeout: 15000 }).catch(() => {});
   check('“Turn it on” switches Only allow listed users on', (await (await fetch(env.workerUrl + '/access?user=nobody' + run)).json()).allowed === false);
 
-  // 2: add renzo for a month with a note.
+  // 2: add renzo for a month with a note. (The local Worker keeps data between
+  // test runs, and the money ledger keeps past payments on purpose.)
+  const ledgerBefore = ((await admin('/admin/subscriptions', { action: 'list' })).ledger || []).reduce((n, x) => n + x.amount, 0);
+  const money = (n) => '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
   await R(owner.page, (r) => r.querySelector('#gac-subs-card').scrollIntoView({ block: 'start' }));
   await owner.page.fill(sr('#gac-subs-name'), RENZO);
   await owner.page.selectOption(sr('#gac-subs-period'), '1m');
-  await owner.page.fill(sr('#gac-subs-note'), '$10 · Cash App');
+  await owner.page.fill(sr('#gac-subs-note'), 'Cash App');
+  await owner.page.fill(sr('#gac-subs-amount'), '10');
+  // He actually paid 10 days ago: the month counts from then.
+  const paidOn = Date.now() - 10 * 864e5;
+  await owner.page.evaluate((ts) => { const el = document.getElementById('gpa-root-host').shadowRoot.querySelector('#gac-subs-start'); const d = new Date(ts - new Date(ts).getTimezoneOffset() * 60e3); el.value = d.toISOString().slice(0, 16); }, paidOn);
   await owner.page.click(sr('#gac-subs-form button[type="submit"]'));
   await owner.page.waitForFunction((u) => [...document.getElementById('gpa-root-host').shadowRoot.querySelectorAll('.gac-subscr')].some((x) => x.dataset.user === u), RENZO, { timeout: 10000 }).catch(() => {});
   const row = await subRow(owner.page, RENZO);
-  check('renzo is listed: 1 month, days left, start/end dates, the note', row && /(30|31) days left/.test(row) && /Since .* ends /.test(row) && /\$10 · Cash App/.test(row) && /Renew \+1 month/.test(row) && /End now/.test(row), row);
+  check('renzo is listed from 10 days ago: about 20 days left, paid $10, the note', row && /(20|21) days left/.test(row) && /Since .* ends /.test(row) && /paid \$10/.test(row) && /Cash App/.test(row) && /Renew \+1 month/.test(row) && /Change start/.test(row) && /End now/.test(row), row);
+  const totals = await R(owner.page, (root) => (root.querySelector('.gac-subs-totals') || {}).textContent || '');
+  check('Totals: collected goes up by $10', totals.includes(money(ledgerBefore + 10) + 'collected in all') && /active now/.test(totals), totals + ' (before: ' + money(ledgerBefore) + ')');
   await owner.page.waitForTimeout(500);
   await shot(owner.page, '02-renzo-added.png');
   const cfgAllowed = (await (await fetch(env.workerUrl + '/access?user=' + RENZO)).json()).allowed;
@@ -105,7 +114,28 @@ try {
   const renzo = await phone();
   let r = await signUp(renzo.page, RENZO);
   check('renzo creates his account and gets in', r.inside, JSON.stringify(r));
-  await renzo.page.waitForTimeout(400);
+  await R(renzo.page, (root) => root.querySelector('.gpa-dropdown-item[data-tab="welcome"]').click());
+  const strip = () => R(renzo.page, (root) => { const el = root.querySelector('#gpa-substrip'); return { shown: !el.hidden && !!el.offsetParent, left: el.querySelector('#gpa-substrip-left').textContent, note: el.querySelector('#gpa-substrip-note').textContent, cls: el.className }; });
+  const seen = await renzo.page.waitForFunction(() => { const el = document.getElementById('gpa-root-host').shadowRoot.querySelector('#gpa-substrip'); return el && !el.hidden; }, null, { timeout: 25000 }).then(() => true, () => false);
+  let st = await strip();
+  check('renzo sees his own countdown under the header: about 20 days left', seen && /^(20|21) days left$/.test(st.left) && /Active since .* ends /.test(st.note), JSON.stringify(st));
+  await renzo.page.waitForTimeout(500);
+  await shot(renzo.page, '03a-renzo-countdown.png');
+
+  // Change start: moved back so only ~2 days are left: amber, "Ask the owner to renew".
+  await R(owner.page, (root, u) => [...root.querySelectorAll('.gac-subscr')].find((x) => x.dataset.user === u).querySelector('[data-sub="editstart"]').click(), RENZO);
+  await owner.page.evaluate(([u, ts]) => { const row = [...document.getElementById('gpa-root-host').shadowRoot.querySelectorAll('.gac-subscr')].find((x) => x.dataset.user === u); const el = row.querySelector('.gac-subs-edit input'); const d = new Date(ts - new Date(ts).getTimezoneOffset() * 60e3); el.value = d.toISOString().slice(0, 16); }, [RENZO, (() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.getTime() + 2 * 864e5; })()]);
+  await owner.page.waitForTimeout(300);
+  await shot(owner.page, '03b-change-start.png');
+  await R(owner.page, (root, u) => [...root.querySelectorAll('.gac-subscr')].find((x) => x.dataset.user === u).querySelector('.gac-subs-edit button[type="submit"]').click(), RENZO);
+  await owner.page.waitForTimeout(1500);
+  check('Owner: after changing the start, about 2 days left', /(1|2) days? left|Ends today/i.test(await subRow(owner.page, RENZO) || ''), await subRow(owner.page, RENZO));
+  await renzo.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  const amber = await renzo.page.waitForFunction(() => { const el = document.getElementById('gpa-root-host').shadowRoot.querySelector('#gpa-substrip'); return el && el.classList.contains('is-low') && /Ask the owner to renew/.test(el.textContent); }, null, { timeout: 25000 }).then(() => true, () => false);
+  st = await strip();
+  check('renzo’s countdown turns amber: “ends … Ask the owner to renew”', amber, JSON.stringify(st));
+  await renzo.page.waitForTimeout(500);
+  await shot(renzo.page, '03c-renzo-ending-soon.png');
 
   // 4: the subscription ends.
   await R(owner.page, (root, u) => { window.confirm = () => true; [...root.querySelectorAll('.gac-subscr')].find((x) => x.dataset.user === u).querySelector('[data-sub="end"]').click(); }, RENZO);
@@ -126,6 +156,8 @@ try {
   await R(owner.page, (root, u) => [...root.querySelectorAll('.gac-subscr')].find((x) => x.dataset.user === u).querySelector('[data-sub="renew"]').click(), RENZO);
   await owner.page.waitForTimeout(1500);
   check('Renewed: active again with a month left', /(30|31) days left/.test(await subRow(owner.page, RENZO) || ''), await subRow(owner.page, RENZO));
+  await R(owner.page, (root) => root.querySelector('#gac-subs-card').scrollIntoView({ block: 'start' }));
+  await owner.page.waitForTimeout(300);
   await shot(owner.page, '06-renewed.png');
   r = await signUp(renzo.page, RENZO, 'signin');
   check('renzo can sign in again', r.inside, JSON.stringify(r));

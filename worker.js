@@ -1059,6 +1059,12 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (sub) return sub.expiresAt > Date.now();
       return Array.isArray(a.users) && a.users.includes(u);
     };
+    // The caller's own subscription, for "12 days left" in their console.
+    const mySubscription = (cfg, user) => {
+      const s = subscriptionOf(cfg, user);
+      if (!s || s.expiresAt <= Date.now() || String(user).toLowerCase() === OWNER) return null;
+      return { startedAt: s.startedAt, expiresAt: s.expiresAt, period: s.period };
+    };
     // Why a name is refused, in words for that person.
     const deniedReason = (cfg, user) => (subscriptionOf(cfg, user) ? SUB_ENDED : ACCESS_DENIED);
     const resolveState = (mod, cfg, user) => {
@@ -1441,7 +1447,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const view = () => {
         const list = Object.values(cfg.subscriptions).map((s) => ({ ...s, active: s.expiresAt > now, daysLeft: Math.max(0, Math.ceil((s.expiresAt - now) / 864e5)) }));
         list.sort((a, b) => (b.active - a.active) || (a.active ? a.expiresAt - b.expiresAt : b.expiresAt - a.expiresAt));
-        return { ok: true, subscriptions: list, allowlistOn: !!(cfg.allowlist && cfg.allowlist.on), periods: SUB_PERIOD_LABEL };
+        return { ok: true, subscriptions: list, allowlistOn: !!(cfg.allowlist && cfg.allowlist.on), periods: SUB_PERIOD_LABEL,
+          ledger: (Array.isArray(cfg.subLedger) ? cfg.subLedger : []).slice(-1000) };
       };
       const action = String(body.action || 'list');
       if (action === 'list') return json(view());
@@ -1451,23 +1458,48 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (key === OWNER) return json({ error: 'You don’t need a subscription.' }, 400);
       const period = SUB_PERIODS[body.period] ? body.period : '1m';
       const note = String(body.note || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      // What they paid this time (dollars, optional), kept in a ledger so the
+      // card can total it even after a record is removed.
+      const amount = Math.round(Math.max(0, Math.min(100000, Number(body.amount) || 0)) * 100) / 100;
+      // When they actually subscribed, if it wasn't just now (e.g. paid on
+      // Oct 1, added today): the end date counts from then. Not in the future.
+      let startAt = now;
+      if (body.startedAt != null && body.startedAt !== '') {
+        startAt = Number(body.startedAt);
+        if (!Number.isFinite(startAt) || startAt > now + 60e3 || startAt < now - 2 * 365 * 864e5) return json({ error: 'Pick a start date in the past two years, not in the future.' }, 400);
+      }
+      const day = (ts) => new Date(ts).toLocaleDateString('en-US', { timeZone: (env && env.OWNER_TZ) || 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' });
       const users = new Set(((cfg.allowlist && cfg.allowlist.users) || []).map((u) => String(u).toLowerCase()));
       const cur = cfg.subscriptions[key];
       if (action === 'add' || action === 'renew') {
         if (action === 'add' && cur && cur.expiresAt > now) return json({ error: name + ' is already subscribed until ' + new Date(cur.expiresAt).toISOString().slice(0, 10) + '. Use Renew to add time.' }, 409);
         if (action === 'renew' && !cur) return json({ error: name + ' isn’t a subscriber yet. Add them first.' }, 404);
-        // Renewing early adds the time on top of what is left.
-        const from = action === 'renew' && cur.expiresAt > now ? cur.expiresAt : now;
+        // Renewing early adds the time on top of what is left; otherwise the
+        // new period starts at the chosen start date (default: now).
+        const stacking = action === 'renew' && cur.expiresAt > now;
+        const from = stacking ? cur.expiresAt : startAt;
+        const expiresAt = addSubPeriod(from, period);
+        if (expiresAt <= now) return json({ error: 'Starting ' + day(from) + ', ' + (SUB_PERIOD_LABEL[period] || 'that') + ' would already have ended on ' + day(expiresAt) + '. Pick a later start date or a longer length.' }, 400);
         const rec = {
           user: cur && action === 'renew' ? cur.user : name,
-          startedAt: cur && action === 'renew' && cur.expiresAt > now ? cur.startedAt : now,
-          expiresAt: addSubPeriod(from, period), period, note: note || (cur && cur.note) || '',
-          history: [...((cur && cur.history) || []), { at: now, action, period, note }].slice(-24)
+          startedAt: stacking ? cur.startedAt : startAt,
+          expiresAt, period, note: note || (cur && cur.note) || '',
+          history: [...((cur && cur.history) || []), { at: now, action, period, note, amount, from }].slice(-24)
         };
+        if (amount > 0) cfg.subLedger = [...(Array.isArray(cfg.subLedger) ? cfg.subLedger : []), { user: rec.user, at: startAt, amount, action }].slice(-1000);
         cfg.subscriptions[key] = rec;
         users.add(key);
         // A request this person left on the sign-in screen is settled.
         try { const rq = await kv.get(accessReqKey(key), 'json'); if (rq && rq.status === 'pending') { rq.status = 'approved'; rq.decidedAt = now; await kv.put(accessReqKey(key), JSON.stringify(rq), { expirationTtl: 60 * 60 * 24 * 30 }); } } catch (e) { /* best-effort */ }
+      } else if (action === 'setstart') {
+        // Correct when the current period started; its end moves with it.
+        if (!cur) return json({ error: 'No subscription for ' + name }, 404);
+        if (body.startedAt == null || body.startedAt === '') return json({ error: 'Pick a start date.' }, 400);
+        cur.startedAt = startAt;
+        cur.expiresAt = addSubPeriod(startAt, cur.period || '1m');
+        cur.ended = cur.expiresAt <= now; cur.reminded = false;
+        if (cur.ended) { cur.endedAt = cur.expiresAt; users.delete(key); } else { delete cur.endedAt; users.add(key); }
+        cur.history = [...(cur.history || []), { at: now, action, from: startAt }].slice(-24);
       } else if (action === 'end') {
         if (!cur) return json({ error: 'No subscription for ' + name }, 404);
         cur.expiresAt = now; cur.ended = true; cur.endedAt = now;
@@ -1476,7 +1508,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         if (!cur) return json({ error: 'No subscription for ' + name }, 404);
         delete cfg.subscriptions[key];
         if (cur.expiresAt > now) users.delete(key);
-      } else return json({ error: 'action must be list, add, renew, end or delete' }, 400);
+      } else return json({ error: 'action must be list, add, renew, setstart, end or delete' }, 400);
       cfg.allowlist = { on: !!(cfg.allowlist && cfg.allowlist.on), users: [...users].slice(0, 500) };
       await kv.put('config', JSON.stringify(cfg));
       await logAudit(kv, { route: url.pathname, action: 'subscription_' + action, target: key, meta: { period, note } });
@@ -2264,6 +2296,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         maintenance: cfg.maintenance && cfg.maintenance.on ? { on: true, message: cfg.maintenance.message || '' } : null,
         memoryEnabled: cfg.memoryEnabled !== false, session: trackId.verified ? 'ok' : (sessionProblem || 'none'),
         usage: r.state === 'active' ? await usageMeter(kv, user, mod, cfg) : null,
+        subscription: mySubscription(cfg, user),
         yourStats: { opens: (uRec && uRec.opens) || 0, firstSeen: (uRec && uRec.firstSeen) || now },
         dismissed: dismissed ? { broadcast: dismissed.broadcast || null, announcement: dismissed.announcement || null } : null
       });
@@ -2348,6 +2381,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         maintenance: cfg.maintenance && cfg.maintenance.on ? { on: true, message: cfg.maintenance.message || '' } : null,
         memoryEnabled: cfg.memoryEnabled !== false,
         usage: r.state === 'active' ? await usageMeter(kv, statusUser, mod, cfg) : null,
+        subscription: mySubscription(cfg, statusUser),
         // What this account already dismissed (banner text hash, popup id), so
         // a dismissal sticks on every site, browser and the home-screen app.
         dismissed: dismissed ? { broadcast: dismissed.broadcast || null, announcement: dismissed.announcement || null } : null

@@ -101,7 +101,10 @@ All on `main`. Each has tests; see section 6.
    `POST /admin/subscriptions` (list/add/renew/end/delete); calendar months
    via `addSubPeriod`. `sweepSubscriptions()` on the 5-minute cron removes
    ended names from the list and pushes `subs` alerts (3 days before, at
-   the end). UI: Admin → Security → Subscribers (`#gac-subs`, rows
+   the end). `startedAt` (owner-chosen, ≤ now) starts the period; action
+   `setstart` moves it; `amount` goes in `config.subLedger` (kept after a
+   record is removed) for the card's totals. `/status` and `/track` carry the
+   caller's own `subscription` for the `#gpa-substrip` countdown. UI: Admin → Security → Subscribers (`#gac-subs`, rows
    `.gac-subscr`). Tests: worker.test.mjs (simulated clock), push.test.mjs,
    `tests/browser/subscribers.mjs`.
 0. **Chat rooms in Durable Objects + AI usage meter**: the lost-message bug

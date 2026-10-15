@@ -739,7 +739,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       chat: ['feature', 'iMessage-style receipts under your newest message: “Delivered”, then “Read by kj 3:42 PM” (or “kj and dub”, “and 2 others”) once someone has it on screen'] } },
     { at: '2026-10-16T18:00:00-04:00', commit: '', title: 'Subscribers: paid access for a set time', parts: {
       admin: ['feature', 'Security → Subscribers: add a name for 1 week to 1 year with a note; renew, end now or remove; alerts 3 days before and when it ends'],
-      console: ['feature', 'When a subscription ends the person is signed out with “Your subscription has ended” and can ask the owner to renew from the sign-in screen'] } }
+      console: ['feature', 'When a subscription ends the person is signed out with “Your subscription has ended” and can ask the owner to renew from the sign-in screen'] } },
+    { at: '2026-10-16T20:00:00-04:00', commit: '', title: 'Subscribers: start dates, amounts paid and a countdown', parts: {
+      admin: ['feature', 'Subscribers: pick when someone subscribed (the end date counts from it), Change start later, record what they paid; totals for this month and in all'],
+      console: ['feature', 'Subscribers see their own countdown under the header (“21 days left · ends Nov 5”), amber in the last 3 days'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -2042,10 +2045,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       /* ---- Admin → Security → Subscribers ---- */
       .gac-subs-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; align-items: end; margin: 10px 0; }
       .gac-subs-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--gpa-sub); min-width: 0; }
-      .gac-subs-form .gac-subs-note-l, .gac-subs-form button { grid-column: 1 / -1; }
+      .gac-subs-form .gac-subs-note-l, .gac-subs-form .gac-subs-wide, .gac-subs-form button { grid-column: 1 / -1; }
+      .gac-subscr .gac-req-actions { flex-wrap: wrap; }
       .gac-subs-warn { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin: 8px 0; border-radius: var(--gps-r2); font-size: 12.5px;
         border: 1px solid color-mix(in srgb, var(--gpa-warning, #e0a63b) 55%, var(--gpa-border)); background: color-mix(in srgb, var(--gpa-warning, #e0a63b) 10%, transparent); }
       .gac-subs-count { margin: 4px 0 0; }
+      .gac-subs-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0 4px; }
+      .gac-subs-totals > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); background: var(--gpa-field); min-width: 0; }
+      .gac-subs-totals b { font-size: 17px; font-variant-numeric: tabular-nums; color: var(--gpa-text); }
+      .gac-subs-totals span { font-size: 11.5px; color: var(--gpa-sub); }
+      .gac-subs-edit { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 8px; }
+      .gac-subs-edit[hidden] { display: none; }
+      .gac-subs-edit label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--gpa-sub); flex: 1 1 180px; }
       .gac-subscr.is-soon .gac-req-badge { color: var(--gpa-warning, #e0a63b); border-color: color-mix(in srgb, var(--gpa-warning, #e0a63b) 55%, var(--gpa-border)); }
       .gac-subscr .gac-req-badge { text-transform: none; }
       .gac-subscr.is-ended { opacity: .75; }
@@ -2913,6 +2924,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         <span class="gpa-usage-left" id="gpa-usage-left"></span>
       </div>
       <div class="gpa-usage-note" id="gpa-usage-note" role="status" aria-live="polite"></div>
+    </div>
+    <div class="gpa-usage gpa-substrip" id="gpa-substrip" hidden>
+      <div class="gpa-usage-row">
+        <span class="gpa-usage-label" id="gpa-substrip-label">Subscription</span>
+        <div class="gpa-usage-track" id="gpa-substrip-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="gpa-substrip-label"><i></i></div>
+        <span class="gpa-usage-left" id="gpa-substrip-left"></span>
+      </div>
+      <div class="gpa-usage-note" id="gpa-substrip-note"></div>
     </div>
     <div class="gpa-toast-wrap" id="gpa-toast-wrap"></div>
     <div class="gpa-login" id="gpa-login">
@@ -17612,6 +17631,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   function signOutWith(message, isError) {
     renderUsageMeter(null);
+    renderSubStrip(null);
     saveProgress();
     closeLanguagePicker();
     clearServerSession(true);
@@ -17982,6 +18002,35 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     usageEl.hidden = false;
   }
 
+  // ---- Subscription countdown ------------------------------------------------
+  // For subscribers (Admin → Security → Subscribers): how long their paid
+  // access lasts, under the header on every tab. The bar fills as the time
+  // passes; amber in the last 3 days. The Worker sends `subscription` on
+  // each status poll, null for everyone else.
+  const subStripEl = panel.querySelector('#gpa-substrip');
+  function renderSubStrip(sub) {
+    if (!subStripEl) return;
+    if (!sub || !currentUser || !(sub.expiresAt > Date.now())) { subStripEl.hidden = true; return; }
+    const now = Date.now();
+    const left = sub.expiresAt - now;
+    const days = Math.ceil(left / 864e5);
+    const end = new Date(sub.expiresAt);
+    const endDay = end.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const endTime = end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const sameDay = end.toDateString() === new Date().toDateString();
+    const pct = Math.max(0, Math.min(100, Math.round(((now - sub.startedAt) / Math.max(1, sub.expiresAt - sub.startedAt)) * 100)));
+    subStripEl.classList.toggle('is-low', left <= 3 * 864e5);
+    subStripEl.querySelector('#gpa-substrip-left').textContent = sameDay ? 'Ends today' : days + (days === 1 ? ' day left' : ' days left');
+    const bar = subStripEl.querySelector('#gpa-substrip-bar');
+    bar.querySelector('i').style.width = pct + '%';
+    bar.setAttribute('aria-valuenow', String(pct));
+    bar.setAttribute('aria-valuetext', (sameDay ? 'Ends today' : days + ' days left') + ', until ' + endDay);
+    subStripEl.querySelector('#gpa-substrip-note').textContent = left <= 3 * 864e5
+      ? 'Your subscription ends ' + (sameDay ? 'today at ' + endTime : endDay + ' at ' + endTime) + '. Ask the owner to renew to keep access.'
+      : 'Active since ' + new Date(sub.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' · ends ' + endDay + ' at ' + endTime;
+    subStripEl.hidden = false;
+  }
+
   function applyModeration(s) {
     if (!s || typeof s !== 'object') return;
     if (s.sessionRequired && currentUser) {
@@ -17995,6 +18044,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (s.notAllowed && currentUser) { hideModOverlay(); signOutWith(s.subscriptionEnded && s.reason ? s.reason : ACCESS_DENIED_MSG, true); return; }
     if (s.yourStats && typeof renderYourStats === 'function') renderYourStats(s.yourStats);
     if ('usage' in s) renderUsageMeter(s.usage);
+    if ('subscription' in s) renderSubStrip(s.subscription);
     if (s.assignedKeys && typeof s.assignedKeys === 'object') applyAssignedKeys(s.assignedKeys);
     if (typeof s.brandName === 'string') applyBrandName(s.brandName);
     if (typeof s.defaultTheme === 'string') maybeApplyServerDefaultTheme(s.defaultTheme);
@@ -18959,7 +19009,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const subsEl = b.querySelector('#gac-subs');
         const fmtDay = (ts) => new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric', year: new Date(ts).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
         let subsPeriod = '1m';
+        // <input type="datetime-local"> works in local time: "2026-10-01T09:30".
+        const localInput = (ts) => { const d = new Date(ts - new Date(ts).getTimezoneOffset() * 60e3); return d.toISOString().slice(0, 16); };
+        const fromLocalInput = (v) => { const t = new Date(v).getTime(); return Number.isFinite(t) ? t : null; };
+        const money = (n) => '$' + (Math.round(n * 100) / 100).toLocaleString([], { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+        const lastPaid = (s) => { const h = (s.history || []).filter((x) => x.amount > 0); return h.length ? h[h.length - 1].amount : 0; };
         const renderSubs = (d) => {
+          const ledger = Array.isArray(d.ledger) ? d.ledger : [];
+          const nowD = new Date();
+          const total = ledger.reduce((n, x) => n + (Number(x.amount) || 0), 0);
+          const month = ledger.filter((x) => { const t = new Date(x.at); return t.getFullYear() === nowD.getFullYear() && t.getMonth() === nowD.getMonth(); }).reduce((n, x) => n + (Number(x.amount) || 0), 0);
           const periods = d.periods || { '1m': '1 month' };
           const active = d.subscriptions.filter((s) => s.active);
           subsEl.innerHTML = `<p class="gps-hint">Add someone who paid for access. They can sign in right away, and when their time is up they’re signed out (“Your subscription has ended”) and taken off Allowed users. You get a phone alert 3 days before and when it ends.</p>`
@@ -18967,15 +19026,21 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             + `<form class="gac-subs-form" id="gac-subs-form" autocomplete="off">`
             + `<label>Username<input class="gpa-input" id="gac-subs-name" placeholder="e.g. renzo" spellcheck="false" autocapitalize="off" maxlength="40" required></label>`
             + `<label>Length<select class="gpa-input" id="gac-subs-period">${Object.entries(periods).map(([k, v]) => `<option value="${esc(k)}" ${k === subsPeriod ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>`
-            + `<label class="gac-subs-note-l">Note (optional)<input class="gpa-input" id="gac-subs-note" placeholder="$10 · Cash App" maxlength="120"></label>`
+            + `<label class="gac-subs-wide">Subscribed on<input class="gpa-input" id="gac-subs-start" type="datetime-local" value="${esc(localInput(Date.now()))}" max="${esc(localInput(Date.now() + 60e3))}"></label>`
+            + `<label>Paid ($, optional)<input class="gpa-input" id="gac-subs-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="10"></label>`
+            + `<label>Note (optional)<input class="gpa-input" id="gac-subs-note" placeholder="Cash App" maxlength="120"></label>`
+            + `<p class="gps-hint gac-subs-note-l">The end date counts from “Subscribed on”, so you can add someone who paid earlier. Renew uses the length and amount above.</p>`
             + `<button class="gps-btn primary" type="submit">Add subscriber</button></form>`
-            + (d.subscriptions.length ? `<p class="gps-hint gac-subs-count">${active.length} active${d.subscriptions.length > active.length ? ' · ' + (d.subscriptions.length - active.length) + ' ended' : ''}</p><ul class="gac-acct-list gac-subs-list">` + d.subscriptions.map((s) => {
+            + (ledger.length ? `<div class="gac-subs-totals"><div><b>${esc(money(month))}</b><span>this month</span></div><div><b>${esc(money(total))}</b><span>collected in all</span></div><div><b>${active.length}</b><span>active now</span></div></div>` : '')
+            + (d.subscriptions.length ? `<p class="gps-hint gac-subs-count"${ledger.length ? ' hidden' : ''}>${active.length} active${d.subscriptions.length > active.length ? ' · ' + (d.subscriptions.length - active.length) + ' ended' : ''}</p><ul class="gac-acct-list gac-subs-list">` + d.subscriptions.map((s) => {
               const soon = s.active && s.expiresAt - Date.now() <= 3 * 864e5;
               const badge = !s.active ? 'Ended' : s.daysLeft <= 1 ? 'Ends today' : s.daysLeft + ' days left';
               return `<li class="gac-acct gac-subscr${s.active ? '' : ' is-ended'}${soon ? ' is-soon' : ''}" data-user="${esc(s.user)}"><div class="gac-acct-top"><span class="gac-req-name">${esc(s.user)}</span><span class="gac-req-badge ${s.active && !soon ? 'pending' : ''}">${esc(badge)}</span></div>`
-                + `<div class="gac-req-meta">${s.active ? 'Since ' + esc(fmtDay(s.startedAt)) + ' · ends ' + esc(fmtDay(s.expiresAt)) : 'Ended ' + esc(fmtDay(s.endedAt || s.expiresAt))}${s.note ? ' · ' + esc(s.note) : ''}</div>`
+                + `<div class="gac-req-meta">${s.active ? 'Since ' + esc(fmtDay(s.startedAt)) + ' · ends ' + esc(fmtDay(s.expiresAt)) : 'Ended ' + esc(fmtDay(s.endedAt || s.expiresAt))}${lastPaid(s) ? ' · paid ' + esc(money(lastPaid(s))) : ''}${s.note ? ' · ' + esc(s.note) : ''}</div>`
                 + `<div class="gac-req-actions"><button class="gps-btn${s.active ? '' : ' primary'}" data-sub="renew" type="button">Renew +${esc(periods[subsPeriod] || '1 month')}</button>`
-                + (s.active ? '<button class="gps-btn" data-sub="end" type="button">End now</button>' : '<button class="gps-btn" data-sub="delete" type="button">Remove</button>') + `</div></li>`;
+                + `<button class="gps-btn" data-sub="editstart" type="button">Change start</button>`
+                + (s.active ? '<button class="gps-btn" data-sub="end" type="button">End now</button>' : '<button class="gps-btn" data-sub="delete" type="button">Remove</button>') + `</div>`
+                + `<form class="gac-subs-edit" hidden><label>Subscribed on<input class="gpa-input" type="datetime-local" value="${esc(localInput(s.startedAt))}" max="${esc(localInput(Date.now() + 60e3))}"></label><button class="gps-btn primary" type="submit">Save</button><button class="gps-btn" type="button" data-sub="canceledit">Cancel</button></form></li>`;
             }).join('') + `</ul>` : `<p class="gps-hint">No subscribers yet.</p>`);
           const form = subsEl.querySelector('#gac-subs-form');
           subsEl.querySelector('#gac-subs-period').addEventListener('change', (e) => { subsPeriod = e.target.value; subsEl.querySelectorAll('[data-sub="renew"]').forEach((x) => { x.textContent = 'Renew +' + (periods[subsPeriod] || '1 month'); }); });
@@ -18986,7 +19051,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             const btn = form.querySelector('button[type="submit"]');
             btn.disabled = true;
             try {
-              const r = await api('/admin/subscriptions', { method: 'POST', body: { action: 'add', user, period: subsPeriod, note: subsEl.querySelector('#gac-subs-note').value } });
+              const r = await api('/admin/subscriptions', { method: 'POST', body: { action: 'add', user, period: subsPeriod, note: subsEl.querySelector('#gac-subs-note').value, startedAt: fromLocalInput(subsEl.querySelector('#gac-subs-start').value), amount: subsEl.querySelector('#gac-subs-amount').value } });
               const s = r.subscriptions.find((x) => x.user.toLowerCase() === user.toLowerCase());
               showToast(user + ' is subscribed until ' + fmtDay(s.expiresAt) + '.');
               renderSubs(r);
@@ -19011,16 +19076,39 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           subsEl.addEventListener('click', async (e) => {
             const btn = e.target.closest('button[data-sub]');
             if (!btn) return;
-            const user = btn.closest('.gac-subscr').dataset.user, action = btn.dataset.sub;
+            const row = btn.closest('.gac-subscr');
+            const user = row.dataset.user, action = btn.dataset.sub;
+            if (action === 'editstart' || action === 'canceledit') {
+              const f = row.querySelector('.gac-subs-edit');
+              f.hidden = action === 'canceledit';
+              if (!f.hidden) f.querySelector('input').focus();
+              return;
+            }
             if (action === 'end' && !confirm('End ' + user + '’s subscription now? They’re signed out and can’t get back in until you renew it.')) return;
             if (action === 'delete' && !confirm('Remove ' + user + ' from the subscribers list? (Their access stays as Allowed users says.)')) return;
             btn.disabled = true;
             try {
-              const r = await api('/admin/subscriptions', { method: 'POST', body: { action, user, period: subsPeriod } });
+              const extra = action === 'renew' ? { amount: subsEl.querySelector('#gac-subs-amount').value, startedAt: fromLocalInput(subsEl.querySelector('#gac-subs-start').value), note: subsEl.querySelector('#gac-subs-note').value } : {};
+              const r = await api('/admin/subscriptions', { method: 'POST', body: { action, user, period: subsPeriod, ...extra } });
               const s = r.subscriptions.find((x) => x.user.toLowerCase() === user.toLowerCase());
               showToast(action === 'renew' ? user + ' is subscribed until ' + fmtDay(s.expiresAt) + '.' : action === 'end' ? user + '’s subscription ended.' : user + ' removed from subscribers.');
               renderSubs(r);
             } catch (err) { btn.disabled = false; showToast(err.message, { type: 'danger' }); }
+          });
+          subsEl.addEventListener('submit', async (e) => {
+            const f = e.target.closest('.gac-subs-edit');
+            if (!f) return;
+            e.preventDefault();
+            const user = f.closest('.gac-subscr').dataset.user;
+            const startedAt = fromLocalInput(f.querySelector('input').value);
+            const save = f.querySelector('button[type="submit"]');
+            save.disabled = true;
+            try {
+              const r = await api('/admin/subscriptions', { method: 'POST', body: { action: 'setstart', user, startedAt } });
+              const s = r.subscriptions.find((x) => x.user.toLowerCase() === user.toLowerCase());
+              showToast(s.active ? user + ' now runs until ' + fmtDay(s.expiresAt) + '.' : user + '’s subscription ended ' + fmtDay(s.expiresAt) + ' with that start date.');
+              renderSubs(r);
+            } catch (err) { save.disabled = false; showToast(err.message, { type: 'danger' }); }
           });
           loadSubs();
         }
