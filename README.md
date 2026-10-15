@@ -183,24 +183,30 @@ aren't signed in with the owner code or an owner session, the app asks for
 your admin token once to prove you are the owner; it isn't saved. The Worker
 then sends standard Web Push notifications straight to your iPhone:
 
-| Group | Alert | What it says |
-|---|---|---|
-| Chat | Public chat messages | `kj in #public`: the message (or "Sent a photo") |
-| Chat | Private room messages | `kj in #Study Group`: the message |
-| Chat | Mentions of you | `kj mentioned you in #public` when a message says `@yourname`; comes through during quiet hours |
-| Chat | Chat reports | Who reported whom, in which room, and the message |
-| People | Sign-ins | `kj signed in`: time, place and site (at most once per 10 minutes per user) |
-| People | New users and accounts | First sign-in of a new username, and new server accounts |
-| People | Waiting for your approval | A new user held by the approval queue |
-| People | Access requests | Someone not on your Allowed users list asked to get in, with their note; tapping opens Admin → Security |
-| People | Who's online (live) | Off by default. One alert, replaced as people come and go ("Joined: kj · Left: dub", who's on now), and the count as the app icon badge |
-| AI | AI request failures | Who, the error type and status, the reason (API keys are never included) |
-| AI | Rate limits and quotas reached | Who hit a rate limit or quota |
-| System | Worker errors | Unexpected Worker errors, with the route |
-| System | Security alerts | Sign-in lockouts, owner-name and identity spoofing, refused notification sign-ups |
-| System | Actions by your admins | What a moderator or admin (not you) did, and to whom |
-| System | Failed scheduled jobs | The nightly jobs, if one fails |
-| System | Daily summary | Once a day: people who used the console, new users, AI requests and failures, limits, security events |
+| Group | Alert | What it says | Tapping it opens |
+|---|---|---|---|
+| Chat | Public chat messages | `kj in #public`: the message (or "Sent a photo") | Chat, in #public |
+| Chat | Private room messages | `kj in #Study Group`: the message | Chat, in that room (if this phone joined it) |
+| Chat | Mentions of you | `kj mentioned you in #public` when a message says `@yourname`; comes through during quiet hours | Chat, in that room |
+| Chat | Chat reports | Who reported whom, in which room, and the message | Admin → Moderation, that report highlighted |
+| People | Sign-ins | `kj signed in`: time, place and site (at most once per 10 minutes per user) | kj's profile in Admin → Users |
+| People | New users and accounts | First sign-in of a new username, and new server accounts | Their profile |
+| People | Waiting for your approval | A new user held by the approval queue | Their profile, at the Approve button |
+| People | Access requests | Someone not on your Allowed users list asked to get in, with their note | Admin → Security, their request highlighted |
+| People | Who's online (live) | Off by default. One alert, replaced as people come and go ("Joined: kj · Left: dub", who's on now), and the count as the app icon badge | Admin → Users, "Seen today" |
+| AI | AI request failures | Who, the error type and status, the reason (API keys are never included) | Their profile, at **API key** (assign or replace their key right there) |
+| AI | Rate limits and quotas reached | Who hit a rate limit or quota | Their profile, at **Quota overrides** |
+| System | Worker errors | Unexpected Worker errors, with the route | Admin → Developer (diagnostics) |
+| System | Security alerts | Wrong PINs, second sign-ins, sign-in lockouts, owner-name and identity spoofing, refused notification sign-ups | Admin → Security at that name's Allowed users row (wrong PIN, second device) or Access requests (unlisted name); the person's profile for spoofing |
+| System | Actions by your admins | What a moderator or admin (not you) did, and to whom | Admin → Audit log |
+| System | Failed scheduled jobs | The nightly jobs, if one fails | Admin → Automation, that job |
+| System | Daily summary | Once a day: people who used the console, new users, AI requests and failures, limits, security events | Admin → Overview |
+| — | Test notification | "Notifications are working" | Settings → Account → Phone notifications |
+
+The spot a notification opens is outlined for a moment so it's easy to find.
+Admin keeps its token in memory only, so if the app was closed, a tap on an
+Admin notification first shows the Admin connect screen; after you connect it
+goes straight to the right spot.
 
 **Quiet hours** hold ordinary alerts between the hours you pick; errors,
 security alerts and mentions still come through.
@@ -213,7 +219,7 @@ minutes by cron (see `triggers` in `wrangler.jsonc`, which also keeps the
 daily job at 05:00 UTC), and does nothing unless a phone has it switched on.
 
 Each kind has its own switch. **Send a test notification** checks delivery,
-and tapping a notification opens the app on the right tab. Your own chats and
+and tapping a notification opens the app on its spot (table above). Your own chats and
 AI requests never notify you. Times use `America/New_York` unless the Worker
 variable `OWNER_TZ` says otherwise.
 

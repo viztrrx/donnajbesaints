@@ -93,6 +93,15 @@ into KV `push:vapid`), `OWNER_TZ`, `CONSOLE_SCRIPT_URL`, `AUDIUS_API`,
 
 All on `main`. Each has tests; see section 6.
 
+0. **Notification deep links**: every `notify()` carries a link built by
+   `appLink(tab, params)` / `adminLink(sec, params)` in `worker.js`, e.g.
+   `/console/#tab=admin&sec=users&user=renzo&focus=key`. In `script.js`,
+   `openTabFromUrl` parses it; Admin links go to `adminDeepLink` → `goToLink`
+   (opens the profile/section, waits for the target with `whenEl`, outlines
+   it with `flashEl`; if Admin isn't connected it opens the connect screen
+   and continues after `connect()`). The user inspector has an **API key**
+   card (`#gac-insp-key`, uses `/admin/assignkey`). Test:
+   `tests/browser/notification-links.mjs`.
 0. **One sign-in per name** (Allowed users on): listed non-owner names are
    only usable through a PIN-checked server session (`effectiveUser` refuses
    bare names with `sessionRequired`), only the newest session is honored
@@ -190,7 +199,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (62 tests)
+npm test                                   # node --test tests/*.test.mjs (63 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -199,6 +208,7 @@ node tests/browser/allowlist.mjs           # 6
 node tests/browser/access-requests.mjs     # 12 (+ screenshots of every step)
 node tests/browser/music.mjs               # 15 (+ screenshots)
 node tests/browser/one-session.mjs         # 15 (impostor scenarios + screenshots)
+node tests/browser/notification-links.mjs  # 14 (every notification tap lands on its spot)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 

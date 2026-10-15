@@ -723,7 +723,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       music: ['redesign', 'Search Audius (free full songs) and the shared library, owner/admin uploads, one now-playing bar with lock-screen controls'] } },
     { at: '2026-10-15T23:30:00-04:00', commit: '', title: 'One sign-in per name: allowed usernames can’t be borrowed', parts: {
       console: ['feature', 'With Allowed users on, signing in checks your PIN on the server first; a name already signed in on another device is refused, and an older device is signed out'],
-      admin: ['feature', 'Security → Allowed users shows whether each name has a PIN and is signed in, with Sign out and Reset PIN'] } }
+      admin: ['feature', 'Security → Allowed users shows whether each name has a PIN and is signed in, with Sign out and Reset PIN'] } },
+    { at: '2026-10-16T01:00:00-04:00', commit: '', title: 'Notifications open their exact spot', parts: {
+      admin: ['feature', 'A tap opens the person’s profile (API key, quota or Approve), the access request, the Allowed users row, the report or the job, highlighted; each profile can assign an API key'],
+      chat: ['feature', 'Chat notifications open the room the message was in'],
+      theme: ['fix', 'The test notification opens Phone notifications'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1983,6 +1987,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gac-acct { padding: 10px 12px; }
       .gac-acct + .gac-acct { border-top: 1px solid var(--gpa-border); }
       .gac-acct-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+      /* ---- Landing spot of a notification tap ---- */
+      .gpa-flash { outline: 2px solid var(--gpa-accent); outline-offset: -2px; border-radius: var(--gps-r2, 12px); animation: gpaFlash 1.2s ease-out 2; }
+      @keyframes gpaFlash { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gpa-accent) 45%, transparent); } 100% { box-shadow: 0 0 0 12px transparent; } }
+      @media (prefers-reduced-motion: reduce) { .gpa-flash { animation: none; } }
 
       /* ---- Owner phone notifications (Settings → Account) ---- */
       .gpa-push { display: flex; flex-direction: column; gap: 10px; }
@@ -11483,6 +11492,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
   }
 
+  // A chat notification (#tab=chat&room=…) lands in that room, if this
+  // device has joined it.
+  function openChatRoomFromLink(id) {
+    if (![...chatRoomSel.options].some((o) => o.value === id)) return;
+    chatRoomSel.value = id;
+    if (chatRoom !== id) switchChatRoom(id);
+  }
+
   function switchChatRoom(id) {
     chatRoom = id;
     chatSince = 0;
@@ -17590,6 +17607,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // "use a better model" suggestion so it only reaches whoever can act on it.
   let ownerMode = false;
   let openCommandCenter = null; // set by the Admin Command Center module
+  let adminDeepLink = null;     // same module: opens a notification's Admin spot
   let modelHintShown = false;
 
   // ---- "Answered by" attribution -------------------------------------------
@@ -18095,18 +18113,64 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
   })();
 
-  // A notification tap opens the app on its tab (/console/#tab=chat etc.).
+  // A notification tap opens the app on its exact spot: a tab, a section in
+  // it, and for Admin a person's profile, a report, a request or the card
+  // that fixes the problem, e.g. /console/#tab=admin&sec=users&user=renzo&focus=key
+  // (links are made by appLink in worker.js).
+  function linkParams(href) {
+    const h = String(href == null ? location.hash : href);
+    const frag = h.includes('#') ? h.slice(h.indexOf('#') + 1) : h;
+    const out = {};
+    frag.split('&').forEach((kv) => {
+      const i = kv.indexOf('=');
+      if (i > 0) { try { out[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)).slice(0, 80); } catch (e) { /* bad escape */ } }
+    });
+    return out;
+  }
+  // Waits for something a section renders asynchronously (null after ms).
+  function whenEl(find, ms) {
+    return new Promise((done) => {
+      const t0 = Date.now();
+      (function look() {
+        let el = null;
+        try { el = find(); } catch (e) { el = null; }
+        if (el) return done(el);
+        if (Date.now() - t0 > (ms || 8000)) return done(null);
+        setTimeout(look, 150);
+      })();
+    });
+  }
+  // Scrolls to the spot and briefly outlines it so the eye finds it.
+  function flashEl(el) {
+    if (!el) return;
+    // An instant jump: a smooth scroll gets cut short when the section is
+    // still settling (cards loading above it). Checked again once it has.
+    el.scrollIntoView({ block: 'center' });
+    setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      if (el.isConnected && (r.top < 0 || r.bottom > window.innerHeight)) el.scrollIntoView({ block: 'center' });
+    }, 600);
+    el.classList.remove('gpa-flash');
+    void el.offsetWidth;
+    el.classList.add('gpa-flash');
+    setTimeout(() => el.classList.remove('gpa-flash'), 4000);
+  }
   function openTabFromUrl(href) {
-    const m = /[#&]tab=([a-z]+)/.exec(href || location.hash);
-    const item = m && panel.querySelector(`.gpa-dropdown-item[data-tab="${m[1]}"]`);
-    if (item && item.style.display !== 'none') item.click();
-    // …and a section inside it (e.g. #tab=admin&sec=security).
-    const sec = /[#&]sec=([a-z]+)/.exec(href || location.hash);
-    if (item && sec) setTimeout(() => { const t = panel.querySelector(`[data-asec="${sec[1]}"].gps-tab, .gps-tab[data-sec="${sec[1]}"]`); if (t && !t.hidden) t.click(); }, 300);
+    const p = linkParams(href);
+    // Handled once: a later manual reload shouldn't jump there again.
+    if (href == null && location.hash) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ } }
+    if (!/^[a-z]+$/.test(p.tab || '')) return;
+    if (p.tab === 'admin' && adminDeepLink) { adminDeepLink(p); return; }
+    const item = panel.querySelector(`.gpa-dropdown-item[data-tab="${p.tab}"]`);
+    if (!item || item.style.display === 'none') return;
+    item.click();
+    if (p.tab === 'chat' && p.room) openChatRoomFromLink(p.room);
+    if (/^[a-z]+$/.test(p.sec || '')) setTimeout(() => { const t = panel.querySelector(`.gps-tab[data-sec="${p.sec}"]`); if (t && !t.hidden) t.click(); }, 300);
+    if (p.focus === 'push') whenEl(() => { const c = panel.querySelector('#gpa-push-card'); return c && c.offsetParent ? c : null; }).then(flashEl);
   }
   if (APP_MODE) {
-    setTimeout(() => openTabFromUrl(location.hash), 0);
-    onWin('hashchange', () => openTabFromUrl(location.hash));
+    setTimeout(() => openTabFromUrl(), 0);
+    onWin('hashchange', () => openTabFromUrl());
     if (navigator.serviceWorker) {
       navigator.serviceWorker.addEventListener('message', (e) => {
         if (e.data && e.data.type === 'agent-console-open') openTabFromUrl(e.data.url);
@@ -18461,7 +18525,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
     // ---- Tiny rendering helpers (all data is escaped) ----
     const kpi = (label, value, detail, tone) => `<div class="gac-kpi ${tone || ''}"><div class="gac-kpi-k">${esc(label)}</div><div class="gac-kpi-v">${esc(value)}</div>${detail ? `<div class="gac-kpi-d">${esc(detail)}</div>` : ''}</div>`;
-    const card = (title, inner, icon) => `<section class="gpa-card gpx-card gac-card"><div class="gpx-card-head">${icon ? GPS_ICONS[icon] || '' : ''}<div class="gpa-card-title">${esc(title)}</div></div>${inner}</section>`;
+    const card = (title, inner, icon, id) => `<section ${id ? 'id="' + id + '" ' : ''}class="gpa-card gpx-card gac-card"><div class="gpx-card-head">${icon ? GPS_ICONS[icon] || '' : ''}<div class="gpa-card-title">${esc(title)}</div></div>${inner}</section>`;
     const empty = (title, desc) => gpxEmpty({ icon: 'overview', title, desc, cls: 'gac-empty' });
     function bars(series, key, opts) {
       opts = opts || {};
@@ -18657,7 +18721,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           + (Object.keys(types).length ? '' : kpi('Security events', '0', 'last 7 days')) + `</div>`
           + `<div class="gpx-split"><div class="gpx-main">`
           + card('Events per day', bars(d.days, 'total', { label: 'Security events', cls: 'is-bad', emptyText: 'No security events in the last 7 days.' }), 'advanced')
-          + card('Recent events', d.recent.length ? `<div class="gac-table" role="table" aria-label="Recent security events"><div role="row" class="gac-tr gac-th"><span role="columnheader">When</span><span role="columnheader">Event</span><span role="columnheader">User</span><span role="columnheader">Route</span><span role="columnheader">Source</span></div>${d.recent.slice(0, 60).map((e) => `<div role="row" class="gac-tr"><span role="cell">${esc(when(e.ts))}</span><span role="cell">${esc(LABEL[e.type] || e.type)}${e.note ? ' <em>' + esc(e.note) + '</em>' : ''}</span><span role="cell">${esc(e.user || '—')}</span><span role="cell"><code>${esc(e.path || '')}</code></span><span role="cell"><code>${esc(e.ip || '')}</code></span></div>`).join('')}</div>` : empty('No security events', 'Failed sign-ins, lockouts, spoofed names and rate limits show up here.'), 'note')
+          + card('Recent events', d.recent.length ? `<div class="gac-table" role="table" aria-label="Recent security events"><div role="row" class="gac-tr gac-th"><span role="columnheader">When</span><span role="columnheader">Event</span><span role="columnheader">User</span><span role="columnheader">Route</span><span role="columnheader">Source</span></div>${d.recent.slice(0, 60).map((e) => `<div role="row" class="gac-tr"><span role="cell">${esc(when(e.ts))}</span><span role="cell">${esc(LABEL[e.type] || e.type)}${e.note ? ' <em>' + esc(e.note) + '</em>' : ''}</span><span role="cell">${esc(e.user || '—')}</span><span role="cell"><code>${esc(e.path || '')}</code></span><span role="cell"><code>${esc(e.ip || '')}</code></span></div>`).join('')}</div>` : empty('No security events', 'Failed sign-ins, lockouts, spoofed names and rate limits show up here.'), 'note', 'gac-sec-events')
           + `</div><aside class="gpx-side">`
           + card('Sessions', `<ul class="gac-health"><li class="ok"><i></i><span>Accounts</span><em>${num(d.sessions.accounts)}</em></li><li class="ok"><i></i><span>Signed-in sessions</span><em>${num(d.sessions.active)}</em></li><li class="${d.sessions.disabled ? 'bad' : 'ok'}"><i></i><span>Disabled accounts</span><em>${num(d.sessions.disabled)}</em></li><li class="ok"><i></i><span>Active lockouts</span><em>${num(Object.values(d.lockouts).reduce((a, x) => a + x, 0))}</em></li></ul>`, 'users')
           + card('Policy', `<ul class="gac-health">`
@@ -18750,7 +18814,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const filt = state.repFilter || 'open';
         const list = d.reports.filter((r) => filt === 'all' || r.status === filt);
         b.innerHTML = `<div class="gps-seg gpx-seg-inline" role="group" aria-label="Report status">${['open', 'resolved', 'dismissed', 'all'].map((f) => `<button class="gps-seg-btn gac-rf ${f === filt ? 'primary' : ''}" data-rf="${f}" aria-pressed="${f === filt}">${f[0].toUpperCase() + f.slice(1)}</button>`).join('')}</div>`
-          + (list.length ? `<div class="gac-reports">${list.map((r) => `<article class="gac-report"><header><b>${esc(r.msgUser)}</b> in <code>#${esc(r.room)}</code><time>${esc(when(r.msgTs))}</time><span class="gac-badge ${r.status === 'open' ? 'warn' : 'off'}">${esc(r.status)}</span></header>`
+          + (list.length ? `<div class="gac-reports">${list.map((r) => `<article class="gac-report" data-report="${esc(r.id)}"><header><b>${esc(r.msgUser)}</b> in <code>#${esc(r.room)}</code><time>${esc(when(r.msgTs))}</time><span class="gac-badge ${r.status === 'open' ? 'warn' : 'off'}">${esc(r.status)}</span></header>`
             + `<blockquote></blockquote><p class="gps-hint">Reported by ${esc(r.reporter)}${r.reason ? ': ' + esc(r.reason) : ''}${r.resolution ? ' · ' + esc(r.resolution) + (r.resolvedBy ? ' by ' + esc(r.resolvedBy) : '') : ''}</p>`
             + (r.status === 'open' && can('moderation.manage') ? `<div class="gps-row"><button class="gps-btn gps-btn-danger" data-rep="${esc(r.id)}" data-ra="delete_message">Delete message</button><button class="gps-btn" data-rep="${esc(r.id)}" data-ra="resolve">Resolve</button><button class="gps-btn" data-rep="${esc(r.id)}" data-ra="dismiss">Dismiss</button><button class="gps-btn" data-open-user="${esc(r.msgUser)}">Open user</button></div>` : '')
             + `</article>`).join('')}</div>` : empty(filt === 'open' ? 'No open reports' : 'Nothing here', 'Signed-in users can report chat messages. Reports land here for review.'))
@@ -18948,19 +19012,24 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         + `<div class="gpx-split"><div class="gpx-main">`
         + card('Usage, last 14 days', bars(d.usage, 'requests', { label: 'Requests' }) + `<p class="gps-hint">${num(d.usage.reduce((n, x) => n + x.requests, 0))} requests · ${num(d.usage.reduce((n, x) => n + x.failures, 0))} failed · ${num(d.usage.reduce((n, x) => n + x.tokensIn + x.tokensOut, 0))} tokens</p>`, 'ai')
         + card('Sessions', d.account && d.account.sessions.length ? `<ul class="gac-rank">${d.account.sessions.map((s) => `<li><span>Signed in ${esc(when(s.createdAt))}</span><span>${s.country && s.country !== '??' ? esc(s.country) + ' · ' : ''}${esc((s.ua || '').slice(0, 40))}</span></li>`).join('')}</ul>` : '<p class="gps-hint">No server sessions.</p>', 'account')
-        + card('Security events', d.security.length ? `<ul class="gac-rank">${d.security.map((e) => `<li><span>${esc(e.type)}</span><span>${esc(when(e.ts))}</span></li>`).join('')}</ul>` : '<p class="gps-hint">None in the last 7 days.</p>', 'advanced')
+        + card('Security events', d.security.length ? `<ul class="gac-rank">${d.security.map((e) => `<li><span>${esc(e.type)}</span><span>${esc(when(e.ts))}</span></li>`).join('')}</ul>` : '<p class="gps-hint">None in the last 7 days.</p>', 'advanced', 'gac-insp-sec')
         + card('Audit history', d.audit.length ? `<ol class="gac-timeline">${d.audit.map((e) => `<li><time>${esc(ago(e.ts))}</time><b>${esc(e.action)}</b><em>${esc(e.actor || e.admin || '')}</em></li>`).join('')}</ol>` : '<p class="gps-hint">No admin actions on this user.</p>', 'note')
         + `</div><aside class="gpx-side">`
+        // Their own OpenAI key, applied on the Worker (they never see it).
+        // An "AI request failed" notification opens the profile right here.
+        + (can('keys.manage') ? card('API key', `<p class="gps-hint">${d.assignedKey ? 'An OpenAI key is assigned to ' + esc(d.user) + '. It stays on the Worker; they never see it.' : 'No key assigned to ' + esc(d.user) + ' yet. Paste one to cover their AI requests.'}</p>`
+          + `<div class="gac-form"><label>OpenAI key<input class="gpa-input" id="gac-key-input" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="sk-…"></label>`
+          + `<div class="gac-actions"><button class="gps-btn primary" data-key="assign" type="button">${d.assignedKey ? 'Replace key' : 'Assign key'}</button>${d.assignedKey ? '<button class="gps-btn" data-key="remove" type="button">Remove key</button>' : ''}</div></div>`, 'key', 'gac-insp-key') : '')
         + card('Permissions', `<p class="gps-hint">${d.perms.length ? esc(d.perms.includes('*') ? 'Everything (owner)' : d.perms.join(', ')) : 'Standard user'}</p>`
           + (isOwner() && d.account && d.role !== 'owner' ? `<label class="gac-inline">Role <select class="gpa-input" id="gac-role">${['user', 'moderator', 'admin'].map((r) => `<option ${r === d.role ? 'selected' : ''}>${r}</option>`).join('')}</select></label><button class="gps-btn" data-ua="setrole">Change role</button>` : ''), 'advanced')
         + card('Memory', d.memory ? `<p class="gps-hint">${num(d.memory.total)} memories (${num(d.memory.inferred)} inferred) · ${d.memory.enabled ? 'on' : 'off'}${d.memory.paused ? ', paused' : ''} · ${num(d.memory.projects)} projects</p>` : '<p class="gps-hint">No memories.</p>', 'book')
-        + card('Quota overrides', `<div class="gac-form"><label>Daily (0 = default)<input class="gpa-input" type="number" min="0" data-q="quotaDaily" value="${esc(m.quotaDaily || 0)}"></label><label>Monthly<input class="gpa-input" type="number" min="0" data-q="quotaMonthly" value="${esc(m.quotaMonthly || 0)}"></label><label>Per minute<input class="gpa-input" type="number" min="0" data-q="rpm" value="${esc(m.rpm || 0)}"></label><label>Allowed models<input class="gpa-input" data-q="allowedModels" value="${esc((m.allowedModels || []).join(', '))}"></label><button class="gps-btn" data-ua="quota" ${can('ai.manage') ? '' : 'disabled'}>Save quota</button></div>`, 'controls')
+        + card('Quota overrides', `<div class="gac-form"><label>Daily (0 = default)<input class="gpa-input" type="number" min="0" data-q="quotaDaily" value="${esc(m.quotaDaily || 0)}"></label><label>Monthly<input class="gpa-input" type="number" min="0" data-q="quotaMonthly" value="${esc(m.quotaMonthly || 0)}"></label><label>Per minute<input class="gpa-input" type="number" min="0" data-q="rpm" value="${esc(m.rpm || 0)}"></label><label>Allowed models<input class="gpa-input" data-q="allowedModels" value="${esc((m.allowedModels || []).join(', '))}"></label><button class="gps-btn" data-ua="quota" ${can('ai.manage') ? '' : 'disabled'}>Save quota</button></div>`, 'controls', 'gac-insp-quota')
         + card('Actions', `<div class="gac-actions">`
           + (can('moderation.manage') ? `<button class="gps-btn" data-mod="${st.state === 'blocked' ? 'unblock' : 'block'}">${st.state === 'blocked' ? 'Unblock' : 'Block'}</button><button class="gps-btn" data-mod="mute" data-hours="1">Mute 1 hour</button><button class="gps-btn" data-mod="warn">Warn</button><button class="gps-btn" data-mod="${m.aiFrozen ? 'unfreezeai' : 'freezeai'}">${m.aiFrozen ? 'Unfreeze AI' : 'Freeze AI'}</button>${m.pending ? '<button class="gps-btn" data-mod="approve">Approve</button>' : ''}<button class="gps-btn" data-mod="kick">Sign out now</button>` : '')
           + (d.account && can('users.manage') ? '<button class="gps-btn" data-ua="revokesessions">Revoke sessions</button>' : '')
           + (d.account && can('users.suspend') ? `<button class="gps-btn" data-ua="${d.account.disabled ? 'enable' : 'disable'}">${d.account.disabled ? 'Enable account' : 'Disable account'}</button>` : '')
           + (can('users.delete') ? '<button class="gps-btn gps-btn-danger" data-ua="delete">Delete user…</button>' : '')
-          + `</div>`, 'users')
+          + `</div>`, 'users', 'gac-insp-actions')
         + `</aside></div>`;
       box.querySelector('#gac-insp-close').addEventListener('click', () => { box.hidden = true; state.inspecting = null; });
       box.querySelectorAll('[data-ua]').forEach((b) => b.addEventListener('click', async () => {
@@ -18976,7 +19045,75 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         try { await api('/admin/moderate', { method: 'POST', body: { user: key, action: b.dataset.mod, hours: b.dataset.hours } }); showToast('Done.'); openUser(key); }
         catch (e) { showToast(e.message, { type: 'danger' }); }
       }));
+      box.querySelectorAll('[data-key]').forEach((b) => b.addEventListener('click', async () => {
+        const input = box.querySelector('#gac-key-input');
+        const val = b.dataset.key === 'remove' ? '' : String(input.value || '').trim();
+        if (b.dataset.key === 'assign' && !/^sk-[A-Za-z0-9_-]{16,}$/.test(val)) { showToast('Paste an OpenAI key (it starts with sk-).', { type: 'danger' }); input.focus(); return; }
+        if (b.dataset.key === 'remove' && !confirm('Remove the key assigned to ' + d.user + '?')) return;
+        b.disabled = true;
+        try {
+          await api('/admin/assignkey', { method: 'POST', body: { user: key, key: val } });
+          input.value = '';
+          showToast(val ? 'Key assigned to ' + d.user + '.' : 'Key removed from ' + d.user + '.');
+          openUser(key);
+        } catch (e) { b.disabled = false; showToast(e.message, { type: 'danger' }); }
+      }));
     }
+
+    // ---- Notification deep links (#tab=admin&sec=…&user=…&focus=…) ----
+    // A tap on an owner notification lands on its spot. If Admin isn't
+    // connected yet (the token lives in memory only), it opens the connect
+    // screen and goes there right after connecting.
+    let pendingLink = null;
+    let linkTicket = 0, landKeep = 0;
+    const byUser = (sel, user) => [...gac.querySelectorAll(sel)].find((el) => String(el.dataset.user || '').toLowerCase() === user) || null;
+    async function goToLink(p) {
+      const sec = SECTIONS.some((s) => s.id === p.sec) ? p.sec : 'overview';
+      const user = /^[A-Za-z0-9_.-]{1,40}$/.test(p.user || '') ? p.user.toLowerCase() : '';
+      state.section = sec;   // so opening the pane renders this section first
+      if (pane && !pane.classList.contains('active')) navItem.click();
+      // Sections can redraw right after opening (the pane's own refresh), which
+      // replaces the element; keep finding it so the outline stays visible.
+      // A newer tap takes over: the previous landing stops following its spot.
+      const ticket = ++linkTicket;
+      clearInterval(landKeep);
+      gac.querySelectorAll('.gpa-flash').forEach((x) => x.classList.remove('gpa-flash'));
+      const land = async (find) => {
+        let el = await whenEl(() => (ticket === linkTicket ? find() : null));
+        if (!el || ticket !== linkTicket) return;
+        flashEl(el);
+        const t0 = Date.now();
+        landKeep = setInterval(() => {
+          if (ticket !== linkTicket || Date.now() - t0 > 6000) { clearInterval(landKeep); return; }
+          if (!el.isConnected) { const again = find(); if (again) { el = again; flashEl(el); } }
+        }, 150);
+      };
+      if (sec === 'users' && user) {
+        await openUser(user);
+        const box = $a('#gac-inspector');
+        const id = { key: 'gac-insp-key', quota: 'gac-insp-quota', actions: 'gac-insp-actions', security: 'gac-insp-sec' }[p.focus];
+        await land(id ? () => box.querySelector('#' + id) : () => box);
+        return;
+      }
+      if (sec === 'users' && ['all', 'active', 'accounts', 'flagged'].includes(p.filter)) state.userFilter = p.filter;
+      await showAdminSection(sec);
+      if (sec === 'security' && p.focus === 'requests') {
+        await land(() => {
+          const box = gac.querySelector('#gac-access-req');
+          if (!box || /Loading/.test(box.textContent)) return null;   // requests load after the section
+          return (user && byUser('.gac-req', user)) || box.closest('.gac-card');
+        });
+      }
+      else if (sec === 'security' && p.focus === 'allow') await land(() => (user && byUser('.gac-acct', user)) || gac.querySelector('#gac-sec-events'));
+      else if (sec === 'security' && p.focus === 'events') await land(() => gac.querySelector('#gac-sec-events'));
+      else if (sec === 'moderation' && p.report) await land(() => [...gac.querySelectorAll('.gac-report')].find((a) => a.dataset.report === p.report));
+      else if (sec === 'automation' && p.job) await land(() => { const b = [...gac.querySelectorAll('[data-runjob]')].find((x) => x.dataset.runjob === p.job); return b && b.closest('.gac-job'); });
+    }
+    adminDeepLink = (p) => {
+      pendingLink = p;
+      if (state.who) { pendingLink = null; refreshNav(); goToLink(p); return; }
+      if (openCommandCenter) openCommandCenter();   // connects, or shows the connect screen
+    };
     gac.addEventListener('click', (e) => {
       const u = e.target.closest('[data-open-user]');
       if (u) { openUser(u.dataset.openUser.toLowerCase()); return; }
@@ -19137,6 +19274,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       applyPerms();
       refreshNav();
       try { const cv = await api('/admin/config/view'); state.cfg = cv.config; } catch (e) { /* not every role can read config */ }
+      if (pendingLink) { const p = pendingLink; pendingLink = null; goToLink(p); return true; }
       if (pane.classList.contains('active')) showAdminSection(state.section);
       return true;
     }

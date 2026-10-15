@@ -400,6 +400,16 @@ async function runJob(kv, id, trigger) {
 // minute from heartbeats, and every 5 minutes by cron so departures show up
 // even when nobody is sending heartbeats. Costs nothing unless a device has
 // "Who's online" switched on.
+// Where tapping an owner notification lands in the home-screen app: a tab,
+// an Admin section, and optionally a person (their profile), a card to
+// scroll to (focus), a report or a chat room. Read by openTabFromUrl in
+// script.js, e.g. /console/#tab=admin&sec=users&user=renzo&focus=key.
+function appLink(tab, params) {
+  const q = Object.entries(params || {}).filter(([, v]) => v != null && v !== '').map(([k, v]) => '&' + k + '=' + encodeURIComponent(String(v).slice(0, 80))).join('');
+  return '/console/#tab=' + tab + q;
+}
+const adminLink = (sec, params) => appLink('admin', { sec, ...(params || {}) });
+
 async function checkPresence(env, ownerName, origin, { force = false } = {}) {
   const kv = env && env.TELEMETRY;
   if (!kv || !(await anySubscriberWants(env, 'presence'))) return null;
@@ -428,7 +438,7 @@ async function checkPresence(env, ownerName, origin, { force = false } = {}) {
   const list = now.length ? now.slice(0, 12).join(', ') + (now.length > 12 ? ` +${now.length - 12} more` : '') : 'Nobody is using the console right now.';
   const change = [joined.length ? 'Joined: ' + joined.join(', ') : '', left.length ? 'Left: ' + left.join(', ') : ''].filter(Boolean).join(' · ');
   await notifyOwner(env, {
-    cat: 'presence', tag: 'presence', badge: now.length, silent: true, url: '/console/#tab=admin',
+    cat: 'presence', tag: 'presence', badge: now.length, silent: true, url: adminLink('users', { filter: 'active' }),
     title: now.length === 1 ? '1 person online' : `${now.length} people online`,
     body: (change ? change + '\n' : '') + list
   }, origin);
@@ -459,7 +469,7 @@ async function sendDailyDigest(env) {
   try { const sec = await kv.get('sec:' + day, 'json'); if (sec && sec.counts) secEvents = Object.values(sec.counts).reduce((a, b) => a + b, 0); } catch (e) { /* none */ }
   const parts = [`${active} ${active === 1 ? 'person' : 'people'} used the console`, `${fresh} new`, `${n} AI requests` + (fail ? ` (${fail} failed)` : ''),
     rl ? `${rl} hit a limit` : '', secEvents ? `${secEvents} security events` : ''].filter(Boolean);
-  return notifyOwner(env, { cat: 'digest', title: 'Daily summary', body: parts.join(' · ') + '.', url: '/console/#tab=admin' });
+  return notifyOwner(env, { cat: 'digest', title: 'Daily summary', body: parts.join(' · ') + '.', url: adminLink('overview') });
 }
 
 // Who made each /v1 (AI) request, so the fetch wrapper can tell the owner
@@ -478,7 +488,9 @@ async function reportAiFailure(req, res, env, ctx) {
   } catch (e) { /* non-JSON upstream body */ }
   const isLimit = res.status === 429 || /rate_limit|quota/.test(type);
   const p = notifyOwner(env, { cat: isLimit ? 'limits' : 'aierror', title: (isLimit ? 'Limit reached: ' : 'AI request failed: ') + user,
-    body: `${type} (${res.status}) · ${message} · ${ownerTime(env)}`, url: '/console/#tab=admin',
+    // Their profile, opened on the card that fixes it: the API key for a
+    // failure, the quota for a limit.
+    body: `${type} (${res.status}) · ${message} · ${ownerTime(env)}`, url: adminLink('users', { user, focus: isLimit ? 'quota' : 'key' }),
     throttle: { key: 'ai:' + String(user).toLowerCase() + ':' + type, seconds: 300 } }, new URL(req.url).origin);
   if (ctx && ctx.waitUntil) ctx.waitUntil(p);
 }
@@ -504,7 +516,7 @@ export default {
       queueEvent(env,ctx,'backend',3);
       try {
         const path = new URL(req.url).pathname;
-        const p = notifyOwner(env, { cat: 'error', title: 'Worker error', urgent: true,
+        const p = notifyOwner(env, { cat: 'error', title: 'Worker error', urgent: true, url: adminLink('developer'),
           body: `${req.method} ${path} · ${String((err && err.message) || err).slice(0, 160)} · ${ownerTime(env)}`,
           throttle: { key: 'err:' + path, seconds: 300 } }, new URL(req.url).origin);
         if (ctx && ctx.waitUntil) ctx.waitUntil(p);
@@ -537,7 +549,7 @@ export default {
     // can show the schedule and compute the next run.
     ctx.waitUntil((async () => {
       try { await kv.put('job:cron', JSON.stringify({ cron: event.cron || null, ts: Date.now() })); } catch (e) { /* best-effort */ }
-      for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron');if(!r.ok){queueEvent(env,ctx,'jobs',3);await notifyOwner(env,{cat:'jobs',title:'Scheduled job failed',body:`${id} · ${String(r.detail||'no detail').slice(0,160)} · ${ownerTime(env)}`});}}
+      for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron');if(!r.ok){queueEvent(env,ctx,'jobs',3);await notifyOwner(env,{cat:'jobs',title:'Scheduled job failed',url:adminLink('automation',{job:id}),body:`${id} · ${String(r.detail||'no detail').slice(0,160)} · ${ownerTime(env)}`});}}
       try { await sendDailyDigest(env); } catch (e) { /* the summary is best-effort */ }
     })());
   }
@@ -800,7 +812,12 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           identity_mismatch: 'A signed-in account claimed another username', push_subscribe_denied: 'A non-owner tried to turn on owner notifications',
           login_disabled: 'A disabled account tried to sign in', not_allowed: 'Someone not on your allowed-users list tried to get in',
           login_failed: 'Wrong PIN for this name', signin_in_use: 'A second device tried to sign in while this name is already signed in' }[type] || type;
-        notify({ cat: 'security', title: 'Security alert', body: `${what} (${who}) · ${ownerTime(env)}`, urgent: true,
+        const named = detail && detail.user ? who : '';
+        const link = type === 'not_allowed' ? adminLink('security', { focus: 'requests', user: named })
+          : /login_failed|signin_in_use|lockout/.test(type) ? adminLink('security', { focus: 'allow', user: named })
+            : named && /identity_mismatch|login_disabled|owner_claim/.test(type) ? adminLink('users', { user: named, focus: 'security' })
+              : adminLink('security', { focus: 'events' });
+        notify({ cat: 'security', title: 'Security alert', body: `${what} (${who}) · ${ownerTime(env)}`, urgent: true, url: link,
           throttle: { key: 'sec:' + type + ':' + who, seconds: 600 } });
       }
     };
@@ -903,7 +920,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         if (rec.result === 'ok' && !['diagnostics','key_test','auth_failed','forbidden'].includes(rec.action)) queueEvent(env,ctx,'audit',2);
         if (p && p.role && p.role !== 'owner' && rec.result === 'ok' && !['diagnostics','key_test','auth_failed','forbidden','view','export'].includes(rec.action)) {
           notify({ cat: 'admin', title: (rec.actor || p.role) + ': ' + String(rec.action).replace(/_/g, ' '),
-            body: (rec.target ? 'Target: ' + rec.target + ' · ' : '') + p.role + ' · ' + ownerTime(env, ts), url: '/console/#tab=admin',
+            body: (rec.target ? 'Target: ' + rec.target + ' · ' : '') + p.role + ' · ' + ownerTime(env, ts), url: adminLink('audit'),
             throttle: { key: 'admin:' + rec.actor + ':' + rec.action + ':' + rec.target, seconds: 120 } });
         }
       } catch (e) { /* auditing must never block the real action */ }
@@ -1374,7 +1391,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const acct = { user, verifier: await sha256hex(salt + '|' + verifier), salt, role: 'user', ownerVerified, createdAt: Date.now(), epoch: 0, sessions: [] };
         const s = await issue(acct);
         await noteSec('account_created', { user });
-        if (userLower !== OWNER) notify({ cat: 'newuser', title: 'New account: ' + user, body: 'Registered at ' + ownerTime(env) + (req.cf && req.cf.country ? ' · ' + req.cf.country : ''), url: '/console/#tab=admin' });
+        if (userLower !== OWNER) notify({ cat: 'newuser', title: 'New account: ' + user, body: 'Registered at ' + ownerTime(env) + (req.cf && req.cf.country ? ' · ' + req.cf.country : ''), url: adminLink('users', { user }) });
         return json({ ok: true, token: s.token, exp: s.exp, account: view(acct, roleOf(acct)) });
       }
 
@@ -2032,12 +2049,12 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           if (userLower !== OWNER && userLower !== 'anonymous') {
             const where = [rec.region, rec.country !== '??' ? rec.country : ''].filter(Boolean).join(', ');
             const detailLine = [ownerTime(env, now), where, rec.host ? 'on ' + rec.host : ''].filter(Boolean).join(' · ');
-            if (!prev) notify({ cat: 'newuser', title: 'New user: ' + user, body: 'First sign-in · ' + detailLine, url: '/console/#tab=admin' });
-            notify({ cat: 'signin', title: user + ' signed in', body: detailLine,
+            if (!prev) notify({ cat: 'newuser', title: 'New user: ' + user, body: 'First sign-in · ' + detailLine, url: adminLink('users', { user }) });
+            notify({ cat: 'signin', title: user + ' signed in', body: detailLine, url: adminLink('users', { user }),
               throttle: { key: 'signin:' + userLower, seconds: 600 } });
           }
           if (!prev && cfg.approvalMode && userLower !== OWNER) {
-            notify({ cat: 'approval', title: user + ' is waiting for approval', body: 'New user held by the approval queue · ' + ownerTime(env, now) + '. Approve them in Admin.', url: '/console/#tab=admin' });
+            notify({ cat: 'approval', title: user + ' is waiting for approval', body: 'New user held by the approval queue · ' + ownerTime(env, now) + '. Approve them in Admin.', url: adminLink('users', { user, focus: 'actions' }) });
             const modKey = 'mod:' + userLower;
             const curMod = (await kv.get(modKey, 'json')) || { state: 'active', reason: '', kickNonce: 0 };
             curMod.pending = true;
@@ -2125,7 +2142,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       };
       await kv.put(key, JSON.stringify(rec), { expirationTtl: 60 * 60 * 24 * 30 });
       const where = [rec.region, rec.country].filter(Boolean).join(', ');
-      notify({ cat: 'access', title: 'Access request: ' + name, urgent: true, url: '/console/#tab=admin&sec=security',
+      notify({ cat: 'access', title: 'Access request: ' + name, urgent: true, url: adminLink('security', { focus: 'requests', user: name }),
         body: (message ? '“' + message + '” · ' : 'Wants to use the console · ') + ownerTime(env) + (where ? ' · ' + where : ''),
         throttle: { key: 'accessreq:' + name.toLowerCase(), seconds: 600 } });
       return json({ ok: true, status: 'pending' });
@@ -2198,7 +2215,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const sub = await getSubscription(env, id, key);
         if (!sub) return json({ error: 'unknown device' }, 404);
         const keys = await vapidKeys(env);
-        const r = await sendPush(sub, { title: 'Agent Console', body: 'Notifications are working. Sent at ' + ownerTime(env) + '.', cat: 'test', url: '/console/', ts: Date.now() }, keys, env.VAPID_SUBJECT || url.origin);
+        const r = await sendPush(sub, { title: 'Agent Console', body: 'Notifications are working. Sent at ' + ownerTime(env) + '.', cat: 'test', url: appLink('theme', { sec: 'account', focus: 'push' }), ts: Date.now() }, keys, env.VAPID_SUBJECT || url.origin);
         return json({ ok: r.ok, status: r.status }, r.ok ? 200 : 502);
       }
       return json({ error: 'not found' }, 404);
@@ -2620,9 +2637,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         // "@owner" (or the owner's name as a word) is a mention: it gets its
         // own, louder alert instead of the ordinary chat one.
         if (new RegExp('(^|[^a-z0-9_])@?' + OWNER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(text)) {
-          notify({ cat: 'mentions', title: user + ' mentioned you in ' + roomLabel, body: said, url: '/console/#tab=chat', urgent: true });
+          notify({ cat: 'mentions', title: user + ' mentioned you in ' + roomLabel, body: said, url: appLink('chat', { room: access.id }), urgent: true });
         } else {
-          notify({ cat: access.id === 'public' ? 'chat' : 'chatrooms', title: user + ' in ' + roomLabel, body: said, url: '/console/#tab=chat' });
+          notify({ cat: access.id === 'public' ? 'chat' : 'chatrooms', title: user + ' in ' + roomLabel, body: said, url: appLink('chat', { room: access.id }) });
         }
       }
       return json({ ok: true, ts });
@@ -2677,7 +2694,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       queueEvent(env,ctx,'moderation',2);
       notify({ cat: 'reports', title: 'Chat report in ' + (access.id === 'public' ? '#public' : '#' + ((access.room && access.room.name) || access.id)),
         body: `${p.user} reported ${msg.u}: "${String(msg.t || '').slice(0, 140)}"` + (body.reason ? ' · ' + String(body.reason).slice(0, 80) : ''),
-        url: '/console/#tab=admin' });
+        url: adminLink('moderation', { report: id }) });
       return json({ ok: true });
     }
 

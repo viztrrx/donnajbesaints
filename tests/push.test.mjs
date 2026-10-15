@@ -158,6 +158,9 @@ test('push: owner is alerted for chats, sign-ins, new users, AI failures, report
     assert.equal(si.title, 'kj signed in');
     assert.match(si.body, /\d{1,2}:\d{2} [AP]M/);
     assert.match(si.body, /on school\.example/);
+    // Tapping either opens kj's profile in Admin.
+    assert.equal(si.url, '/console/#tab=admin&sec=users&user=kj');
+    assert.equal(n.find((m) => m.cat === 'newuser').url, '/console/#tab=admin&sec=users&user=kj');
     // A second open right away is throttled (no flood on every page load).
     await t.call('/track', { method: 'POST', body: { user: 'kj', event: 'open', sid: 's2' } });
     assert.equal((await got()).filter((m) => m.cat === 'signin').length, 0);
@@ -168,7 +171,7 @@ test('push: owner is alerted for chats, sign-ins, new users, AI failures, report
     // Chat: sender's name, the room and the message.
     await t.call('/chat/send', { method: 'POST', body: { user: 'kj', text: 'who has the notes?', room: 'public' } });
     n = await got();
-    assert.deepEqual([n[0].cat, n[0].title, n[0].body, n[0].url], ['chat', 'kj in #public', 'who has the notes?', '/console/#tab=chat']);
+    assert.deepEqual([n[0].cat, n[0].title, n[0].body, n[0].url], ['chat', 'kj in #public', 'who has the notes?', '/console/#tab=chat&room=public']);
     // The owner's own messages don't notify the owner.
     await t.call('/chat/send', { method: 'POST', headers: { 'X-GPA-Owner': 'owner-code-1' }, body: { user: 'boss', text: 'hi all', room: 'public' } });
     assert.equal((await got()).length, 0);
@@ -180,6 +183,7 @@ test('push: owner is alerted for chats, sign-ins, new users, AI failures, report
     const lim = n.find((m) => m.cat === 'limits');
     assert.equal(lim.title, 'Limit reached: kj');
     assert.match(lim.body, /insufficient_quota \(429\)/);
+    assert.equal(lim.url, '/console/#tab=admin&sec=users&user=kj&focus=quota', 'a limit opens their quota');
     assert.ok(!/sk-abcdefghijklmnop|sk-user-key/.test(JSON.stringify(n)), 'no API key in a notification');
     t.setOpenAI(500);
     await t.call('/v1/chat/completions', { method: 'POST', headers: { 'X-GPA-User': 'kj', 'X-GPA-Key': 'sk-user-key-abcdefghijklmnop' }, body: { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'hi' }] } });
@@ -187,6 +191,7 @@ test('push: owner is alerted for chats, sign-ins, new users, AI failures, report
     const ai = n.find((m) => m.cat === 'aierror');
     assert.equal(ai.title, 'AI request failed: kj');
     assert.match(ai.body, /server_error \(500\)/);
+    assert.equal(ai.url, '/console/#tab=admin&sec=users&user=kj&focus=key', 'a failure opens their profile at the API key');
     t.setOpenAI(200);
     await t.call('/v1/chat/completions', { method: 'POST', headers: { 'X-GPA-User': 'kj', 'X-GPA-Key': 'sk-user-key-abcdefghijklmnop' }, body: { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'hi' }] } });
     assert.equal((await got()).filter((m) => m.cat === 'aierror').length, 0, 'successful AI requests are quiet');
@@ -222,6 +227,7 @@ test('push: private rooms, mentions, approval queue, quiet hours, who\'s online 
     await t.call('/chat/send', { method: 'POST', body: { user: 'kj', text: 'test tomorrow?', room: room.data.id, code: room.data.code } });
     let n = await got();
     assert.deepEqual([n[0].cat, n[0].title, n[0].body], ['chatrooms', 'kj in #Study Group', 'test tomorrow?']);
+    assert.equal(n[0].url, '/console/#tab=chat&room=' + encodeURIComponent(room.data.id), 'opens that room');
 
     // A mention of the owner gets its own alert instead of the plain chat one.
     await t.call('/chat/send', { method: 'POST', body: { user: 'kj', text: 'hey @boss can you unmute dub', room: 'public' } });
@@ -237,6 +243,7 @@ test('push: private rooms, mentions, approval queue, quiet hours, who\'s online 
     await t.call('/track', { method: 'POST', body: { user: 'zed', event: 'open', sid: 'z1' } });
     n = await got();
     assert.ok(n.find((m) => m.cat === 'approval' && m.title === 'zed is waiting for approval'));
+    assert.equal(n.find((m) => m.cat === 'approval').url, '/console/#tab=admin&sec=users&user=zed&focus=actions', 'opens zed at the Approve button');
 
     // Who's online: one replaceable alert with the count as the icon badge.
     t.env.TELEMETRY.store.delete('push:presence:chk');
@@ -247,6 +254,7 @@ test('push: private rooms, mentions, approval queue, quiet hours, who\'s online 
     assert.equal(n[0].badge, 2, 'zed and amy have live sessions');
     assert.match(n[0].title, /2 people online/);
     assert.match(n[0].body, /amy/);
+    assert.equal(n[0].url, '/console/#tab=admin&sec=users&filter=active', 'opens who is around');
     // Nothing changed: no new alert, even when the cron checks.
     await worker.scheduled({ cron: '*/5 * * * *' }, t.env, { waitUntil: (p) => t.settleList.push(p) });
     await Promise.all(t.settleList.splice(0));
@@ -279,5 +287,37 @@ test('push: private rooms, mentions, approval queue, quiet hours, who\'s online 
     n = (await got()).filter((m) => m.cat === 'digest');
     assert.equal(n.length, 1);
     assert.match(n[0].body, /used the console/);
+    assert.equal(n[0].url, '/console/#tab=admin&sec=overview');
+  } finally { t.restore(); }
+});
+
+test('push: every alert opens its own spot in the app', async () => {
+  const t = setup();
+  try {
+    await t.call('/push/key');
+    const d = await makeDevice();
+    const { data } = await t.call('/push/subscribe', { method: 'POST', headers: owner, body: { subscription: d.subscription } });
+    const got = async () => { await t.settle(); const out = []; for (const p of t.pushes.splice(0)) out.push(await decrypt(d, p.body)); return out; };
+    const sub = data.subscription;
+    const ofCat = async (cat) => (await got()).find((m) => m.cat === cat);
+
+    // Test notification: Settings → Account → Phone notifications.
+    await t.call('/push/test', { method: 'POST', body: { id: sub.id, key: sub.manageKey } });
+    assert.equal((await ofCat('test')).url, '/console/#tab=theme&sec=account&focus=push');
+
+    // Access request: Security, at that person's request.
+    await t.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['kj'] } } });
+    await got();
+    await t.call('/access/request', { method: 'POST', body: { user: 'Dub', message: 'let me in' } });
+    assert.equal((await ofCat('access')).url, '/console/#tab=admin&sec=security&focus=requests&user=Dub');
+
+    // Security alerts: wrong PIN → that name under Allowed users; an
+    // unlisted name → Access requests.
+    await t.call('/auth/register', { method: 'POST', body: { user: 'kj', verifier: 'a'.repeat(64) } });
+    await got();
+    await t.call('/auth/login', { method: 'POST', body: { user: 'kj', verifier: 'b'.repeat(64) } });
+    assert.equal((await ofCat('security')).url, '/console/#tab=admin&sec=security&focus=allow&user=kj');
+    await t.call('/auth/login', { method: 'POST', body: { user: 'stranger', verifier: 'b'.repeat(64) } });
+    assert.equal((await ofCat('security')).url, '/console/#tab=admin&sec=security&focus=requests&user=stranger');
   } finally { t.restore(); }
 });
