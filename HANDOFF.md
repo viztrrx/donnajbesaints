@@ -145,6 +145,19 @@ All on `main`. Each has tests; see section 6.
    250 ms guard stops the tap that opened it from picking. Opening Chat
    now polls at once (`startChatPolling` restarts the loop). Tests:
    `tests/chat-rooms.test.mjs`, `tests/browser/chat-live.mjs`.
+   **Replies, unsend, grouping:** `/chat/send` takes `replyTo` (a ts); the
+   room DO attaches `m.re = {ts, u, t (140 chars), photo?}` itself (a
+   client can't supply the quote). `POST /chat/unsend {room, code, user,
+   ts}`: own message only, within `UNSEND_MS` (2 min, enforced in the DO);
+   the message becomes `{u, ts, unsent: true}`, quotes of it lose their
+   text, its reactions go, a photo in it is deleted from R2, and every
+   poll returns `unsent` (ts list) so open screens swap it out
+   (`markChatUnsent`). A reply to one of the owner's messages sends a
+   "mentions" alert. Client: `#gpa-chat-replying` banner, `chatQuoteEl`
+   (tap to jump + flash), Reply/Copy/Unsend row in the message bar, ↩ on
+   hover; `regroupChat()` marks `.cont` on a run from one person within 5
+   min (no picture/name; replies and unsent lines break a run). Tests:
+   `tests/chat-rooms.test.mjs`, `tests/browser/chat-replies.mjs`.
 0. **Notification deep links**: every `notify()` carries a link built by
    `appLink(tab, params)` / `adminLink(sec, params)` in `worker.js`, e.g.
    `/console/#tab=admin&sec=users&user=renzo&focus=key`. In `script.js`,
@@ -263,7 +276,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (77 tests)
+npm test                                   # node --test tests/*.test.mjs (79 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -281,6 +294,7 @@ node tests/browser/subscribers.mjs         # 16 (add, start date, countdown, end
 node tests/browser/staff-chat.mjs          # 19 (moderator, owner, regular user can't see it)
 node tests/browser/same-computer.mjs       # 12 (two websites, one computer: warn, move, cancel)
 node tests/browser/chat-live.mjs           # 23 (typing, who's here, reactions; 3 phones + laptop)
+node tests/browser/chat-replies.mjs        # 20 (replies, unsend, grouping; 2 phones + laptop)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 

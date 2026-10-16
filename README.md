@@ -365,6 +365,12 @@ Each room's messages live in their own Durable Object (`CHAT_ROOMS`, see `chat/r
 
 **Reactions** (iMessage tapbacks ❤️ 👍 👎 😂 ‼️ ❓). Double-click a message (computer), double-tap or press and hold it (phone), or use the ☺ button that shows on hover. One reaction per person per message: picking another replaces it, picking the same one (or tapping your own pill) takes it off. Each shows as a small pill with a count under the message; hover to see who. On phones the bar also has **Copy**.
 
+**Replies.** Pick **↩ Reply** in a message's bar (or the ↩ button on hover on a computer). A banner above the box shows who you're answering (✕ or Esc cancels); the sent message carries a small quote of the original, and tapping the quote jumps to it and highlights it. Replying to one of the owner's messages sends the owner a "mentions" alert.
+
+**Unsend.** Your own messages show **Unsend** in their bar for 2 minutes after sending (the server enforces the 2 minutes and that it's yours). Everyone then sees "kj unsent a message" (you see "You unsent a message"); quotes of it say "Unsent message", its reactions go, and a photo in it is deleted. Push notifications that already went out can't be taken back.
+
+**Grouping.** Several messages in a row from the same person (within 5 minutes) show their picture and name once, with the rest as plain lines underneath, like iMessage. Someone else's message, a reply or a 5-minute gap starts a new group. On a computer, hovering a grouped line shows its time and the ↩ / ☺ buttons.
+
 ### AI usage meter {#usage-meter}
 
 Anyone you give a limit to (Admin → Users → a person → **Quota overrides**, or a quota for everyone in AI & Usage) sees a slim meter under the console's header on every tab: **AI requests today** (or **this month**), a progress bar, how many are left, and when it resets. It turns amber at 80% and red at the limit ("Daily limit reached. AI requests are paused until …"). A per\-minute rate shows as a short note instead of a bar. People without a limit, and you, never see it. The numbers come from the same counters the Worker enforces, refreshed on every status check and right after each AI request. Daily quotas reset at midnight UTC (8 PM New York time in summer, 7 PM in winter); monthly ones on the 1st.

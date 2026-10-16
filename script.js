@@ -748,7 +748,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-16T23:00:00-04:00', commit: '', title: 'One sign-in: moving between websites on the same computer', parts: {
       console: ['feature', 'Signing in on a second website on the same computer warns you first; “Sign in here” moves the sign-in and the other website is signed out, telling you where you signed in'] } },
     { at: '2026-10-17T00:30:00-04:00', commit: '', title: 'Chat: who’s typing, who’s here, and reactions', parts: {
-      chat: ['feature', '“kj is typing…” with a bouncing-dots bubble; who’s here (in this chat, online, last seen); iMessage-style reactions ❤️ 👍 👎 😂 ‼️ ❓ by double-click, double-tap or press and hold; opening Chat now loads at once'] } }
+      chat: ['feature', '“kj is typing…” with a bouncing-dots bubble; who’s here (in this chat, online, last seen); iMessage-style reactions ❤️ 👍 👎 😂 ‼️ ❓ by double-click, double-tap or press and hold; opening Chat now loads at once'] } },
+    { at: '2026-10-17T03:00:00-04:00', commit: '', title: 'Chat: replies, unsend, and grouped messages', parts: {
+      chat: ['feature', 'Reply to a message (with a quote you can tap to jump to it); unsend your own message within 2 minutes; several messages in a row show the picture and name once'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -3302,6 +3304,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <div id="gpa-chat-typing" class="gpa-chat-typing" role="status" aria-live="polite" hidden></div>
           ${gpxEmpty({ cls: 'gpx-empty-chat', icon: 'users', title: 'No messages to show',
             desc: 'Messages in this room appear here as soon as the console reaches the chat server. Pick another room or join a private one with a code.' })}
+          <div id="gpa-chat-replying" class="gpa-chat-replying" hidden></div>
           <div class="gpa-row gpx-composer gpx-composer-dock">
             <input id="gpa-chat-input" class="gpa-input" placeholder="Message…" maxlength="500" autocomplete="off" aria-label="Chat message" />
             <button id="gpa-chat-attach" class="gpa-btn gpx-icon-btn" type="button" title="Attach a photo (up to 5 MB)" aria-label="Choose a chat photo">${GPS_ICONS.camera}</button>
@@ -5434,6 +5437,53 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       @keyframes gpaTapIn { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
       @media (prefers-reduced-motion: reduce) { .gpa-tapback-picker { animation: none; } }
       .gpa-chat-tapbacks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+      .gpa-tapback-picker { flex-direction: column; align-items: stretch; border-radius: 20px; gap: 4px; }
+      .gpa-tapback-picker .tb-emojis { display: flex; flex-wrap: wrap; gap: 2px; }
+      .gpa-tapback-picker .tb-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 2px 0; border-top: 1px solid var(--gpa-border); padding-top: 5px; }
+      .gpa-tapback-picker .tb-actions button { width: auto; height: 30px; padding: 0 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600; }
+      .gpa-tapback-picker .tb-actions button.danger { color: var(--gpa-danger, #ef4444); }
+      /* Grouping: a run from one person shows the picture and name once. */
+      .gpa-chat-msg { position: relative; }
+      .gpa-chat-log .gpa-chat-msg.cont { margin-top: -5px; }
+      .gpa-chat-msg.cont .avatar { visibility: hidden; height: 0; }
+      .gpa-chat-msg.cont .head { display: none; }
+      .gpa-chat-msg.cont:hover .head, .gpa-chat-msg.cont:focus-within .head {
+        display: flex; position: absolute; top: -6px; right: 0; z-index: 1; padding: 1px 4px;
+        background: var(--gpa-panel); border: 1px solid var(--gpa-border); border-radius: 8px;
+      }
+      .gpa-chat-msg.cont .head .who { display: none; }
+      .gpa-chat-reply-btn {
+        opacity: 0; border: 0; background: transparent; color: var(--gpa-sub); cursor: pointer;
+        font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 6px; margin-left: auto;
+      }
+      .gpa-chat-reply-btn + .gpa-chat-react-btn { margin-left: 0; }
+      .gpa-chat-msg:hover .gpa-chat-reply-btn, .gpa-chat-reply-btn:focus-visible { opacity: 1; }
+      .gpa-chat-reply-btn:hover { background: color-mix(in srgb, var(--gpa-text) 10%, transparent); color: var(--gpa-text); }
+      @media (pointer: coarse) { .gpa-chat-reply-btn { display: none; } }
+      /* Unsent: a quiet placeholder line. */
+      .gpa-chat-msg.unsent .body { font-style: italic; color: var(--gpa-sub); }
+      /* A reply's quote of the message it answers; tap to jump there. */
+      .gpa-chat-quote {
+        display: flex; flex-direction: column; align-items: flex-start; gap: 1px; max-width: 100%; margin: 3px 0 3px; padding: 4px 9px;
+        background: color-mix(in srgb, var(--gpa-text) 6%, transparent); border: 0; border-left: 3px solid var(--gpa-accent);
+        border-radius: 4px 9px 9px 4px; color: var(--gpa-sub); font: inherit; font-size: 11.5px; text-align: left; cursor: pointer;
+      }
+      .gpa-chat-quote .q-who { font-weight: 600; color: var(--gpa-text); }
+      .gpa-chat-quote .q-text { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gpa-chat-quote.gone .q-text { font-style: italic; }
+      .gpa-chat-msg.gpa-chat-flash { animation: gpaChatFlash 1.5s ease-out; border-radius: 10px; }
+      @keyframes gpaChatFlash { 0%, 30% { background: color-mix(in srgb, var(--gpa-accent) 22%, transparent); } 100% { background: transparent; } }
+      /* "Replying to maya" above the message box. */
+      .gpa-chat-replying {
+        display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 11px; min-width: 0; cursor: pointer;
+        background: var(--gpa-panel); border: 1px solid var(--gpa-border); border-left: 3px solid var(--gpa-accent); border-radius: 10px; font-size: 12px;
+      }
+      .gpa-chat-replying[hidden] { display: none; }
+      .gpa-chat-replying .r-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .gpa-chat-replying .r-who { font-weight: 600; color: var(--gpa-text); }
+      .gpa-chat-replying .r-text { color: var(--gpa-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gpa-chat-replying .r-x { flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; border: 0; background: transparent; color: var(--gpa-sub); cursor: pointer; font-size: 13px; }
+      .gpa-chat-replying .r-x:hover { background: color-mix(in srgb, var(--gpa-text) 10%, transparent); color: var(--gpa-text); }
       .gpa-tapback {
         display: inline-flex; align-items: center; gap: 4px; height: 23px; padding: 0 8px; border-radius: 999px; cursor: pointer;
         border: 1px solid var(--gpa-border); background: var(--gpa-panel); color: var(--gpa-sub); font-size: 12.5px; line-height: 1;
@@ -11536,6 +11586,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   let myTypingAt = 0;   // your last keystroke with something in the box
   let myTypingSentAt = 0;
   let myTypingOn = false;   // what the server was last told
+  let chatReplyTo = null;   // { ts, u, t, photo } while replying to a message
+  let chatClockSkew = 0;    // server clock minus this device's (for the unsend window)
   let chatUnread = 0;
   // Consecutive failed polls. When the worker is down or out of quota there is
   // nothing to be gained by asking twenty times a minute, so each failure
@@ -11610,8 +11662,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const div = document.createElement('div');
     div.className = 'gpa-chat-msg'
       + (currentUser && m.u === currentUser ? ' mine' : '')
-      + (m.owner ? ' owner' : '');
+      + (m.owner ? ' owner' : '')
+      + (m.unsent ? ' unsent' : '');
     div.dataset.ts = String(m.ts);
+    div.dataset.u = String(m.u || '');
     const avatar = document.createElement('span');
     avatar.className = 'avatar';
     avatar.textContent = String(m.u || '?').trim().charAt(0).toUpperCase();
@@ -11633,10 +11687,24 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     reactBtn.textContent = '☺';
     reactBtn.title = 'React';
     reactBtn.setAttribute('aria-label', 'React to the message from ' + m.u);
-    head.appendChild(reactBtn);
+    const replyBtn = document.createElement('button');
+    replyBtn.type = 'button';
+    replyBtn.className = 'gpa-chat-reply-btn';
+    replyBtn.textContent = '↩';
+    replyBtn.title = 'Reply';
+    replyBtn.setAttribute('aria-label', 'Reply to the message from ' + m.u);
+    if (!m.unsent) { head.appendChild(replyBtn); head.appendChild(reactBtn); }
     const body = document.createElement('div');
     body.className = 'body';
     body.textContent = m.t || '';
+    if (m.unsent) {
+      body.textContent = (currentUser && m.u === currentUser ? 'You' : m.u) + ' unsent a message';
+      const col0 = document.createElement('div');
+      col0.className = 'col';
+      col0.appendChild(head); col0.appendChild(body);
+      div.appendChild(avatar); div.appendChild(col0);
+      return div;
+    }
     if (m.media && typeof m.media.id === 'string' &&
         /^[a-f0-9-]{36}$/.test(m.media.id) &&
         ['image/jpeg','image/png','image/webp','image/gif'].includes(m.media.type)) {
@@ -11659,7 +11727,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       thumbButton.addEventListener('click', () => openChatImageViewer(imageUrl, 'Photo shared by ' + m.u, thumbButton));
       body.appendChild(thumbButton);
     }
-    col.appendChild(head); col.appendChild(body);
+    col.appendChild(head);
+    if (m.re && Number(m.re.ts)) col.appendChild(chatQuoteEl(m.re));
+    col.appendChild(body);
     div.appendChild(avatar); div.appendChild(col);
     renderTapbacks(div, m.r);
     return div;
@@ -11735,6 +11805,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (added) updateChatBadge();
       chatReads = Array.isArray(data.reads) ? data.reads : [];
       renderChatReceipt();
+      if (typeof data.now === 'number') chatClockSkew = data.now - Date.now();
+      if (Array.isArray(data.unsent)) data.unsent.forEach(markChatUnsent);
+      if (added || (data.unsent && data.unsent.length)) regroupChat();
       if (data.reactions && typeof data.reactions === 'object') applyChatReactions(data.reactions);
       chatTyping = Array.isArray(data.typing) ? data.typing : [];
       chatPeople = Array.isArray(data.people) ? data.people : [];
@@ -11770,7 +11843,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const msgs = chatLog.querySelectorAll('.gpa-chat-msg');
     const last = msgs[msgs.length - 1];
     const old = chatLog.querySelector('.gpa-chat-receipt');
-    if (!last || !last.classList.contains('mine') || !currentUser) { if (old) old.remove(); return; }
+    if (!last || !last.classList.contains('mine') || last.classList.contains('unsent') || !currentUser) { if (old) old.remove(); return; }
     const ts = Number(last.dataset.ts) || 0;
     const me = currentUser.toLowerCase();
     const readers = chatReads.filter((r) => r && r.u && r.u.toLowerCase() !== me && r.ts >= ts).sort((a, b) => a.at - b.at);
@@ -11924,7 +11997,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     tapbackFor = null;
   }
   function openTapbackPicker(msgEl, fromButton) {
-    if (!currentUser || !msgEl) return;
+    if (!currentUser || !msgEl || msgEl.classList.contains('unsent')) return;
     closeTapbackPicker();
     tapbackFor = msgEl;
     tapbackOpenedAt = Date.now();
@@ -11933,8 +12006,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     p.className = 'gpa-tapback-picker';
     p.setAttribute('role', 'toolbar');
     p.setAttribute('aria-label', 'React to this message');
-    p.innerHTML = TAPBACKS.map((e) => `<button type="button" data-emoji="${e}" class="${e === mine ? 'on' : ''}" aria-pressed="${e === mine}" title="${TAPBACK_NAMES[e]}" aria-label="${TAPBACK_NAMES[e]}">${e}</button>`).join('')
-      + (msgEl.querySelector('.body').textContent.trim() ? '<button type="button" class="copy" data-act="copy">Copy</button>' : '');
+    const canUnsend = msgEl.classList.contains('mine') && chatServerNow() - Number(msgEl.dataset.ts) < UNSEND_MS - 3000;
+    p.innerHTML = '<div class="tb-emojis">' + TAPBACKS.map((e) => `<button type="button" data-emoji="${e}" class="${e === mine ? 'on' : ''}" aria-pressed="${e === mine}" title="${TAPBACK_NAMES[e]}" aria-label="${TAPBACK_NAMES[e]}">${e}</button>`).join('') + '</div>'
+      + '<div class="tb-actions"><button type="button" data-act="reply">↩ Reply</button>'
+      + (msgEl.querySelector('.body').textContent.trim() ? '<button type="button" data-act="copy">Copy</button>' : '')
+      + (canUnsend ? '<button type="button" data-act="unsend" class="danger">Unsend</button>' : '')
+      + '</div>';
     msgEl.querySelector('.col').insertBefore(p, msgEl.querySelector('.body'));
     if (fromButton) p.querySelector('button').focus({ preventScroll: true });
     // Keep the bar and the message it's for in view (scrolling the chat only).
@@ -11967,7 +12044,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
   }
   chatLog.addEventListener('click', (ev) => {
-    const b = ev.target.closest('.gpa-tapback-picker button, .gpa-chat-tapbacks .gpa-tapback, .gpa-chat-react-btn');
+    const q = ev.target.closest('.gpa-chat-quote');
+    if (q) { jumpToChatMessage(q.dataset.ts); return; }
+    const b = ev.target.closest('.gpa-tapback-picker button, .gpa-chat-tapbacks .gpa-tapback, .gpa-chat-react-btn, .gpa-chat-reply-btn');
     if (!b) return;
     const msgEl = b.closest('.gpa-chat-msg');
     if (!msgEl) return;
@@ -11975,6 +12054,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // (The bar pushes the message down, so that click can land on a reaction
     // pill as well as on the bar. Keyboard clicks have detail 0.)
     if (Date.now() - tapbackOpenedAt < 250 && ev.detail !== 0) return;
+    if (b.dataset.act === 'reply' || b.classList.contains('gpa-chat-reply-btn')) { closeTapbackPicker(); startChatReply(msgEl); return; }
+    if (b.dataset.act === 'unsend') { closeTapbackPicker(); unsendChatMessage(msgEl); return; }
     if (b.dataset.act === 'copy') {
       const text = msgEl.querySelector('.body').textContent;
       closeTapbackPicker();
@@ -12027,6 +12108,111 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   root.addEventListener('pointerdown', (ev) => {
     if (tapbackFor && !ev.composedPath().some((n) => n && n.classList && (n.classList.contains('gpa-tapback-picker') || n.classList.contains('gpa-chat-react-btn')))) closeTapbackPicker();
   }, true);
+
+  // ---- Replies, unsend and grouping -----------------------------------------
+  // Reply: from the message bar (or ↩ on hover); a banner above the box
+  // says who you're answering, and the sent message shows a small quote
+  // that jumps to the original. Unsend: your own message, within 2 minutes
+  // (the Worker enforces it); everyone then sees "kj unsent a message".
+  // Grouping: a run of messages from one person within 5 minutes shows the
+  // picture and name once, like iMessage and Discord.
+  const UNSEND_MS = 2 * 60 * 1000;
+  const GROUP_GAP_MS = 5 * 60 * 1000;
+  const chatReplyingEl = panel.querySelector('#gpa-chat-replying');
+  const chatServerNow = () => Date.now() + chatClockSkew;
+  function quoteSnippet(re) {
+    if (re.unsent) return 'Unsent message';
+    return re.t ? re.t : re.photo ? '📷 Photo' : '';
+  }
+  function chatQuoteEl(re) {
+    const q = document.createElement('button');
+    q.type = 'button';
+    q.className = 'gpa-chat-quote' + (re.unsent ? ' gone' : '');
+    q.dataset.ts = String(re.ts);
+    q.title = 'Show the original message';
+    const who = document.createElement('span');
+    who.className = 'q-who';
+    who.textContent = '↩ ' + (isMe(re.u) ? 'You' : re.u);
+    const txt = document.createElement('span');
+    txt.className = 'q-text';
+    txt.textContent = quoteSnippet(re);
+    q.appendChild(who); q.appendChild(txt);
+    q.setAttribute('aria-label', 'Reply to ' + re.u + ': ' + quoteSnippet(re) + '. Show the original');
+    return q;
+  }
+  function jumpToChatMessage(ts) {
+    const el = chatLog.querySelector(`.gpa-chat-msg[data-ts="${Number(ts)}"]`);
+    if (!el) { chatNote.textContent = 'That message is no longer in the chat.'; setTimeout(() => { if (/no longer in the chat/.test(chatNote.textContent)) chatNote.textContent = ''; }, 2500); return; }
+    const lb = chatLog.getBoundingClientRect(), mb = el.getBoundingClientRect();
+    chatLog.scrollTop += mb.top - lb.top - 12;
+    el.classList.remove('gpa-chat-flash');
+    void el.offsetWidth;
+    el.classList.add('gpa-chat-flash');
+    setTimeout(() => el.classList.remove('gpa-chat-flash'), 1600);
+  }
+  function renderChatReply() {
+    if (!chatReplyTo) { chatReplyingEl.hidden = true; chatReplyingEl.innerHTML = ''; return; }
+    chatReplyingEl.hidden = false;
+    chatReplyingEl.innerHTML = `<div class="r-col"><span class="r-who">Replying to ${escapeHtml(isMe(chatReplyTo.u) ? 'yourself' : chatReplyTo.u)}</span><span class="r-text">${escapeHtml(quoteSnippet(chatReplyTo))}</span></div><button type="button" class="r-x" aria-label="Cancel reply" title="Cancel reply">✕</button>`;
+  }
+  function startChatReply(msgEl) {
+    if (!msgEl || msgEl.classList.contains('unsent')) return;
+    const body = msgEl.querySelector('.body');
+    chatReplyTo = { ts: Number(msgEl.dataset.ts), u: msgEl.dataset.u, t: body.textContent.trim().slice(0, 140), photo: !!body.querySelector('img') };
+    renderChatReply();
+    try { chatInput.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+  }
+  function clearChatReply() { chatReplyTo = null; renderChatReply(); }
+  chatReplyingEl.addEventListener('click', (ev) => {
+    if (ev.target.closest('.r-x')) { clearChatReply(); chatInput.focus({ preventScroll: true }); }
+    else if (chatReplyTo) jumpToChatMessage(chatReplyTo.ts);
+  });
+  chatInput.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && chatReplyTo) { ev.preventDefault(); clearChatReply(); } });
+  // Turns a message on screen into "kj unsent a message" (and its quotes).
+  function markChatUnsent(ts) {
+    const el = chatLog.querySelector(`.gpa-chat-msg[data-ts="${Number(ts)}"]:not(.unsent)`);
+    if (el) {
+      if (tapbackFor === el) closeTapbackPicker();
+      const receipt = el.querySelector('.gpa-chat-receipt');
+      el.replaceWith(chatMsgEl({ u: el.dataset.u, ts: Number(ts), unsent: true, owner: el.classList.contains('owner') }));
+      if (receipt) renderChatReceipt();
+    }
+    chatLog.querySelectorAll(`.gpa-chat-quote[data-ts="${Number(ts)}"]:not(.gone)`).forEach((q) => {
+      q.classList.add('gone');
+      q.querySelector('.q-text').textContent = 'Unsent message';
+    });
+    if (chatReplyTo && chatReplyTo.ts === Number(ts)) clearChatReply();
+  }
+  async function unsendChatMessage(msgEl) {
+    const ts = Number(msgEl.dataset.ts);
+    const auth = { ...staffProofHeaders(chatRoom), ...ownerProofHeader() };
+    if (sessionToken()) auth['X-GPA-Session'] = sessionToken();
+    try {
+      const res = await fetch(telemetryEndpoint() + '/chat/unsend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain', ...auth },
+        body: JSON.stringify({ room: chatRoom, code: chatCodeFor(chatRoom), user: currentUser, ts })
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!d.ok) throw Error(d.error || 'Could not unsend.');
+      markChatUnsent(ts);
+      regroupChat();
+      renderChatReceipt();
+    } catch (e) {
+      chatNote.textContent = e.message || 'Could not unsend — check your connection.';
+    }
+  }
+  function regroupChat() {
+    let prev = null;
+    chatLog.querySelectorAll('.gpa-chat-msg').forEach((el) => {
+      const cont = !!prev && !el.classList.contains('unsent') && !prev.classList.contains('unsent')
+        && String(prev.dataset.u).toLowerCase() === String(el.dataset.u).toLowerCase()
+        && Number(el.dataset.ts) - Number(prev.dataset.ts) < GROUP_GAP_MS
+        && !el.querySelector(':scope > .col > .gpa-chat-quote');
+      el.classList.toggle('cont', cont);
+      prev = el;
+    });
+  }
 
   // ---- Staff chat ------------------------------------------------------------
   // A built-in room only staff can use (moderators, admins and the owner).
@@ -12135,6 +12321,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     chatReads = [];
     chatTyping = [];
     chatPeople = [];
+    clearChatReply();
     renderChatTyping();
     renderChatPeople();
     chatBootstrap = true;
@@ -12234,7 +12421,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         headers: { 'Content-Type': 'text/plain', ...auth },
         body: JSON.stringify({
           room: chatRoom, user: currentUser, text, code: chatCodeFor(chatRoom),
-          ...(mediaId ? { mediaId } : {})
+          ...(mediaId ? { mediaId } : {}),
+          ...(chatReplyTo ? { replyTo: chatReplyTo.ts } : {})
         })
       });
       const result = await res.json().catch(() => ({}));
@@ -12242,6 +12430,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       chatInput.value = '';
       chatFileInput.value = '';
       updateChatFileLabel();
+      clearChatReply();
       chatNote.textContent = '';
       await chatPoll();
     } catch (error) {

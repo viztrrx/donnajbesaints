@@ -37,6 +37,15 @@ const ONLINE_MS = 45000;               // console open elsewhere: polls every 15
 const SEEN_MAX = 100;                  // last-seen times kept per room
 const SEEN_WRITE_MS = 60000;           // save a person's last-seen at most this often
 export const TAPBACKS = ['❤️', '👍', '👎', '😂', '‼️', '❓'];
+//
+// Replies: a message can quote an earlier one (m.re = { ts, u, t, photo }),
+// a short copy so it still reads right once the original scrolls out.
+//
+// Unsend: the sender can take a message back within UNSEND_MS. It becomes
+// a placeholder ("kj unsent a message": { u, ts, unsent: true }), quotes of
+// it lose their text, and every poll lists the unsent ones so screens that
+// already show the message replace it too.
+export const UNSEND_MS = 2 * 60 * 1000;
 
 const TTL_MS = 7 * 24 * 3600 * 1000;   // same week-long lifetime as before
 const MAX = 120;                       // newest messages kept per room
@@ -135,28 +144,50 @@ export class ChatRoom {
         // Reactions on any message still in the room (they change after the
         // message was first delivered, so "since" can't cover them).
         const reactions = {};
-        for (const m of log) if (m && m.r && Object.keys(m.r).length) reactions[m.ts] = m.r;
+        const unsent = [];
+        for (const m of log) {
+          if (m && m.unsent) unsent.push(m.ts);
+          else if (m && m.r && Object.keys(m.r).length) reactions[m.ts] = m.r;
+        }
         const { typing, people } = await this.presence(reader, now);
-        return reply({ ok: true, messages: log.filter((m) => m && m.ts > since), reads: fresh, reactions, typing, people });
+        return reply({ ok: true, messages: log.filter((m) => m && m.ts > since), reads: fresh, reactions, unsent, typing, people });
       }
       if (action === 'append') {
         const m = body.msg && typeof body.msg === 'object' ? body.msg : null;
         if (!m) return reply({ ok: false, error: 'no message' }, 400);
         const last = log.length ? log[log.length - 1].ts : 0;
         const ts = Math.max(Date.now(), last + 1);
-        log.push({ ...m, ts });
+        const msg = { ...m, ts };
+        delete msg.re;
+        // A reply quotes a message that is still in the room (and not unsent).
+        const q = Number(body.replyTo) ? log.find((x) => x && x.ts === Number(body.replyTo) && !x.unsent) : null;
+        if (q) msg.re = { ts: q.ts, u: q.u, t: String(q.t || '').slice(0, 140), ...(q.media ? { photo: true } : {}) };
+        log.push(msg);
         await this.save(log.slice(-MAX));
         // Sending ends "typing…" at once.
         const e = this.live.get(String(m.u || '').toLowerCase());
         if (e) e.typingUntil = 0;
-        return reply({ ok: true, ts });
+        return reply({ ok: true, ts, re: msg.re || null });
+      }
+      if (action === 'unsend') {
+        const key = String(body.user || '').trim().toLowerCase();
+        const m = log.find((x) => x && x.ts === Number(body.ts));
+        if (!m || !key || String(m.u || '').toLowerCase() !== key) return reply({ ok: false, error: 'message not found' }, 404);
+        if (m.unsent) return reply({ ok: true, already: true });
+        if (Date.now() - m.ts > UNSEND_MS) return reply({ ok: false, error: 'You can only unsend a message within 2 minutes of sending it.' }, 403);
+        const media = m.media && m.media.id ? m.media.id : null;
+        const i = log.indexOf(m);
+        log[i] = { u: m.u, ts: m.ts, unsent: true, ...(m.owner ? { owner: true } : {}) };
+        for (const x of log) if (x && x.re && x.re.ts === m.ts) x.re = { ts: m.ts, u: m.u, t: '', unsent: true };
+        await this.save(log);
+        return reply({ ok: true, media });
       }
       if (action === 'react') {
         const user = String(body.user || '').trim().slice(0, 40);
         const emoji = String(body.emoji || '');
         if (!user || !TAPBACKS.includes(emoji)) return reply({ ok: false, error: 'not a reaction' }, 400);
         const m = log.find((x) => x && x.ts === Number(body.ts));
-        if (!m) return reply({ ok: false, error: 'message not found' }, 404);
+        if (!m || m.unsent) return reply({ ok: false, error: 'message not found' }, 404);
         const key = user.toLowerCase();
         const had = Object.keys(m.r || {}).find((e) => (m.r[e] || []).some((n) => n.toLowerCase() === key));
         const r = {};

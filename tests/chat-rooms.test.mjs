@@ -332,3 +332,55 @@ test('chat (rooms): reactions — one per person, toggle, replace, and everyone 
   assert.deepEqual((await poll(c, 0, room.id, room.code)).data.messages[0].r, { '😂': ['dub'] });
   assert.deepEqual(await reactionsSeenBy(), { '👍': ['kj'] }, 'rooms are separate');
 });
+
+test('chat (rooms): replies quote the message they answer, and only real messages', async () => {
+  const env = { TELEMETRY: makeKV(), ADMIN_TOKEN: ADMIN, OWNER: 'boss' };
+  env.CHAT_ROOMS = makeRooms(env);
+  const c = client(env);
+  const reply = (user, text, replyTo) => c.call('/chat/send', { method: 'POST', body: { user, text, room: 'public', replyTo } });
+  const first = (await send(c, 'maya', 'who has the notes from bio?')).data.ts;
+  await reply('kj', 'i do, sending now', first);
+  let msgs = (await poll(c)).data.messages;
+  assert.deepEqual(msgs[1].re, { ts: first, u: 'maya', t: 'who has the notes from bio?' });
+  // Quoting something that isn't in the room is just a plain message.
+  await reply('kj', 'hm', 12345);
+  msgs = (await poll(c)).data.messages;
+  assert.equal(msgs[2].re, undefined);
+  // A client can't make up the quote: only replyTo is read.
+  await c.call('/chat/send', { method: 'POST', body: { user: 'kj', text: 'fake', room: 'public', re: { ts: 1, u: 'boss', t: 'I never said this' } } });
+  assert.equal((await poll(c)).data.messages[3].re, undefined);
+});
+
+test('chat (rooms): unsend — only your own, only within 2 minutes; everyone sees it go', async () => {
+  const env = { TELEMETRY: makeKV(), ADMIN_TOKEN: ADMIN, OWNER: 'boss' };
+  env.CHAT_ROOMS = makeRooms(env);
+  const c = client(env);
+  const unsend = (user, ts) => c.call('/chat/unsend', { method: 'POST', body: { user, ts, room: 'public' } });
+  const oops = (await send(c, 'kj', 'wrong chat lol')).data.ts;
+  const answer = (await c.call('/chat/send', { method: 'POST', body: { user: 'maya', text: 'what?', room: 'public', replyTo: oops } })).data.ts;
+  await c.call('/chat/react', { method: 'POST', body: { user: 'maya', ts: oops, emoji: '😂', room: 'public' } });
+  // Someone who already has it on screen (since = newest).
+  const before = (await poll(c, answer)).data;
+  assert.deepEqual(before.unsent, []);
+  assert.equal((await unsend('maya', oops)).data.ok, false, 'not yours');
+  assert.equal((await unsend('kj', oops)).data.ok, true);
+  const after = (await poll(c, answer)).data;
+  assert.deepEqual(after.unsent, [oops], 'screens that already show it learn it was unsent');
+  assert.equal(after.reactions[oops], undefined, 'its reactions go with it');
+  const all = (await poll(c)).data.messages;
+  assert.deepEqual(all[0], { u: 'kj', ts: oops, unsent: true }, 'a placeholder, without the text');
+  assert.deepEqual(all[1].re, { ts: oops, u: 'kj', t: '', unsent: true }, 'quotes of it lose the text too');
+  assert.ok(!JSON.stringify(all).includes('wrong chat lol'));
+  assert.equal((await c.call('/chat/react', { method: 'POST', body: { user: 'maya', ts: oops, emoji: '❤️', room: 'public' } })).data.ok, false, 'no reacting to it');
+  assert.equal((await unsend('kj', oops)).data.ok, true, 'unsending twice is harmless');
+  // Too late after 2 minutes.
+  const late = (await send(c, 'kj', 'old news')).data.ts;
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 2 * 60e3 + 1000;
+    const r = (await unsend('kj', late)).data;
+    assert.equal(r.ok, false);
+    assert.match(r.error, /within 2 minutes/);
+  } finally { Date.now = realNow; }
+  assert.equal((await poll(c)).data.messages.find((m) => m.ts === late).t, 'old news');
+});

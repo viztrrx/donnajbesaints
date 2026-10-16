@@ -2211,7 +2211,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         memoryEnabled: cfg.memoryEnabled !== false,
         routes: [
           '/v1/*', '/read', '/track', '/status', '/active-count', '/health',
-          '/chat/poll', '/chat/send', '/chat/react', '/chat/report', '/unlock',
+          '/chat/poll', '/chat/send', '/chat/react', '/chat/unsend', '/chat/report', '/unlock',
           '/auth/register', '/auth/login', '/auth/me', '/auth/logout', '/auth/revoke',
           '/memory/*', '/eagler/*', ...Object.keys(ADMIN_ROUTES)
         ]
@@ -2901,6 +2901,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         await kv.put(coolKey, String(Date.now()), { expirationTtl: Math.max(roomCfg.slowModeSec, 60) + 5 });
       }
       let ts = Date.now();
+      let replied = null;
       // Shadow mute: report success so the sender is none the wiser, but
       // store nothing — /chat/poll (for anyone, including the sender's other
       // devices) never has it to return.
@@ -2909,7 +2910,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       try {
         if (chatInRooms) {
           // The room appends it and assigns its timestamp (in log order).
-          ts = (await chatRoomCall(env, access.id, 'append', { msg: { u: user, t: text, owner: userLower === OWNER, ...(media ? { media } : {}) } })).ts;
+          // A reply names the message it answers (replyTo = its ts); the room
+          // attaches a short quote of it.
+          const added = await chatRoomCall(env, access.id, 'append', { msg: { u: user, t: text, owner: userLower === OWNER, ...(media ? { media } : {}) }, replyTo: Number(body.replyTo) || 0 });
+          ts = added.ts;
+          replied = added.re || null;
         } else {
         const log = await readRoomLog(kv, access.id);
         log.push({ u: user, t: text, ts, owner: userLower === OWNER, ...(media?{media}:{}) });
@@ -2926,7 +2931,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const said = text || (media ? 'Sent a photo' : '');
         // "@owner" (or the owner's name as a word) is a mention: it gets its
         // own, louder alert instead of the ordinary chat one.
-        if (new RegExp('(^|[^a-z0-9_])@?' + OWNER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(text)) {
+        if (replied && String(replied.u || '').toLowerCase() === OWNER) {
+          notify({ cat: 'mentions', title: user + ' replied to you in ' + roomLabel, body: said, url: appLink('chat', { room: access.id }), urgent: true });
+        } else if (new RegExp('(^|[^a-z0-9_])@?' + OWNER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(text)) {
           notify({ cat: 'mentions', title: user + ' mentioned you in ' + roomLabel, body: said, url: appLink('chat', { room: access.id }), urgent: true });
         } else {
           notify({ cat: access.id === 'public' ? 'chat' : 'chatrooms', title: user + ' in ' + roomLabel, body: said, url: appLink('chat', { room: access.id }) });
@@ -2965,7 +2972,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         let typing = url.searchParams.get('typing') === '1' ? true : url.searchParams.get('typing') === '0' ? false : null;
         if (typing === true && reader && !(await mayPostInChat(kv, reader, access.id))) typing = false;
         const room = chatInRooms ? await chatRoomCall(env, access.id, 'read', { since, reader, seen, here: here && !!reader, typing: reader ? typing : null }) : null;
-        if (room) { reads = room.reads || []; live = { reactions: room.reactions || {}, typing: room.typing || [], people: room.people || [] }; }
+        if (room) { reads = room.reads || []; live = { reactions: room.reactions || {}, unsent: room.unsent || [], typing: room.typing || [], people: room.people || [] }; }
         messages = (room ? room.messages : await readRoomLog(kv, access.id))
           .filter((m) => m && m.ts > since)
           .sort((a, b) => a.ts - b.ts)
@@ -2974,6 +2981,30 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         return json({ ok: false, error: 'chat storage is temporarily unavailable', messages: [], now: Date.now() }, 200);
       }
       return json({ ok: true, room: access.id, messages, reads, ...live, now: Date.now() });
+    }
+
+    // ---- /chat/unsend : take back your own message within 2 minutes ----
+    // Everyone then sees "kj unsent a message"; a photo in it is deleted.
+    if (url.pathname === '/chat/unsend' && req.method === 'POST') {
+      const kv = env && env.TELEMETRY;
+      if (!kv || !chatInRooms) return json({ ok: false, error: 'unsending is not available on this server' }, 200);
+      let body = {};
+      try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
+      const who = await effectiveUser(body.user);
+      if (who.refused) return json({ ok: false, error: 'Sign in again to chat.' }, 200);
+      const user = String(who.user || '').slice(0, 40);
+      if (!user || user.toLowerCase() === 'anonymous') return json({ ok: false, error: 'Sign in first.' }, 200);
+      if (!(await mayActInChatAs(who))) return json({ ok: false, error: 'name reserved' }, 200);
+      if (!allowedUser(await getConfig(kv), user)) return json({ ok: false, error: ACCESS_DENIED }, 403);
+      const access = await checkRoomAccess(kv, body.room, body.code);
+      if (!access.ok) return json({ ok: false, error: access.error }, 200);
+      try {
+        const r = await chatRoomCall(env, access.id, 'unsend', { ts: Number(body.ts) || 0, user });
+        if (r.media && chatMediaBucket) { try { await chatMediaBucket.delete('chat-media/' + r.media); } catch (e) { /* the message is gone either way */ } }
+        return json({ ok: true });
+      } catch (e) {
+        return json({ ok: false, error: String(e && e.message || 'could not unsend') }, 200);
+      }
     }
 
     // ---- /chat/react : a tapback (❤️ 👍 👎 😂 ‼️ ❓) on a chat message ----

@@ -128,7 +128,7 @@ try {
   await kj.page.waitForTimeout(650);
   await R(kj.page, (r) => r.querySelector('#gpa-chat-log').dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true, composed: true })));
   const picker = await R(kj.page, (r) => { const p = r.querySelector('.gpa-tapback-picker'); return p ? [...p.querySelectorAll('button')].map((b) => b.textContent).join(' ') : null; });
-  check('kj presses and holds: the tapback bar opens (❤️ 👍 👎 😂 ‼️ ❓ Copy)', picker === '❤️ 👍 👎 😂 ‼️ ❓ Copy', picker);
+  check('kj presses and holds: the bar opens (❤️ 👍 👎 😂 ‼️ ❓, Reply, Copy; no Unsend on someone else’s)', picker === '❤️ 👍 👎 😂 ‼️ ❓ ↩ Reply Copy', picker);
   await kj.page.waitForTimeout(250);
   await shot(kj.page, '05-tapback-bar.png');
   await kj.page.waitForTimeout(400);

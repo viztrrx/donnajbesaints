@@ -3,7 +3,7 @@
 // the owner-only routes and the events that trigger alerts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../worker.js';
+import worker, { ChatRoom } from '../worker.js';
 import { b64u, encryptPayload, validSubscription } from '../web/console/push.js';
 
 const enc = new TextEncoder();
@@ -236,6 +236,19 @@ test('push: private rooms, mentions, approval queue, quiet hours, who\'s online 
     assert.deepEqual([n[0].cat, n[0].title], ['mentions', 'kj mentioned you in #public']);
     await t.call('/chat/send', { method: 'POST', body: { user: 'kj', text: 'bossy people', room: 'public' } });
     assert.equal((await got())[0].cat, 'chat', 'a word that only starts with the name is not a mention');
+
+    // A reply to one of the owner's messages is a mention too (rooms only).
+    const store = new Map();
+    t.env.CHAT_ROOMS = { idFromName: (n) => n, get: (n) => {
+      if (!store.has(n)) { const data = new Map(); store.set(n, new ChatRoom({ storage: { get: async (k) => structuredClone(data.get(k)), put: async (k, v) => { if (typeof k === 'object') for (const [a, b] of Object.entries(k)) data.set(a, structuredClone(b)); else data.set(k, structuredClone(v)); } }, blockConcurrencyWhile: (fn) => fn() }, t.env)); }
+      return { fetch: (u, init) => store.get(n).fetch(new Request(u, init)) };
+    } };
+    const mine = (await t.call('/chat/send', { method: 'POST', headers: { 'X-GPA-Owner': 'owner-code-1' }, body: { user: 'boss', text: 'gym closes at 9', room: 'public' } })).data.ts;
+    await got();
+    await t.call('/chat/send', { method: 'POST', body: { user: 'kj', text: 'ok thanks', room: 'public', replyTo: mine } });
+    n = await got();
+    assert.deepEqual([n.length, n[0].cat, n[0].title], [1, 'mentions', 'kj replied to you in #public']);
+    delete t.env.CHAT_ROOMS;
 
     // Approval queue on: a brand-new user is held and the owner is told.
     await t.call('/admin/config', { method: 'POST', headers: owner, body: { approvalMode: true } });
