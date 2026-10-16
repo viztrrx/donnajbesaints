@@ -298,6 +298,27 @@ const pendingSec = new Map();     // sec:<day> -> { counts, recent[] }
 let pendingCount = 0, lastFlushAt = Date.now();
 const rateBuckets = new Map();    // user -> { windowStart, count }  (per instance)
 const reportBuckets = new Map();  // user -> { day, count }
+const V1_MAX_BODY = 24 * 1024 * 1024;   // largest AI request accepted (see /v1/*)
+// A response body as text, reading no more than maxBytes (the rest is
+// cancelled, never downloaded into memory).
+async function readCapped(res, maxBytes) {
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const parts = [];
+  let got = 0;
+  while (got < maxBytes) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = value.byteLength > maxBytes - got ? value.subarray(0, maxBytes - got) : value;
+    parts.push(chunk);
+    got += chunk.byteLength;
+  }
+  try { await reader.cancel(); } catch (e) { /* already finished */ }
+  const all = new Uint8Array(got);
+  let at = 0;
+  for (const p of parts) { all.set(p, at); at += p.byteLength; }
+  return new TextDecoder().decode(all);
+}
 const emptyUsage = () => ({ n: 0, fail: 0, rl: 0, latSum: 0, latN: 0, tokIn: 0, tokOut: 0, models: {} });
 // Reads either the new JSON record or the legacy integer counter.
 const parseUsage = (raw) => {
@@ -2780,6 +2801,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     if(url.pathname==='/chat/media/upload' && req.method==='POST'){
       if(!kvMain||!chatMediaBucket)return json({ok:false,error:'Chat photo storage is not configured'},503);
       const contentLength=Number(req.headers.get('Content-Length')||0);
+      // The size must be stated up front (browsers always do): an upload of
+      // unknown length would be read whole into memory by formData().
+      if(!contentLength)return json({ok:false,error:'Photo upload needs a Content-Length'},411);
       if(contentLength>CHAT_IMAGE_LIMIT+65536)return json({ok:false,error:'Photo must be 5 MB or less'},413);
       let form;
       try{form=await req.formData();}catch(e){return json({ok:false,error:'Invalid photo upload'},400);}
@@ -3985,9 +4009,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (!type.includes('text/html') && !type.includes('text/plain')) {
         return json({ error: 'not an HTML/text page: ' + type.slice(0, 80) }, 415);
       }
+      // Read at most MAX_BYTES and stop: a huge page or file must never be
+      // pulled whole into the Worker's memory (128 MB, shared with everyone
+      // else's requests on the same instance).
       let body;
-      try { body = await upstream.text(); } catch (e) { return json({ error: 'could not read the page' }, 502); }
-      if (body.length > MAX_BYTES) body = body.slice(0, MAX_BYTES);
+      try { body = await readCapped(upstream, MAX_BYTES); } catch (e) { return json({ error: 'could not read the page' }, 502); }
       return new Response(body, {
         status: 200,
         headers: {
@@ -4101,13 +4127,22 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     let parsedBody = null;
     let memOpt = null;
     if (req.method !== 'GET' && req.method !== 'HEAD') {
+      // Memory: the Worker briefly holds about three copies of the body
+      // (text, parsed, re-written), and requests on one instance share 128
+      // MB. A question with several full-size photos once ran it out of
+      // memory, failing everyone's chat polls with it; the console now
+      // shrinks photos first, and anything this big is refused.
+      const tooBig = () => json({ error: { message: 'That request is too large (over 24 MB), usually from big images. Try fewer or smaller images.', type: 'request_too_large' } }, 413);
+      if (Number(req.headers.get('Content-Length') || 0) > V1_MAX_BODY) return tooBig();
       bodyText = await req.text();
+      if (bodyText.length > V1_MAX_BODY) return tooBig();
       if (bodyText) {
         try {
           parsedBody = JSON.parse(bodyText);
-          if (parsedBody && typeof parsedBody._gpa_key === 'string') { keyFromBody = parsedBody._gpa_key; delete parsedBody._gpa_key; }
-          if (parsedBody && parsedBody._gpa_mem) { memOpt = parsedBody._gpa_mem; delete parsedBody._gpa_mem; }
-          bodyText = JSON.stringify(parsedBody);
+          let changed = false;
+          if (parsedBody && typeof parsedBody._gpa_key === 'string') { keyFromBody = parsedBody._gpa_key; delete parsedBody._gpa_key; changed = true; }
+          if (parsedBody && parsedBody._gpa_mem) { memOpt = parsedBody._gpa_mem; delete parsedBody._gpa_mem; changed = true; }
+          if (changed) bodyText = JSON.stringify(parsedBody);
         } catch (e) { /* not JSON — forward untouched */ }
       }
     }
@@ -4153,10 +4188,15 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // and the query string is dropped entirely.
     let res;
     try {
+      // Hand the body over and drop every reference to it, so the copies
+      // can be freed during the seconds the AI takes to answer.
+      const outgoing = bodyText;
+      bodyText = null;
+      parsedBody = null;
       res = await fetch('https://api.openai.com' + url.pathname, {
         method: req.method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: bodyText
+        body: outgoing
       });
     } catch (e) {
       if (modUser) noteUsage(modUser, { n: quotaRecordKey ? 0 : 1, fail: 1 });

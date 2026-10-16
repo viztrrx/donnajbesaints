@@ -750,7 +750,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-17T00:30:00-04:00', commit: '', title: 'Chat: who’s typing, who’s here, and reactions', parts: {
       chat: ['feature', '“kj is typing…” with a bouncing-dots bubble; who’s here (in this chat, online, last seen); iMessage-style reactions ❤️ 👍 👎 😂 ‼️ ❓ by double-click, double-tap or press and hold; opening Chat now loads at once'] } },
     { at: '2026-10-17T03:00:00-04:00', commit: '', title: 'Chat: replies, unsend, and grouped messages', parts: {
-      chat: ['feature', 'Reply to a message (with a quote you can tap to jump to it); unsend your own message within 2 minutes; several messages in a row show the picture and name once'] } }
+      chat: ['feature', 'Reply to a message (with a quote you can tap to jump to it); unsend your own message within 2 minutes; several messages in a row show the picture and name once'] } },
+    { at: '2026-10-17T11:30:00-04:00', commit: '', title: 'Fix: “Worker exceeded memory limit”', parts: {
+      ask: ['fix', 'Photos you paste or attach are shrunk before sending (a 9 MB phone photo now goes as under 1 MB), so a photo question can no longer run the Worker out of memory and break chat for everyone'],
+      console: ['fix', 'The Worker refuses oversized requests with a clear message and no longer reads whole huge pages into memory'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -11363,11 +11366,40 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     });
   }
 
+  // Photos are shrunk before they're sent: a phone photo is 4-7 MB as a
+  // data URL, and a question with several of them ran the Worker out of
+  // memory (it holds a few copies of each request). 1600 px on the long
+  // side as JPEG reads just as well for the AI and is a few hundred KB.
+  const ASK_IMAGE_MAX_SIDE = 1600;
+  function shrinkImageDataUrl(dataUrl) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        const scale = Math.min(1, ASK_IMAGE_MAX_SIDE / Math.max(w, h || 1));
+        // Already small: keep it as it is.
+        if (scale === 1 && dataUrl.length < 1.5 * 1024 * 1024) { resolve(dataUrl); return; }
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(w * scale));
+          canvas.height = Math.max(1, Math.round(h * scale));
+          const g = canvas.getContext('2d');
+          g.fillStyle = '#fff';   // JPEG has no transparency
+          g.fillRect(0, 0, canvas.width, canvas.height);
+          g.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const out = canvas.toDataURL('image/jpeg', 0.85);
+          resolve(out.length < dataUrl.length ? out : dataUrl);
+        } catch (e) { resolve(dataUrl); }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  }
   async function addImageBlobs(blobs) {
     for (const b of blobs) {
       if (!b || !/^image\//.test(b.type)) continue;
       if (pendingImages.length >= MAX_ASK_IMAGES) break;
-      try { pendingImages.push(await blobToDataUrl(b)); } catch (_) {}
+      try { pendingImages.push(await shrinkImageDataUrl(await blobToDataUrl(b))); } catch (_) {}
     }
     renderImageStrip();
   }

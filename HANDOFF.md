@@ -158,6 +158,20 @@ All on `main`. Each has tests; see section 6.
    hover; `regroupChat()` marks `.cont` on a run from one person within 5
    min (no picture/name; replies and unsent lines break a run). Tests:
    `tests/chat-rooms.test.mjs`, `tests/browser/chat-replies.mjs`.
+0. **Memory (128 MB per Worker instance, shared by every request on it).**
+   A "Worker exceeded memory limit" alert on `GET /chat/poll` means the
+   instance ran out and everything on it failed, the chat poll included
+   (polls are the most frequent request, so they usually take the blame).
+   Chat itself stays ~10 MB under heavy load (measured). The big consumer
+   was Ask AI with full-size photos: `/v1/*` held ~3 copies of the body
+   (6 phone photos ≈ 36 MB body ≈ 115 MB). Now: the console shrinks pasted
+   and attached photos to 1600 px JPEG (`shrinkImageDataUrl`, ~0.8 MB
+   each); `/v1/*` refuses bodies over `V1_MAX_BODY` (24 MB, 413
+   `request_too_large`), re-writes the body only when it strips
+   `_gpa_key`/`_gpa_mem`, and drops its copies before awaiting OpenAI;
+   `/read` reads at most 3 MB (`readCapped`) instead of the whole page; chat
+   photo uploads need a Content-Length (411). Tests:
+   `tests/memory-limits.test.mjs`, `tests/browser/ask-photo-size.mjs`.
 0. **Notification deep links**: every `notify()` carries a link built by
    `appLink(tab, params)` / `adminLink(sec, params)` in `worker.js`, e.g.
    `/console/#tab=admin&sec=users&user=renzo&focus=key`. In `script.js`,
@@ -276,7 +290,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (79 tests)
+npm test                                   # node --test tests/*.test.mjs (84 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -295,6 +309,7 @@ node tests/browser/staff-chat.mjs          # 19 (moderator, owner, regular user 
 node tests/browser/same-computer.mjs       # 12 (two websites, one computer: warn, move, cancel)
 node tests/browser/chat-live.mjs           # 23 (typing, who's here, reactions; 3 phones + laptop)
 node tests/browser/chat-replies.mjs        # 20 (replies, unsend, grouping; 2 phones + laptop)
+node tests/browser/ask-photo-size.mjs      # 6 (a 9 MB phone photo leaves the console as 0.8 MB)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 
