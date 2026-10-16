@@ -187,3 +187,58 @@ test('chat (rooms): read receipts — cursors move forward only, per person, and
   await c.call('/admin/jobs/run', { method: 'POST', headers: owner, body: { id: 'chat-cleanup' } });
   assert.deepEqual((await pollAs('maya')).data.reads, []);
 });
+
+test('staff chat: only moderators, admins and the owner can read or post; it doesn’t exist for anyone else', async () => {
+  const env = { TELEMETRY: makeKV(), ADMIN_TOKEN: ADMIN, COADMIN_TOKEN: 'coadmin-token-secret-5678', OWNER: 'boss', OWNER_CODE: 'owner-code-9' };
+  env.CHAT_ROOMS = makeRooms(env);
+  const c = client(env);
+  const v = (u) => u.padEnd(64, '0').slice(0, 64).replace(/[^0-9a-f]/g, 'a');
+  const login = async (user) => (await c.call('/auth/login', { method: 'POST', body: { user, verifier: v(user) } })).data.token;
+  const reg = async (user) => (await c.call('/auth/register', { method: 'POST', body: { user, verifier: v(user) } })).data.token;
+  const pollStaff = (headers, extra = '') => c.call('/chat/poll?room=staff&since=0' + extra, { headers });
+  const sendStaff = (headers, user, text) => c.call('/chat/send', { method: 'POST', headers, body: { user, text, room: 'staff' } });
+
+  // A regular user: by name, and with a signed-in session.
+  await reg('kj');
+  const kjTok = await login('kj');
+  for (const h of [{}, { 'X-GPA-Session': kjTok }]) {
+    const p = await pollStaff(h, '&user=kj');
+    assert.equal(p.data.ok, false);
+    assert.equal(p.data.error, 'no such room', 'looks like it doesn’t exist');
+    assert.equal((p.data.messages || []).length, 0);
+    assert.equal((await sendStaff(h, 'kj', 'let me in')).data.ok, false);
+  }
+  // A wrong owner code or a made-up session don't work either.
+  assert.equal((await pollStaff({ 'X-GPA-Owner': 'nope' })).data.ok, false);
+  assert.equal((await pollStaff({ 'X-GPA-Session': 'forged.token' })).data.ok, false);
+
+  // Make dub a moderator: after signing in again he's in.
+  await reg('dub');
+  await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'dub', action: 'setrole', role: 'moderator' } });
+  const dubTok = await login('dub');
+  assert.equal((await sendStaff({ 'X-GPA-Session': dubTok }, 'dub', 'staff meeting at 5')).data.ok, true);
+  let p = await pollStaff({ 'X-GPA-Session': dubTok }, '&user=dub');
+  assert.deepEqual(p.data.messages.map((m) => m.t), ['staff meeting at 5']);
+  // The owner (owner code, admin token) and a co-admin token are staff too.
+  assert.equal((await sendStaff({ 'X-GPA-Owner': 'owner-code-9' }, 'boss', 'got it')).data.ok, true);
+  assert.equal((await pollStaff(owner)).data.messages.length, 2);
+  assert.equal((await pollStaff({ Authorization: 'Bearer coadmin-token-secret-5678' })).data.messages.length, 2);
+  // An admin role works as well.
+  await reg('sam');
+  await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'sam', action: 'setrole', role: 'admin' } });
+  assert.equal((await pollStaff({ 'X-GPA-Session': await login('sam') })).data.messages.length, 2);
+  // Demoted: out again.
+  await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'dub', action: 'setrole', role: 'user' } });
+  assert.equal((await pollStaff({ 'X-GPA-Session': await login('dub') })).data.ok, false);
+
+  // Staff messages never show up in #public, reports can't reach them, and
+  // nobody can create or delete a room called "staff".
+  assert.equal((await poll(c)).data.messages.some((m) => m.t === 'got it'), false);
+  const staffMsg = (await pollStaff(owner)).data.messages[0];
+  assert.equal((await c.call('/chat/report', { method: 'POST', headers: { 'X-GPA-Session': kjTok }, body: { room: 'staff', ts: staffMsg.ts } })).status, 403);
+  assert.equal((await c.call('/admin/rooms', { method: 'POST', headers: owner, body: { action: 'create', name: 'Staff' } })).status, 400);
+  assert.equal((await c.call('/admin/rooms', { method: 'POST', headers: owner, body: { action: 'delete', id: 'staff' } })).status, 400);
+  // The nightly cleanup empties it like the other rooms.
+  await c.call('/admin/jobs/run', { method: 'POST', headers: owner, body: { id: 'chat-cleanup' } });
+  assert.equal((await pollStaff(owner)).data.messages.length, 0);
+});

@@ -94,6 +94,13 @@ into KV `push:vapid`), `OWNER_TZ`, `CONSOLE_SCRIPT_URL`, `AUDIUS_API`,
 
 All on `main`. Each has tests; see section 6.
 
+0. **Staff chat**: built-in room `staff`; `checkRoomAccess` lets it through
+   only when `isStaffCaller()` (session role ≥ moderator, X-GPA-Owner code,
+   or an admin/co-admin bearer token), else "no such room". Client: nav item
+   `data-tab="staffchat" data-pane="chat"` (the tab handler honors
+   `data-pane`), `chatNavPicked`/`syncChatNav`, `isStaffClient()` (guarded:
+   it runs during start-up before `currentUser` exists), background poll for
+   `#gpa-staff-badge`. Tests: chat-rooms.test.mjs, `tests/browser/staff-chat.mjs`.
 0. **Subscribers**: `config.subscriptions[name] = { user, startedAt,
    expiresAt, period, note, ended, reminded, history }`. `allowedUser()`:
    with the list on, a name that has a subscription is allowed exactly while
@@ -228,7 +235,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (72 tests)
+npm test                                   # node --test tests/*.test.mjs (74 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -242,7 +249,8 @@ node tests/browser/usage-meter.mjs         # 16 (meter states, Ask AI refresh, s
 node tests/browser/usage-meter-sizes.mjs   # 25 (meter + one-line header at every panel size preset)
 node tests/browser/chat-burst.mjs          # 4 (50 simultaneous messages, none lost)
 node tests/browser/read-receipts.mjs       # 13 (three phones: Delivered → Read by …)
-node tests/browser/subscribers.mjs         # 12 (add, sign in, ended, ask to renew, renew)
+node tests/browser/subscribers.mjs         # 16 (add, start date, countdown, ended, renew)
+node tests/browser/staff-chat.mjs          # 19 (moderator, owner, regular user can't see it)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 

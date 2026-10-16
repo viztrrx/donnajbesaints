@@ -2626,9 +2626,24 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     };
 
     // Returns { ok } or { ok:false, error } for a room + supplied code.
+    // Staff chat: one built-in room only staff can read or post in (moderators,
+    // admins and the owner). Proof is a verified session whose account has a
+    // staff role, or the owner code. To everyone else it doesn't exist.
+    const STAFF_ROOM = 'staff';
+    const isStaffCaller = async () => {
+      const p = await resolvePrincipal();
+      if (p && (ROLE_RANK_V2[p.role] || 0) >= ROLE_RANK_V2.moderator) return true;
+      const code = req.headers.get('X-GPA-Owner') || '';
+      return !!(env && env.OWNER_CODE && code && (await timingSafeEqualStr(code, env.OWNER_CODE)));
+    };
     const checkRoomAccess = async (kv, roomId, code) => {
       const id = String(roomId || 'public').toLowerCase().slice(0, 40);
       if (id === 'public') return { ok: true, id };
+      if (id === STAFF_ROOM) {
+        if (await isStaffCaller()) return { ok: true, id, staff: true, room: { name: 'staff' } };
+        await noteSec('forbidden', { note: 'staff chat' });
+        return { ok: false, error: 'no such room' };
+      }
       if (!kv) return { ok: false, error: 'chat storage not configured' };
       const room = await kv.get(roomKey(id), 'json');
       if (!room) return { ok: false, error: 'no such room' };
@@ -3471,6 +3486,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const name = String(body.name || '').trim().slice(0, 40);
         if (!name) return json({ error: 'name required' }, 400);
         const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || ('room' + Date.now().toString(36));
+        if (id === 'staff' || id === 'public') return json({ error: 'That name is reserved. Pick another.' }, 400);
         if (id === 'public') return json({ error: '"public" is reserved' }, 400);
         const code = genCode();
         await kv.put(roomKey(id), JSON.stringify({
@@ -3481,7 +3497,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       }
       if (action === 'delete') {
         const id = String(body.id || '').toLowerCase().slice(0, 40);
-        if (!id || id === 'public') return json({ error: 'cannot delete that room' }, 400);
+        if (!id || id === 'public' || id === 'staff') return json({ error: 'cannot delete that room' }, 400);
         await kv.delete(roomKey(id));
         await kv.delete(roomCfgKey(id));
         await kv.delete(roomLogKey(id));
@@ -4075,7 +4091,7 @@ async function clearAllChatMessages(kv, env) {
   // Room logs in their Durable Objects (see chat/room.js): #public plus every
   // private room on record.
   if (env && env.CHAT_ROOMS) {
-    const ids = ['public'];
+    const ids = ['public', 'staff'];
     let cursor;
     do {
       const listed = await kv.list({ prefix: 'room:', cursor });

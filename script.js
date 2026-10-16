@@ -742,7 +742,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       console: ['feature', 'When a subscription ends the person is signed out with “Your subscription has ended” and can ask the owner to renew from the sign-in screen'] } },
     { at: '2026-10-16T20:00:00-04:00', commit: '', title: 'Subscribers: start dates, amounts paid and a countdown', parts: {
       admin: ['feature', 'Subscribers: pick when someone subscribed (the end date counts from it), Change start later, record what they paid; totals for this month and in all'],
-      console: ['feature', 'Subscribers see their own countdown under the header (“21 days left · ends Nov 5”), amber in the last 3 days'] } }
+      console: ['feature', 'Subscribers see their own countdown under the header (“21 days left · ends Nov 5”), amber in the last 3 days'] } },
+    { at: '2026-10-16T22:00:00-04:00', commit: '', title: 'Staff chat', parts: {
+      chat: ['feature', 'A staff-only room under Chat for moderators, admins and the owner, with its own unread badge; the Worker refuses it to everyone else'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -3000,6 +3002,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <button class="gpa-dropdown-item active" data-tab="scan"><span class="gpa-nav-ic">${GPS_ICONS.scan}</span><span class="gpa-nav-label">Page Insights</span></button>
           <button class="gpa-dropdown-item" data-tab="ask"><span class="gpa-nav-ic">${GPS_ICONS.ai}</span><span class="gpa-nav-label">Ask AI</span></button>
           <button class="gpa-dropdown-item" data-tab="chat"><span class="gpa-nav-ic">${GPS_ICONS.users}</span><span class="gpa-nav-label">Chat</span><span id="gpa-chat-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
+          <button class="gpa-dropdown-item" data-tab="staffchat" data-pane="chat" style="display:none;"><span class="gpa-nav-ic">${GPS_ICONS.advanced}</span><span class="gpa-nav-label">Staff chat</span><span id="gpa-staff-badge" class="gpa-chat-badge" style="display:none;">0</span></button>
           <div class="gpa-nav-group" role="presentation" data-group="Play">Play</div>
           <button class="gpa-dropdown-item" data-tab="music"><span class="gpa-nav-ic">${GPS_ICONS.music}</span><span class="gpa-nav-label">Music</span></button>
           <button class="gpa-dropdown-item" data-tab="browser"><span class="gpa-nav-ic">${GPS_ICONS.globe}</span><span class="gpa-nav-label">Proxy</span></button>
@@ -6431,7 +6434,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       panel.querySelectorAll('.gpa-dropdown-item').forEach((b) => b.classList.remove('active'));
       panel.querySelectorAll('.gpa-pane').forEach((p) => p.classList.remove('active'));
       item.classList.add('active');
-      panel.querySelector(`.gpa-pane[data-pane="${item.dataset.tab}"]`).classList.add('active');
+      // An item can open another tab's pane (Staff chat opens the Chat pane).
+      panel.querySelector(`.gpa-pane[data-pane="${item.dataset.pane || item.dataset.tab}"]`).classList.add('active');
       // item.textContent would also pull in the chat unread badge's digits.
       const badge = item.querySelector('.gpa-chat-badge');
       dropdownLabel.textContent = badge ? item.textContent.replace(badge.textContent, '').trim() : item.textContent;
@@ -6447,7 +6451,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       // look at another tab.
       if (item.dataset.tab !== 'eaglercraft') { try { eagLeaveTab('tab'); } catch (e) { /* module not ready */ } }
       else { try { eagSync(); } catch (e) { /* module not ready */ } }
-      if (item.dataset.tab === 'chat') {
+      if (item.dataset.tab === 'chat' || item.dataset.tab === 'staffchat') {
+        // Chat and Staff chat share the Chat pane; each picks its room.
+        if (typeof chatNavPicked === 'function') chatNavPicked(item.dataset.tab);
         if (typeof startChatPolling === 'function') startChatPolling();
         if (typeof clearChatUnread === 'function') clearChatUnread();
         if (window.Notification && Notification.permission === 'default') {
@@ -11471,6 +11477,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function renderRoomOptions() {
     const rooms = joinedRooms();
     chatRoomSel.innerHTML = '<option value="public"># public</option>'
+      + (isStaffClient() ? '<option value="staff"># staff (staff only)</option>' : '')
       + Object.keys(rooms).map((id) => `<option value="${escapeHtml(id)}">🔒 ${escapeHtml(rooms[id].name || id)}</option>`).join('');
     chatRoomSel.value = chatRoom;
     if (chatRoomSel.value !== chatRoom) { chatRoom = 'public'; chatRoomSel.value = 'public'; }
@@ -11552,7 +11559,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const wasBootstrap = chatBootstrap;
     chatBootstrap = false;
     try {
-      const res = await fetch(base + '/chat/poll?' + params.toString(), { cache: 'no-store' });
+      const res = await fetch(base + '/chat/poll?' + params.toString(), { cache: 'no-store', headers: staffProofHeaders(chatRoom) });
       const data = await res.json().catch(() => ({}));
       // A 5xx means the worker itself fell over. Say so plainly rather than
       // leaving an empty pane, and count it so the retry backs off.
@@ -11563,6 +11570,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         return;
       }
       if (!data.ok) {
+        // No longer staff (role changed): leave the staff room quietly.
+        if (chatRoom === 'staff') { staffAllowed = false; refreshStaffNav(); switchChatRoom(lastPublicRoom); chatNavPicked('chat'); return; }
         chatPollFailures++;
         chatNote.textContent = data.error || 'Could not load messages.';
         return;
@@ -11596,6 +11605,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (added) updateChatBadge();
       chatReads = Array.isArray(data.reads) ? data.reads : [];
       renderChatReceipt();
+      if (chatRoom === 'staff' && chatSince && chatIsOpenAndVisible()) { markStaffSeen(chatSince); staffUnread = 0; updateStaffBadge(); }
     } catch (e) {
       chatPollFailures++;
       chatNote.textContent = 'Offline — messages will load when you reconnect.';
@@ -11653,8 +11663,108 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 80) chatLog.scrollTop = chatLog.scrollHeight;
   }
 
+  // ---- Staff chat ------------------------------------------------------------
+  // A built-in room only staff can use (moderators, admins and the owner).
+  // The Worker refuses it to everyone else ("no such room"); here it only
+  // decides whether the "Staff chat" item under Chat shows at all. It opens
+  // the Chat pane on the staff room, keeps its own unread badge, and Chat
+  // goes back to the room you were in.
+  const staffNavItem = panel.querySelector('.gpa-dropdown-item[data-tab="staffchat"]');
+  const chatNavItem = panel.querySelector('.gpa-dropdown-item[data-tab="chat"]');
+  const staffBadge = panel.querySelector('#gpa-staff-badge');
+  let staffAllowed = true;    // false once the Worker refused this person
+  let lastPublicRoom = 'public';
+  let staffPollTimer = 0;
+  let staffUnread = 0;
+  function isStaffClient() {
+    // The room list is first drawn during start-up, before the signed-in
+    // user (declared further down) exists: nobody is staff until then.
+    try { if (!currentUser) return false; } catch (e) { return false; }
+    if (!staffAllowed) return false;
+    const role = typeof sessionRole === 'function' ? sessionRole() : null;
+    if (role === 'moderator' || role === 'admin' || role === 'owner') return true;
+    // The owner code or an admin token in this session also prove staff
+    // (the Worker checks them; a wrong one just gets "no such room").
+    return !!admGet(ADMIN_KEYS.OWNER_CODE) || !!admGet(ADMIN_KEYS.TELE_TOKEN);
+  }
+  function staffProofHeaders(room) {
+    const h = {};
+    if (room !== 'staff') return h;
+    const code = admGet(ADMIN_KEYS.OWNER_CODE);
+    if (code) h['X-GPA-Owner'] = code;
+    const tok = admGet(ADMIN_KEYS.TELE_TOKEN);
+    if (tok && !(sessionRole() && sessionRole() !== 'user')) h.Authorization = 'Bearer ' + tok;
+    return h;
+  }
+  const staffSeenKey = () => 'gpa_staff_seen_' + String(currentUser || '').toLowerCase();
+  function staffSeen() { try { return Number(localStorage.getItem(staffSeenKey())) || 0; } catch (e) { return 0; } }
+  function markStaffSeen(ts) { if (ts > staffSeen()) { try { localStorage.setItem(staffSeenKey(), String(ts)); } catch (e) { /* storage blocked */ } } }
+  function updateStaffBadge() {
+    if (!staffBadge) return;
+    staffBadge.textContent = staffUnread > 99 ? '99+' : String(staffUnread);
+    staffBadge.style.display = staffUnread > 0 ? 'inline-flex' : 'none';
+  }
+  // While you're elsewhere, count new staff messages for the badge.
+  async function staffBackgroundPoll() {
+    if (!isStaffClient() || !telemetryOn()) return;
+    if (chatRoom === 'staff' && chatIsOpenAndVisible()) { staffUnread = 0; updateStaffBadge(); return; }
+    const params = new URLSearchParams({ room: 'staff', since: String(staffSeen()) });
+    params.set('user', currentUser);
+    if (sessionToken()) params.set('s', sessionToken());
+    try {
+      const r = await fetch(telemetryEndpoint() + '/chat/poll?' + params.toString(), { cache: 'no-store', headers: staffProofHeaders('staff') });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) { if (d.error === 'no such room') { staffAllowed = false; refreshStaffNav(); } return; }
+      staffUnread = (d.messages || []).filter((m) => m.u !== currentUser).length;
+      updateStaffBadge();
+    } catch (e) { /* offline: try again next time */ }
+  }
+  function refreshStaffNav() {
+    const show = isStaffClient();
+    if (staffNavItem) staffNavItem.style.display = show ? '' : 'none';
+    const hasOpt = !!chatRoomSel.querySelector('option[value="staff"]');
+    if (show !== hasOpt) renderRoomOptions();
+    clearInterval(staffPollTimer);
+    staffPollTimer = 0;
+    if (show) { staffPollTimer = setInterval(staffBackgroundPoll, 20000); staffBackgroundPoll(); }
+    else {
+      staffUnread = 0; updateStaffBadge();
+      if (chatRoom === 'staff') { switchChatRoom(lastPublicRoom); chatNavPicked('chat'); }
+    }
+  }
+  // Highlights Chat or Staff chat to match the room on screen, and retitles the pane.
+  function syncChatNav() {
+    const staff = chatRoom === 'staff';
+    const chatPaneOn = panel.querySelector('.gpa-pane[data-pane="chat"]').classList.contains('active');
+    if (chatPaneOn && staffNavItem && chatNavItem) {
+      staffNavItem.classList.toggle('active', staff);
+      chatNavItem.classList.toggle('active', !staff);
+    }
+    const pane = panel.querySelector('.gpa-pane[data-pane="chat"]');
+    const title = pane.querySelector('.gpx-title');
+    const desc = pane.querySelector('.gpx-desc');
+    if (title) title.textContent = staff ? 'Staff chat' : 'Chat';
+    if (desc) desc.textContent = staff ? 'Only staff and admins can see this room.' : 'Talk with everyone using this console, or join a private room with a code.';
+    pane.classList.toggle('is-staff-chat', staff);
+  }
+  // A sidebar pick of Chat or Staff chat.
+  function chatNavPicked(tab) {
+    if (tab === 'staffchat') {
+      if (!isStaffClient()) return;
+      if (chatRoom !== 'staff') { lastPublicRoom = chatRoom; switchChatRoom('staff'); }
+      staffUnread = 0; updateStaffBadge();
+    } else if (chatRoom === 'staff') {
+      switchChatRoom(lastPublicRoom || 'public');
+    }
+    syncChatNav();
+  }
+  setTimeout(() => { try { onSessionChange(refreshStaffNav); } catch (e) { /* not ready */ } }, 0);
+
   function switchChatRoom(id) {
+    if (id === 'staff' && !isStaffClient()) id = 'public';
+    if (id !== 'staff') lastPublicRoom = id;
     chatRoom = id;
+    if (chatRoomSel.value !== id) chatRoomSel.value = id;
     chatSince = 0;
     chatSeen = new Set();
     chatReads = [];
@@ -11721,7 +11831,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     panel.querySelector('#gpa-chat-send').disabled = true;
     try {
       const ownerCode = admGet(ADMIN_KEYS.OWNER_CODE);
-      const auth = {};
+      const auth = { ...staffProofHeaders(chatRoom) };
       if (ownerCode) auth['X-GPA-Owner'] = ownerCode;
       if (sessionToken()) auth['X-GPA-Session'] = sessionToken();
       let mediaId = null;
@@ -11766,7 +11876,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
   }
 
-  chatRoomSel.addEventListener('change', () => switchChatRoom(chatRoomSel.value));
+  chatRoomSel.addEventListener('change', () => { switchChatRoom(chatRoomSel.value); syncChatNav(); });
   panel.querySelector('#gpa-chat-send').addEventListener('click', chatSend);
   chatInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') { event.preventDefault(); chatSend(); }
@@ -13573,6 +13683,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function enterApp(user) {
     currentUser = user;
     localStorage.setItem(SESSION_KEY, user);
+    staffAllowed = true;
+    try { refreshStaffNav(); } catch (e) { /* chat not ready */ }
     // Every sign-in, fresh or restored, starts on the default models.
     enforceDefaultModels();
     // Record the open in the local usage log, and mirror it to the shared
@@ -17631,6 +17743,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   function signOutWith(message, isError) {
     renderUsageMeter(null);
+    setTimeout(() => { try { refreshStaffNav(); } catch (e) { /* ignore */ } }, 0);   // after currentUser is cleared
     renderSubStrip(null);
     saveProgress();
     closeLanguagePicker();
@@ -19650,6 +19763,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       applyPerms();
       refreshNav();
       try { const cv = await api('/admin/config/view'); state.cfg = cv.config; } catch (e) { /* not every role can read config */ }
+      try { refreshStaffNav(); } catch (e) { /* chat not ready */ }   // an admin token is staff: Staff chat shows
       if (pendingLink) { const p = pendingLink; pendingLink = null; goToLink(p); return true; }
       if (pane.classList.contains('active')) showAdminSection(state.section);
       return true;
@@ -19680,6 +19794,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       ownerMode = false;
       disconnect('Locked.');
       refreshNav();
+      try { refreshStaffNav(); } catch (e) { /* chat not ready */ }
     });
     const tokInput = panel.querySelector('#gpa-tele-token');
     if (tokInput) tokInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $a('#gac-connect').click(); } });
