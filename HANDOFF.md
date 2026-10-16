@@ -1,10 +1,117 @@
 # Handoff: Agent Console (donnajbesaints)
 
 Context for the next Claude session working on this repository. Read this
-first, then `README.md` for user-facing docs. Last updated 2026-10-15, at
-commit `bf4b7f5` on `main`.
+first, then `README.md` for user-facing docs. Last updated 2026-10-17
+(round 1 of the feature list pushed as `04ed68b`; round 2 in progress).
 
 ---
+
+## 0. Current status, next tasks and the plan (read this first)
+
+**How the owner wants work done (in their words, condensed):**
+- "Add all of that but make sure it doesn't affect the current users
+  approved right now." New features must be **off or opt-in by default**;
+  nothing may change for people already on Allowed users (e.g. invite codes
+  only for names added *after* the feature shipped).
+- **After every round: update this HANDOFF.md** with the next task, the
+  context and the plan; when a round is complete and tested, **push to
+  `main`**, then start the next round. One round = one tested push.
+- **Pushing to `main` deploys** (Cloudflare Workers Builds runs
+  `npx wrangler deploy` on every push). Never push untested or half-done
+  code; keep work-in-progress uncommitted until its round passes.
+- Reports in plain language: what changed (tables), how it works, what was
+  and wasn't tested, screenshots of the real app (label sample data / mock-ups).
+- The owner uses the iPhone home-screen app (`/console/`), gets phone
+  notifications (including "Worker error" alerts), and often replies just
+  "push to main".
+
+**The feature list the owner approved ("add all of that")** — built in rounds:
+
+| Round | Features | Status |
+|---|---|---|
+| 1 | Invite codes · weekly report · subscriber "ending" reminders · activity heatmap | **Done, pushed `04ed68b`** (details in §4) |
+| 2 | @mentions with autocomplete + phone alerts for everyone · pinned messages · polls · edit within 2 min · voice messages · chat quiet hours | **In progress** |
+| 3 | Chat effects (confetti/balloons) · profile flair · daily streaks · game leaderboards · daily trivia · "now playing" in chat | Next |
+| 4 | Rewrite this HANDOFF.md end to end with all context, goals and the owner's way of working | After round 3 |
+
+**Round 2 plan (design decided; the room-object part of it is written but
+uncommitted in the session that wrote this):**
+- *Room DO (`chat/room.js`)*: actions `edit` (own message, within
+  `EDIT_MS` = 2 min, not polls; quotes and pins follow the new text),
+  `pin` (`{ts, by, pin}`; up to 3 pins, stored in `pins`; unsend/clear drop
+  them), `vote` (`{ts, user, option}`; one vote per person in `m.pv`, same
+  option again = take back). `read` also returns `edits` (`ts → {t, at}`),
+  `votes` (`ts → pv`) and `pins`.
+- *Worker routes*: `/chat/edit`, `/chat/vote` (same identity rules as
+  `/chat/react`: `effectiveUser`, `mayActInChatAs`, `allowedUser`,
+  `checkRoomAccess`, `mayPostInChat`), `/chat/pin` (staff only:
+  `isStaffCaller()`). `/chat/send` accepts `poll: {q, options[2-6]}`
+  (q ≤ 140, options ≤ 60 chars) and stores `msg.poll`.
+- *Quiet hours*: `cfg.chatQuiet = {on, start, end}` (owner hours, set in
+  Admin → Moderation; default off). While active, non-staff can't send,
+  upload, react, vote or show typing (`mayPostInChat` + `/chat/send` +
+  upload); the poll response carries `quiet` so the console shows "🌙 Quiet
+  hours: chat is read-only until 6 AM" and disables the box. Staff exempt.
+- *Mention alerts for everyone*: in `web/console/push.js` add per-person
+  subscriptions (`push:user:<name>`, up to 3 devices, own manage key),
+  `notifyUser()`; routes `/push/me/subscribe|unsubscribe|status|test`
+  (subscribe needs the person's verified session). `/chat/send` parses
+  `@name` (max 5 per message) in **#public and staff chat only** (private
+  rooms skipped: the Worker can't tell who joined them and the alert shows
+  the text); staff room only alerts staff; throttle per sender→target. A
+  "Mention alerts" toggle in Settings → Account for signed-in non-owners
+  (home-screen app on iPhone). Console: `@` autocomplete under the box
+  (names from who's here + recent authors; arrows/Enter/Tab/tap), messages
+  that mention you highlighted, a toast when mentioned while Chat is hidden.
+- *Voice messages*: mic button → record (MediaRecorder; `audio/mp4` on
+  Safari, `audio/webm` elsewhere), up to 30 s, Send/Cancel bar; upload
+  through `/chat/media/upload` (form field `voice`, checked with
+  `audioKind()` from `web/music.js`, its own daily limit), message media
+  `{id, type, dur}`, `<audio controls>` in chat. `/chat/media/:id` must
+  answer **Range** requests (Safari won't play audio otherwise; copy the
+  pattern of `serveLibraryFile` in `web/music.js`).
+- *Pins / polls / edit UI*: pinned bar above the log (tap jumps, staff ✕);
+  message bar gets Pin/Unpin (staff), Edit (own, 2 min; banner "Editing
+  message ✕" above the box); polls via `/poll Question? | A | B` (and
+  "X or Y?" auto-split) or a 📊 button that inserts the template; poll card
+  with bars, counts and your vote; "(edited)" next to the time.
+- Tests to write: unit (`tests/chat-rooms.test.mjs` style) for edit window,
+  pins staff-only, votes, quiet hours, user push subscribe/notify, voice
+  upload signature + Range; browser `tests/browser/chat-round2.mjs` (fake
+  mic: launch Chromium with `--use-fake-device-for-media-stream
+  --use-fake-ui-for-media-stream`) with screenshots.
+
+**Round 3 plan:**
+- *Chat effects*: "happy birthday"/"hbd" → balloons, "congrats" →
+  confetti, "gg" → confetti; played on everyone's screen when the message
+  arrives (not when history loads); canvas overlay; off with
+  prefers-reduced-motion.
+- *Profile flair*: owner picks a badge per person (⭐ VIP, 🎮 Gamer, …) in
+  the user inspector (`/admin/flair`, `cfg.flair`); staff get 🛡 automatically
+  (stamp `staff: true` on messages at send). Client fetches `{flair,
+  streaks, trivia}` from one cached endpoint (`/chat/flair`, KV
+  `cacheTtl` 60) every few minutes — not on every poll (KV read budget).
+- *Streaks*: days in a row the person opened the console (owner time zone),
+  updated once a day on `/track` "open" into one `streaks` KV key; shown as
+  🔥 n in their profile and in "who's here".
+- *Game leaderboards*: `setBestIfHigher()` (and reaction ms / guess tries,
+  lower is better) submits only new personal bests to `/games/score`;
+  `lb:<game>` top 10 with sane per-game caps; a new #1 posts a system
+  message in #public ("🏆 kj set a new record in Snake: 1,240"), throttled.
+  Leaderboard panel in each game.
+- *Daily trivia*: at 12 PM owner time the cron posts a question in #public
+  as a system message (built-in question bank; AI only if an
+  assign-to-everyone key exists); the first correct answer in chat wins a
+  point (KV `trivia:points`), announced by a system message.
+- *Now playing*: "Share to chat" in Music sends a track card (`track:
+  {source, id, title, artist}`); tapping ▶ plays it in the console's player.
+
+**Testing routine used every round:** `npm test` (unit), then every browser
+suite one at a time from a clean state (`rm -rf .wrangler/state`; a 5-min
+timeout each; ~20 min in total, so run it in the background and wait on a
+"done" marker), `npx wrangler deploy --dry-run --outdir <tmp>`, screenshots
+reviewed by eye, then commit + fast-forward push to `main`. Don't edit
+`script.js`/`worker.js` while browser suites run (they load the live files).
 
 ## 1. Ground rules from the owner (follow these)
 
