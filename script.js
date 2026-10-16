@@ -746,7 +746,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-16T22:00:00-04:00', commit: '', title: 'Staff chat', parts: {
       chat: ['feature', 'A staff-only room under Chat for moderators, admins and the owner, with its own unread badge; the Worker refuses it to everyone else'] } },
     { at: '2026-10-16T23:00:00-04:00', commit: '', title: 'One sign-in: moving between websites on the same computer', parts: {
-      console: ['feature', 'Signing in on a second website on the same computer warns you first; “Sign in here” moves the sign-in and the other website is signed out, telling you where you signed in'] } }
+      console: ['feature', 'Signing in on a second website on the same computer warns you first; “Sign in here” moves the sign-in and the other website is signed out, telling you where you signed in'] } },
+    { at: '2026-10-17T00:30:00-04:00', commit: '', title: 'Chat: who’s typing, who’s here, and reactions', parts: {
+      chat: ['feature', '“kj is typing…” with a bouncing-dots bubble; who’s here (in this chat, online, last seen); iMessage-style reactions ❤️ 👍 👎 😂 ‼️ ❓ by double-click, double-tap or press and hold; opening Chat now loads at once'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -3295,7 +3297,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             actions: `<select id="gpa-chat-room" class="gpa-input" aria-label="Chat room"></select>
               <button id="gpa-chat-join" class="gpa-btn" title="Join a private room with a code">${gpxLbl('key', 'Join room')}</button>` })}
           <div id="gpa-chat-note" class="gpa-sub gpx-note"></div>
+          <div id="gpa-chat-people" class="gpa-chat-people" hidden></div>
           <div id="gpa-chat-log" class="gpa-chat-log"></div>
+          <div id="gpa-chat-typing" class="gpa-chat-typing" role="status" aria-live="polite" hidden></div>
           ${gpxEmpty({ cls: 'gpx-empty-chat', icon: 'users', title: 'No messages to show',
             desc: 'Messages in this room appear here as soon as the console reaches the chat server. Pick another room or join a private one with a code.' })}
           <div class="gpa-row gpx-composer gpx-composer-dock">
@@ -5357,6 +5361,85 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       @keyframes gpaReceiptIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
       @media (prefers-reduced-motion: reduce) { .gpa-chat-receipt { animation: none; } }
       .gpa-chat-empty { color: var(--gpa-sub); font-size: 12px; text-align: center; padding: 16px 0; }
+      /* "kj is typing…": a grey bubble with three bouncing dots under the
+         conversation, as in iMessage. */
+      .gpa-chat-typing { display: flex; align-items: center; gap: 8px; padding: 6px 4px 0; font-size: 11.5px; color: var(--gpa-sub); min-width: 0; }
+      .gpa-chat-typing[hidden] { display: none; }
+      .gpa-chat-typing .avatar, .gpa-chat-people .avatar {
+        flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 10px; font-weight: 700; position: relative;
+      }
+      .gpa-chat-typing-bubble {
+        display: inline-flex; gap: 4px; align-items: center; padding: 9px 12px; border-radius: 18px;
+        background: color-mix(in srgb, var(--gpa-text) 12%, var(--gpa-panel)); flex-shrink: 0;
+      }
+      .gpa-chat-typing-bubble i { width: 6px; height: 6px; border-radius: 50%; background: var(--gpa-sub); animation: gpaTypingDot 1.2s ease-in-out infinite; }
+      .gpa-chat-typing-bubble i:nth-child(2) { animation-delay: .15s; }
+      .gpa-chat-typing-bubble i:nth-child(3) { animation-delay: .3s; }
+      .gpa-chat-typing-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      @keyframes gpaTypingDot { 0%, 60%, 100% { opacity: .35; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
+      @media (prefers-reduced-motion: reduce) { .gpa-chat-typing-bubble i { animation: none; opacity: .7; } }
+      /* Who's here: faces with a status dot, and the full list on tap. */
+      .gpa-chat-people { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+      .gpa-chat-people[hidden] { display: none; }
+      .gpa-chat-people-toggle {
+        display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 6px 10px; cursor: pointer; text-align: left;
+        background: var(--gpa-panel); border: 1px solid var(--gpa-border); border-radius: calc(12px * var(--gpa-rs)); color: var(--gpa-text); font: inherit; font-size: 12px;
+      }
+      .gpa-chat-people-faces { display: inline-flex; flex-shrink: 0; }
+      .gpa-chat-people-faces .avatar { box-shadow: 0 0 0 2px var(--gpa-panel); }
+      .gpa-chat-people-faces { gap: 4px; }
+      .gpa-chat-people-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gpa-chat-people-sum small { color: var(--gpa-sub); font-size: 11px; margin-left: 4px; }
+      .gpa-chat-people-chev { color: var(--gpa-sub); font-size: 11px; flex-shrink: 0; transition: transform .15s; }
+      .gpa-chat-people.open .gpa-chat-people-chev { transform: rotate(180deg); }
+      .gpa-chat-dot { position: absolute; right: -1px; bottom: -1px; width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 0 2px var(--gpa-panel); background: var(--gpa-sub); }
+      .gpa-chat-dot.here { background: var(--gpa-success, #22c55e); }
+      .gpa-chat-dot.online { background: var(--gpa-warning, #f59e0b); }
+      .gpa-chat-dot.away { background: color-mix(in srgb, var(--gpa-sub) 60%, transparent); }
+      .gpa-chat-people-list {
+        list-style: none; margin: 0; padding: 4px; max-height: 180px; overflow-y: auto;
+        background: var(--gpa-panel); border: 1px solid var(--gpa-border); border-radius: calc(12px * var(--gpa-rs));
+      }
+      .gpa-chat-people-list li { display: flex; align-items: center; gap: 8px; padding: 5px 6px; font-size: 12.5px; min-width: 0; }
+      .gpa-chat-people-list .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gpa-chat-people-list .st { color: var(--gpa-sub); font-size: 11px; flex-shrink: 0; }
+      .gpa-chat-people-list .st.here { color: var(--gpa-success, #22c55e); }
+      .gpa-chat-people-list .st.typing { color: var(--gpa-accent); font-weight: 600; }
+      /* Reactions (tapbacks): the picker opens on double-click / double-tap or
+         a long press, and each reaction shows as a small pill under the text. */
+      .gpa-chat-log { touch-action: manipulation; }
+      .gpa-chat-react-btn {
+        margin-left: auto; opacity: 0; border: 0; background: transparent; color: var(--gpa-sub); cursor: pointer;
+        font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 6px;
+      }
+      .gpa-chat-msg:hover .gpa-chat-react-btn, .gpa-chat-react-btn:focus-visible { opacity: 1; }
+      .gpa-chat-react-btn:hover { background: color-mix(in srgb, var(--gpa-text) 10%, transparent); color: var(--gpa-text); }
+      @media (pointer: coarse) {
+        .gpa-chat-react-btn { display: none; }
+        .gpa-chat-msg { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+      }
+      .gpa-tapback-picker {
+        display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 4px; margin: 4px 0 3px; border-radius: 999px;
+        background: var(--gpa-panel); border: 1px solid var(--gpa-border); box-shadow: 0 8px 22px rgba(0, 0, 0, .28);
+        animation: gpaTapIn .16s ease-out;
+      }
+      .gpa-tapback-picker button {
+        width: 34px; height: 34px; border-radius: 50%; border: 0; background: transparent; cursor: pointer;
+        font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; color: var(--gpa-text);
+      }
+      .gpa-tapback-picker button:hover, .gpa-tapback-picker button:focus-visible { background: color-mix(in srgb, var(--gpa-text) 12%, transparent); outline: none; }
+      .gpa-tapback-picker button.on { background: var(--gpa-accent); }
+      .gpa-tapback-picker button.copy { width: auto; padding: 0 11px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+      @keyframes gpaTapIn { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+      @media (prefers-reduced-motion: reduce) { .gpa-tapback-picker { animation: none; } }
+      .gpa-chat-tapbacks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+      .gpa-tapback {
+        display: inline-flex; align-items: center; gap: 4px; height: 23px; padding: 0 8px; border-radius: 999px; cursor: pointer;
+        border: 1px solid var(--gpa-border); background: var(--gpa-panel); color: var(--gpa-sub); font-size: 12.5px; line-height: 1;
+      }
+      .gpa-tapback span { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+      .gpa-tapback.mine { border-color: var(--gpa-accent); background: color-mix(in srgb, var(--gpa-accent) 18%, transparent); color: var(--gpa-text); }
       /* Gallery photos are small in chat and expand only on tap. */
       .gpa-chat-thumb-button { display: block; max-width: 100%; width: fit-content; margin-top: 7px; padding: 0;
         background: transparent; border: 1px solid var(--gpa-border); border-radius: 11px; overflow: hidden;
@@ -11447,6 +11530,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   let chatTimer = null;
   let chatSeen = new Set();
   let chatReads = [];   // everyone's read cursors in this room: [{ u, ts, at }]
+  // Typing and who's here (see "Typing, who's here and reactions" below).
+  let chatTyping = [];  // names typing in this room right now
+  let chatPeople = [];  // [{ u, state: 'here' | 'online' | 'away', ago }]
+  let myTypingAt = 0;   // your last keystroke with something in the box
+  let myTypingSentAt = 0;
+  let myTypingOn = false;   // what the server was last told
   let chatUnread = 0;
   // Consecutive failed polls. When the worker is down or out of quota there is
   // nothing to be gained by asking twenty times a minute, so each failure
@@ -11538,6 +11627,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     when.className = 'when';
     when.textContent = new Date(m.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     head.appendChild(who); head.appendChild(when);
+    const reactBtn = document.createElement('button');
+    reactBtn.type = 'button';
+    reactBtn.className = 'gpa-chat-react-btn';
+    reactBtn.textContent = '☺';
+    reactBtn.title = 'React';
+    reactBtn.setAttribute('aria-label', 'React to the message from ' + m.u);
+    head.appendChild(reactBtn);
     const body = document.createElement('div');
     body.className = 'body';
     body.textContent = m.t || '';
@@ -11565,6 +11661,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     col.appendChild(head); col.appendChild(body);
     div.appendChild(avatar); div.appendChild(col);
+    renderTapbacks(div, m.r);
     return div;
   }
 
@@ -11577,6 +11674,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // Read receipts: only while the chat is actually on screen, report the
     // newest message already shown (so it was really seen).
     if (currentUser && chatSince && chatIsOpenAndVisible()) params.set('read', String(chatSince));
+    // Who's here and typing: only while the chat is on screen.
+    if (currentUser && chatIsOpenAndVisible()) {
+      const typing = amTyping();
+      params.set('here', '1');
+      params.set('typing', typing ? '1' : '0');
+      if (typing) myTypingSentAt = Date.now();
+      myTypingOn = typing;
+    }
     const code = chatCodeFor(chatRoom);
     if (code) params.set('code', code);
     // Snapshot before the request: this poll's messages should only count
@@ -11584,7 +11689,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const wasBootstrap = chatBootstrap;
     chatBootstrap = false;
     try {
-      const res = await fetch(base + '/chat/poll?' + params.toString(), { cache: 'no-store', headers: staffProofHeaders(chatRoom) });
+      const res = await fetch(base + '/chat/poll?' + params.toString(), { cache: 'no-store', headers: { ...staffProofHeaders(chatRoom), ...ownerProofHeader() } });
       const data = await res.json().catch(() => ({}));
       // A 5xx means the worker itself fell over. Say so plainly rather than
       // leaving an empty pane, and count it so the retry backs off.
@@ -11630,6 +11735,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (added) updateChatBadge();
       chatReads = Array.isArray(data.reads) ? data.reads : [];
       renderChatReceipt();
+      if (data.reactions && typeof data.reactions === 'object') applyChatReactions(data.reactions);
+      chatTyping = Array.isArray(data.typing) ? data.typing : [];
+      chatPeople = Array.isArray(data.people) ? data.people : [];
+      renderChatTyping();
+      renderChatPeople();
       if (chatRoom === 'staff' && chatSince && chatIsOpenAndVisible()) { markStaffSeen(chatSince); staffUnread = 0; updateStaffBadge(); }
     } catch (e) {
       chatPollFailures++;
@@ -11687,6 +11797,236 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     last.querySelector('.col').appendChild(el);
     if (chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 80) chatLog.scrollTop = chatLog.scrollHeight;
   }
+
+  // ---- Typing, who's here and reactions --------------------------------------
+  // Every chat poll (every 3 s while the chat is on screen) tells the room
+  // whether you have it open and whether you're typing, and gets back who
+  // is typing, who is around and every message's reactions. Starting to type
+  // reports at once (then at most every 2.5 s); sending or emptying the box
+  // ends it. The Worker never shows someone typing who couldn't post.
+  const chatTypingEl = panel.querySelector('#gpa-chat-typing');
+  const chatPeopleEl = panel.querySelector('#gpa-chat-people');
+  const TYPING_PING_MS = 2500;
+  let chatPeopleOpen = false;
+  function ownerProofHeader() {
+    const code = admGet(ADMIN_KEYS.OWNER_CODE);
+    return code ? { 'X-GPA-Owner': code } : {};
+  }
+  function amTyping() {
+    // As in iMessage, a pause to think still counts; 15 s idle doesn't.
+    return !!chatInput.value.trim() && Date.now() - myTypingAt < 15000 && chatIsOpenAndVisible();
+  }
+  chatInput.addEventListener('input', () => {
+    if (!currentUser) return;
+    if (chatInput.value.trim()) {
+      myTypingAt = Date.now();
+      if (!myTypingOn || Date.now() - myTypingSentAt > TYPING_PING_MS) chatPoll();
+    } else if (myTypingOn) {
+      myTypingAt = 0;
+      chatPoll();   // emptied the box: stop showing as typing now
+    }
+  });
+  const isMe = (name) => !!currentUser && String(name || '').toLowerCase() === currentUser.toLowerCase();
+  function faceHtml(name, dot) {
+    const n = String(name || '?');
+    return `<span class="avatar" style="background:${avatarColor(n)}" aria-hidden="true">${escapeHtml(n.trim().charAt(0).toUpperCase())}${dot ? `<i class="gpa-chat-dot ${dot}"></i>` : ''}</span>`;
+  }
+  function listNames(names) {
+    if (names.length === 1) return names[0];
+    if (names.length === 2) return names[0] + ' and ' + names[1];
+    if (names.length === 3) return names[0] + ', ' + names[1] + ' and ' + names[2];
+    return names[0] + ', ' + names[1] + ' and ' + (names.length - 2) + ' others';
+  }
+  function renderChatTyping() {
+    const names = chatTyping.filter((n) => !isMe(n));
+    const label = !names.length ? '' : names.length > 3 ? 'Several people are typing…'
+      : listNames(names) + (names.length === 1 ? ' is typing…' : ' are typing…');
+    if (chatTypingEl.dataset.label === label) return;
+    const nearBottom = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 80;
+    chatTypingEl.dataset.label = label;
+    chatTypingEl.hidden = !label;
+    chatTypingEl.innerHTML = label ? faceHtml(names[0]) + '<span class="gpa-chat-typing-bubble" aria-hidden="true"><i></i><i></i><i></i></span><span class="gpa-chat-typing-text">' + escapeHtml(label) + '</span>' : '';
+    if (nearBottom) chatLog.scrollTop = chatLog.scrollHeight;
+  }
+  function agoText(ms) {
+    const m = Math.floor(ms / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return m + ' min ago';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + (h === 1 ? ' hr ago' : ' hrs ago');
+    const d = Math.floor(h / 24);
+    return d === 1 ? 'yesterday' : d + ' days ago';
+  }
+  function renderChatPeople() {
+    const others = chatPeople.filter((p) => p && p.u && !isMe(p.u));
+    if (!currentUser || !chatPeople.length) { chatPeopleEl.hidden = true; chatPeopleEl.innerHTML = ''; chatPeopleEl.dataset.html = ''; return; }
+    const typing = new Set(chatTyping.map((n) => String(n).toLowerCase()));
+    const here = others.filter((p) => p.state === 'here');
+    const online = others.filter((p) => p.state === 'online');
+    let sum;
+    if (here.length) sum = escapeHtml(listNames(here.map((p) => p.u))) + (here.length === 1 ? ' is here' : ' are here');
+    else sum = 'Nobody else has this chat open';
+    if (online.length) sum += `<small>· ${online.length} online</small>`;
+    const faces = [...here, ...online].slice(0, 4).map((p) => faceHtml(p.u, p.state)).join('');
+    const status = (p) => typing.has(p.u.toLowerCase()) ? ['typing', 'Typing…']
+      : p.state === 'here' ? ['here', 'In this chat'] : p.state === 'online' ? ['online', 'Online'] : ['away', 'Last seen ' + agoText(p.ago)];
+    const rows = others.map((p) => { const [cls, txt] = status(p); return `<li>${faceHtml(p.u, p.state)}<span class="nm">${escapeHtml(p.u)}</span><span class="st ${cls}">${escapeHtml(txt)}</span></li>`; }).join('')
+      || '<li><span class="nm">Nobody else has been here this week.</span></li>';
+    const html = `<button type="button" class="gpa-chat-people-toggle" aria-expanded="${chatPeopleOpen}" aria-controls="gpa-chat-people-list">`
+      + `<span class="gpa-chat-people-faces">${faces}</span><span class="gpa-chat-people-sum">${sum}</span><span class="gpa-chat-people-chev" aria-hidden="true">▾</span></button>`
+      + `<ul id="gpa-chat-people-list" class="gpa-chat-people-list"${chatPeopleOpen ? '' : ' hidden'} aria-label="People in this chat">${rows}</ul>`;
+    chatPeopleEl.hidden = false;
+    chatPeopleEl.classList.toggle('open', chatPeopleOpen);
+    if (chatPeopleEl.dataset.html === html) return;
+    chatPeopleEl.dataset.html = html;
+    chatPeopleEl.innerHTML = html;
+  }
+  chatPeopleEl.addEventListener('click', (ev) => {
+    if (!ev.target.closest('.gpa-chat-people-toggle')) return;
+    chatPeopleOpen = !chatPeopleOpen;
+    renderChatPeople();
+  });
+
+  const TAPBACKS = ['❤️', '👍', '👎', '😂', '‼️', '❓'];
+  const TAPBACK_NAMES = { '❤️': 'Love', '👍': 'Like', '👎': 'Dislike', '😂': 'Ha ha', '‼️': 'Emphasize', '❓': 'Question' };
+  function myTapback(r) {
+    return Object.keys(r || {}).find((e) => (r[e] || []).some(isMe)) || null;
+  }
+  function renderTapbacks(msgEl, r) {
+    const entries = TAPBACKS.map((e) => [e, (r && r[e]) || []]).filter(([, names]) => names.length);
+    const key = JSON.stringify(entries) + '|' + (currentUser || '');
+    if (msgEl.dataset.rKey === key) return;
+    msgEl.dataset.rKey = key;
+    msgEl.dataset.r = JSON.stringify(r || {});
+    let row = msgEl.querySelector('.gpa-chat-tapbacks');
+    if (!entries.length) { if (row) row.remove(); return; }
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'gpa-chat-tapbacks';
+      msgEl.querySelector('.body').insertAdjacentElement('afterend', row);
+    }
+    row.innerHTML = entries.map(([e, names]) => {
+      const mine = names.some(isMe);
+      const who = names.join(', ');
+      return `<button type="button" class="gpa-tapback${mine ? ' mine' : ''}" data-emoji="${escapeHtml(e)}" title="${escapeHtml(TAPBACK_NAMES[e] + ': ' + who)}" aria-label="${escapeHtml(TAPBACK_NAMES[e] + ' from ' + who + (mine ? '. Tap to take yours off' : '. Tap to add yours'))}">${escapeHtml(e)}<span>${names.length}</span></button>`;
+    }).join('');
+  }
+  function applyChatReactions(map) {
+    chatLog.querySelectorAll('.gpa-chat-msg').forEach((el) => renderTapbacks(el, map[el.dataset.ts] || null));
+  }
+  let tapbackFor = null;
+  // The bar opens under your finger: the click that ends a double-tap or a
+  // long press must not pick whichever reaction appeared there.
+  let tapbackOpenedAt = 0;
+  function closeTapbackPicker() {
+    const p = chatLog.querySelector('.gpa-tapback-picker');
+    if (p) p.remove();
+    tapbackFor = null;
+  }
+  function openTapbackPicker(msgEl, fromButton) {
+    if (!currentUser || !msgEl) return;
+    closeTapbackPicker();
+    tapbackFor = msgEl;
+    tapbackOpenedAt = Date.now();
+    const mine = myTapback(JSON.parse(msgEl.dataset.r || '{}'));
+    const p = document.createElement('div');
+    p.className = 'gpa-tapback-picker';
+    p.setAttribute('role', 'toolbar');
+    p.setAttribute('aria-label', 'React to this message');
+    p.innerHTML = TAPBACKS.map((e) => `<button type="button" data-emoji="${e}" class="${e === mine ? 'on' : ''}" aria-pressed="${e === mine}" title="${TAPBACK_NAMES[e]}" aria-label="${TAPBACK_NAMES[e]}">${e}</button>`).join('')
+      + (msgEl.querySelector('.body').textContent.trim() ? '<button type="button" class="copy" data-act="copy">Copy</button>' : '');
+    msgEl.querySelector('.col').insertBefore(p, msgEl.querySelector('.body'));
+    if (fromButton) p.querySelector('button').focus({ preventScroll: true });
+    // Keep the bar and the message it's for in view (scrolling the chat only).
+    const lb = chatLog.getBoundingClientRect(), mb = msgEl.getBoundingClientRect();
+    if (mb.bottom > lb.bottom) chatLog.scrollTop += Math.min(mb.bottom - lb.bottom + 8, mb.top - lb.top);
+    else if (mb.top < lb.top) chatLog.scrollTop -= lb.top - mb.top + 8;
+  }
+  async function sendTapback(msgEl, emoji) {
+    if (!currentUser || !TAPBACKS.includes(emoji)) return;
+    const before = JSON.parse(msgEl.dataset.r || '{}');
+    // Show it at once; the Worker's answer (or the next poll) settles it.
+    const next = {};
+    for (const [e, names] of Object.entries(before)) { const left = (names || []).filter((n) => !isMe(n)); if (left.length) next[e] = left; }
+    if (myTapback(before) !== emoji) next[emoji] = [...(next[emoji] || []), currentUser];
+    renderTapbacks(msgEl, next);
+    const auth = { ...staffProofHeaders(chatRoom), ...ownerProofHeader() };
+    if (sessionToken()) auth['X-GPA-Session'] = sessionToken();
+    try {
+      const res = await fetch(telemetryEndpoint() + '/chat/react', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain', ...auth },
+        body: JSON.stringify({ room: chatRoom, code: chatCodeFor(chatRoom), user: currentUser, ts: Number(msgEl.dataset.ts), emoji })
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!d.ok) throw Error(d.error || 'Could not react.');
+      if (d.r) renderTapbacks(msgEl, d.r);
+    } catch (e) {
+      renderTapbacks(msgEl, before);
+      chatNote.textContent = e.message || 'Could not react — check your connection.';
+    }
+  }
+  chatLog.addEventListener('click', (ev) => {
+    const b = ev.target.closest('.gpa-tapback-picker button, .gpa-chat-tapbacks .gpa-tapback, .gpa-chat-react-btn');
+    if (!b) return;
+    const msgEl = b.closest('.gpa-chat-msg');
+    if (!msgEl) return;
+    if (b.classList.contains('gpa-chat-react-btn')) { if (tapbackFor === msgEl) closeTapbackPicker(); else openTapbackPicker(msgEl, true); return; }
+    // (The bar pushes the message down, so that click can land on a reaction
+    // pill as well as on the bar. Keyboard clicks have detail 0.)
+    if (Date.now() - tapbackOpenedAt < 250 && ev.detail !== 0) return;
+    if (b.dataset.act === 'copy') {
+      const text = msgEl.querySelector('.body').textContent;
+      closeTapbackPicker();
+      try { navigator.clipboard.writeText(text).then(() => { chatNote.textContent = 'Copied.'; setTimeout(() => { if (chatNote.textContent === 'Copied.') chatNote.textContent = ''; }, 1500); }, () => {}); } catch (e) { /* no clipboard */ }
+      return;
+    }
+    closeTapbackPicker();
+    sendTapback(msgEl, b.dataset.emoji);
+  });
+  // Desktop: double-click a message. Phones: double-tap or press and hold.
+  chatLog.addEventListener('dblclick', (ev) => {
+    if (ev.target.closest('button, a, .gpa-chat-thumb-button, .gpa-tapback-picker')) return;
+    const m = ev.target.closest('.gpa-chat-msg');
+    if (!m) return;
+    ev.preventDefault();
+    try { window.getSelection().removeAllRanges(); } catch (e) { /* none */ }
+    openTapbackPicker(m);
+  });
+  let pressTimer = 0;
+  let pressAt = null;
+  let lastTap = { el: null, at: 0 };
+  chatLog.addEventListener('pointerdown', (ev) => {
+    if (ev.pointerType !== 'touch') return;
+    const m = ev.target.closest('.gpa-chat-msg');
+    if (!m || ev.target.closest('button, a, .gpa-tapback-picker')) return;
+    pressAt = { x: ev.clientX, y: ev.clientY };
+    clearTimeout(pressTimer);
+    pressTimer = setTimeout(() => { pressAt = null; lastTap = { el: null, at: 0 }; openTapbackPicker(m); }, 480);
+  });
+  chatLog.addEventListener('pointermove', (ev) => {
+    if (pressAt && Math.hypot(ev.clientX - pressAt.x, ev.clientY - pressAt.y) > 8) { clearTimeout(pressTimer); pressAt = null; }
+  });
+  chatLog.addEventListener('pointercancel', () => { clearTimeout(pressTimer); pressAt = null; });
+  chatLog.addEventListener('pointerup', (ev) => {
+    clearTimeout(pressTimer);
+    if (ev.pointerType !== 'touch' || !pressAt) { pressAt = null; return; }
+    pressAt = null;
+    const m = ev.target.closest('.gpa-chat-msg');
+    if (!m || ev.target.closest('button, a, .gpa-tapback-picker')) return;
+    const now = Date.now();
+    if (lastTap.el === m && now - lastTap.at < 320) { lastTap = { el: null, at: 0 }; openTapbackPicker(m); }
+    else lastTap = { el: m, at: now };
+  });
+  chatLog.addEventListener('contextmenu', (ev) => {
+    if (ev.target.closest('.gpa-chat-msg') && window.matchMedia && matchMedia('(pointer: coarse)').matches) ev.preventDefault();
+  });
+  chatLog.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && tapbackFor) { const m = tapbackFor; closeTapbackPicker(); const b = m.querySelector('.gpa-chat-react-btn'); if (b) b.focus({ preventScroll: true }); }
+  });
+  root.addEventListener('pointerdown', (ev) => {
+    if (tapbackFor && !ev.composedPath().some((n) => n && n.classList && (n.classList.contains('gpa-tapback-picker') || n.classList.contains('gpa-chat-react-btn')))) closeTapbackPicker();
+  }, true);
 
   // ---- Staff chat ------------------------------------------------------------
   // A built-in room only staff can use (moderators, admins and the owner).
@@ -11793,6 +12133,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     chatSince = 0;
     chatSeen = new Set();
     chatReads = [];
+    chatTyping = [];
+    chatPeople = [];
+    renderChatTyping();
+    renderChatPeople();
     chatBootstrap = true;
     chatLog.innerHTML = '<div class="gpa-chat-empty">Loading…</div>';
     chatPoll();
@@ -11810,19 +12154,29 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // else. Three seconds still reads as instant in conversation.
   const CHAT_POLL_ACTIVE_MS = 3000;
   const CHAT_POLL_BACKGROUND_MS = 15000;
+  const CHAT_POLL_TYPING_MS = 1500;   // someone is typing: catch their message sooner
   const CHAT_POLL_MAX_BACKOFF_MS = 120000;
   function scheduleChatPoll() {
-    let delay = chatIsOpenAndVisible() ? CHAT_POLL_ACTIVE_MS : CHAT_POLL_BACKGROUND_MS;
+    let delay = chatIsOpenAndVisible() ? (chatTyping.length ? CHAT_POLL_TYPING_MS : CHAT_POLL_ACTIVE_MS) : CHAT_POLL_BACKGROUND_MS;
     if (chatPollFailures > 0) {
       delay = Math.min(delay * Math.pow(2, chatPollFailures), CHAT_POLL_MAX_BACKOFF_MS);
     }
+    const gen = chatLoopGen;
     chatTimer = setTimeout(async () => {
+      if (gen !== chatLoopGen) return;
       await chatPoll();
-      scheduleChatPoll();
+      if (gen === chatLoopGen) scheduleChatPoll();
     }, delay);
   }
+  // Opening Chat polls at once (rather than waiting out the slow background
+  // timer), so the room shows you as here and you see the latest right away.
+  let chatLoopGen = 0;
+  let chatLoopStartedAt = 0;
   function startChatPolling() {
-    if (chatTimer) return;
+    if (chatTimer && Date.now() - chatLoopStartedAt < 1000) return;
+    chatLoopGen++;
+    chatLoopStartedAt = Date.now();
+    clearTimeout(chatTimer);
     chatPoll();
     scheduleChatPoll();
   }

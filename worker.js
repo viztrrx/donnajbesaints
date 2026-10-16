@@ -132,7 +132,7 @@ const jsonResponse = (obj, status) => new Response(JSON.stringify(obj), {
 // handleRequest where it can reuse the existing closures.
 // ============================================================================
 const WORKER_VERSION = '2026.10.12-web-v1';   // Eaglercraft routes, binary WebSocket fix, Wrangler deploys
-const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs', 'eaglercraft', 'mobile-admin', 'home-screen-admin', 'one-session'];
+const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs', 'eaglercraft', 'mobile-admin', 'home-screen-admin', 'one-session', 'chat-live'];
 
 // ---- Permissions ------------------------------------------------------------
 // The single source of truth for who may do what. Roles come from a verified
@@ -2211,7 +2211,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         memoryEnabled: cfg.memoryEnabled !== false,
         routes: [
           '/v1/*', '/read', '/track', '/status', '/active-count', '/health',
-          '/chat/poll', '/chat/send', '/chat/report', '/unlock',
+          '/chat/poll', '/chat/send', '/chat/react', '/chat/report', '/unlock',
           '/auth/register', '/auth/login', '/auth/me', '/auth/logout', '/auth/revoke',
           '/memory/*', '/eagler/*', ...Object.keys(ADMIN_ROUTES)
         ]
@@ -2667,6 +2667,24 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const code = req.headers.get('X-GPA-Owner') || '';
       return !!(env && env.OWNER_CODE && code && (await timingSafeEqualStr(code, env.OWNER_CODE)));
     };
+    // The owner's name in chat (typing, who's here, reactions) needs the
+    // same proof as posting under it: a verified session or the owner code.
+    const mayActInChatAs = async (id) => {
+      if (String(id.user || '').toLowerCase() !== OWNER || !(env && env.OWNER_CODE) || id.verified) return true;
+      return timingSafeEqualStr(req.headers.get('X-GPA-Owner') || '', env.OWNER_CODE);
+    };
+    // Could this person post in this room right now? (Typing and reactions
+    // follow the same rules as messages.)
+    const mayPostInChat = async (kv, user, roomId) => {
+      const u = String(user || '').toLowerCase();
+      if (u === OWNER) return true;
+      const cfg = await getConfig(kv);
+      if (cfg.readOnly || (cfg.maintenance && cfg.maintenance.on)) return false;
+      const mod = await getMod(kv, user);
+      if (mod.shadowMuted) return false;
+      if ((await resolve(kv, user)).state === 'blocked') return false;
+      return !(await getRoomCfg(kv, roomId)).bannedUsers.includes(u);
+    };
     const checkRoomAccess = async (kv, roomId, code) => {
       const id = String(roomId || 'public').toLowerCase().slice(0, 40);
       if (id === 'public') return { ok: true, id };
@@ -2932,14 +2950,22 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       // readable error and an empty list rather than throwing.
       let messages;
       let reads = [];
+      let live = {};
       try {
         // Read receipts: while the chat is on screen the client says how far
         // it has read (?read=<ts>); it is recorded for the identified user
         // and everyone's cursors come back. Rooms only (Durable Objects).
-        const reader = pollId.user && pollId.user.toLowerCase() !== 'anonymous' ? pollId.user : '';
+        const reader = pollId.user && pollId.user.toLowerCase() !== 'anonymous' && (await mayActInChatAs(pollId)) ? pollId.user : '';
         const seen = parseInt(url.searchParams.get('read') || '0', 10) || 0;
-        const room = chatInRooms ? await chatRoomCall(env, access.id, 'read', { since, reader, seen }) : null;
-        if (room) reads = room.reads || [];
+        // Typing and who's here (see chat/room.js): ?here=1 while the chat is
+        // on screen, ?typing=1 / 0 while there. Someone who can't post here
+        // (blocked, shadow-muted, banned from the room, read-only chat)
+        // never shows as typing.
+        const here = url.searchParams.get('here') === '1';
+        let typing = url.searchParams.get('typing') === '1' ? true : url.searchParams.get('typing') === '0' ? false : null;
+        if (typing === true && reader && !(await mayPostInChat(kv, reader, access.id))) typing = false;
+        const room = chatInRooms ? await chatRoomCall(env, access.id, 'read', { since, reader, seen, here: here && !!reader, typing: reader ? typing : null }) : null;
+        if (room) { reads = room.reads || []; live = { reactions: room.reactions || {}, typing: room.typing || [], people: room.people || [] }; }
         messages = (room ? room.messages : await readRoomLog(kv, access.id))
           .filter((m) => m && m.ts > since)
           .sort((a, b) => a.ts - b.ts)
@@ -2947,7 +2973,35 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       } catch (e) {
         return json({ ok: false, error: 'chat storage is temporarily unavailable', messages: [], now: Date.now() }, 200);
       }
-      return json({ ok: true, room: access.id, messages, reads, now: Date.now() });
+      return json({ ok: true, room: access.id, messages, reads, ...live, now: Date.now() });
+    }
+
+    // ---- /chat/react : a tapback (❤️ 👍 👎 😂 ‼️ ❓) on a chat message ----
+    // One per person per message; the same one again takes it off. Same
+    // rules as sending: signed in where required, allowed to post here.
+    if (url.pathname === '/chat/react' && req.method === 'POST') {
+      const kv = env && env.TELEMETRY;
+      if (!kv || !chatInRooms) return json({ ok: false, error: 'reactions are not available on this server' }, 200);
+      let body = {};
+      try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
+      const who = await effectiveUser(body.user);
+      if (who.refused) return json({ ok: false, error: 'Sign in again to chat.' }, 200);
+      const user = String(who.user || '').slice(0, 40);
+      if (!user || user.toLowerCase() === 'anonymous') return json({ ok: false, error: 'Sign in first.' }, 200);
+      if (!(await mayActInChatAs(who))) return json({ ok: false, error: 'name reserved' }, 200);
+      const cfg = await getConfig(kv);
+      if (!allowedUser(cfg, user)) return json({ ok: false, error: ACCESS_DENIED }, 403);
+      const access = await checkRoomAccess(kv, body.room, body.code);
+      if (!access.ok) return json({ ok: false, error: access.error }, 200);
+      // Shadow mute stays invisible to the muted person: it "works", nothing is kept.
+      if (user.toLowerCase() !== OWNER && (await getMod(kv, user)).shadowMuted) return json({ ok: true });
+      if (!(await mayPostInChat(kv, user, access.id))) return json({ ok: false, error: 'You can’t react in this chat right now.' }, 200);
+      try {
+        const r = await chatRoomCall(env, access.id, 'react', { ts: Number(body.ts) || 0, user, emoji: String(body.emoji || '') });
+        return json({ ok: true, r: r.r, mine: r.mine });
+      } catch (e) {
+        return json({ ok: false, error: String(e && e.message || 'could not react') }, 200);
+      }
     }
     // ---- /chat/report : a signed-in user flags a chat message ----
     if (url.pathname === '/chat/report' && req.method === 'POST') {

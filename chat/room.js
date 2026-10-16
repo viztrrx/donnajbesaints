@@ -21,12 +21,64 @@
 // chat is open, and handed back to everyone so the sender's latest message
 // can say "Delivered" or "Read by …".
 const READS_MAX = 60;                  // cursors kept per room (most recent)
+//
+// Typing and who's here: each poll says whether the chat is on the
+// person's screen (here) and whether they are typing. That lives in memory
+// only (it is stale within seconds anyway); a "last seen" time per person
+// is also saved, at most once a minute, so people who left can show
+// "Last seen 20 min ago".
+//
+// Reactions (tapbacks, as in iMessage): one per person per message, kept on
+// the message itself (m.r = { '❤️': ['kj', 'dub'] }). Picking the same one
+// again takes it off; picking another replaces it.
+const TYPING_MS = 6000;                // "typing…" lasts this long after the last keystroke report
+const HERE_MS = 10000;                 // chat on screen: polls every 1.5-3 s
+const ONLINE_MS = 45000;               // console open elsewhere: polls every 15 s
+const SEEN_MAX = 100;                  // last-seen times kept per room
+const SEEN_WRITE_MS = 60000;           // save a person's last-seen at most this often
+export const TAPBACKS = ['❤️', '👍', '👎', '😂', '‼️', '❓'];
 
 const TTL_MS = 7 * 24 * 3600 * 1000;   // same week-long lifetime as before
 const MAX = 120;                       // newest messages kept per room
 
 export class ChatRoom {
-  constructor(ctx, env) { this.ctx = ctx; this.storage = ctx.storage; this.env = env; }
+  constructor(ctx, env) { this.ctx = ctx; this.storage = ctx.storage; this.env = env; this.live = new Map(); }
+
+  // Who is typing and who is around, for the person asking.
+  async presence(reader, now) {
+    const me = String(reader || '').toLowerCase();
+    const seen = (await this.storage.get('seen')) || {};
+    const out = new Map();
+    for (const [k, v] of Object.entries(seen)) if (v && now - v.at < TTL_MS) out.set(k, { u: v.u, at: v.at, hereAt: 0 });
+    for (const [k, v] of this.live) out.set(k, { u: v.u, at: Math.max(v.at, (out.get(k) || {}).at || 0), hereAt: v.hereAt || 0 });
+    const typing = [...this.live.entries()].filter(([k, v]) => k !== me && v.typingUntil > now).sort((a, b) => a[1].typingSince - b[1].typingSince).map(([, v]) => v.u);
+    const people = [...out.values()].map((v) => ({
+      u: v.u,
+      state: now - v.hereAt < HERE_MS ? 'here' : now - v.at < ONLINE_MS ? 'online' : 'away',
+      ago: Math.max(0, now - v.at)
+    })).sort((a, b) => a.ago - b.ago).slice(0, 50);
+    return { typing, people };
+  }
+
+  // Records one poll: seen now, on screen or not, typing or not.
+  async touch(reader, { here, typing }, now) {
+    const key = reader.toLowerCase();
+    const e = this.live.get(key) || { u: reader, at: 0, hereAt: 0, typingUntil: 0, typingSince: 0 };
+    e.u = reader;
+    e.at = now;
+    if (here) e.hereAt = now;
+    if (typing === true) { if (!(e.typingUntil > now)) e.typingSince = now; e.typingUntil = now + TYPING_MS; }
+    else if (typing === false) e.typingUntil = 0;
+    this.live.set(key, e);
+    // Forget people nobody has heard from in a while (memory only).
+    if (this.live.size > SEEN_MAX) for (const [k, v] of this.live) if (now - v.at > ONLINE_MS) this.live.delete(k);
+    let seen = (await this.storage.get('seen')) || {};
+    if (!seen[key] || now - seen[key].at > SEEN_WRITE_MS) {
+      seen[key] = { u: reader, at: now };
+      seen = Object.fromEntries(Object.entries(seen).sort((a, b) => b[1].at - a[1].at).slice(0, SEEN_MAX));
+      await this.storage.put('seen', seen);
+    }
+  }
 
   async load(id) {
     let log = await this.storage.get('log');
@@ -78,7 +130,14 @@ export class ChatRoom {
           }
         }
         const fresh = Object.values(reads).filter((r) => r && Date.now() - r.at < TTL_MS);
-        return reply({ ok: true, messages: log.filter((m) => m && m.ts > since), reads: fresh });
+        const now = Date.now();
+        if (reader) await this.touch(reader, { here: body.here === true, typing: body.typing === true ? true : body.typing === false ? false : null }, now);
+        // Reactions on any message still in the room (they change after the
+        // message was first delivered, so "since" can't cover them).
+        const reactions = {};
+        for (const m of log) if (m && m.r && Object.keys(m.r).length) reactions[m.ts] = m.r;
+        const { typing, people } = await this.presence(reader, now);
+        return reply({ ok: true, messages: log.filter((m) => m && m.ts > since), reads: fresh, reactions, typing, people });
       }
       if (action === 'append') {
         const m = body.msg && typeof body.msg === 'object' ? body.msg : null;
@@ -87,7 +146,28 @@ export class ChatRoom {
         const ts = Math.max(Date.now(), last + 1);
         log.push({ ...m, ts });
         await this.save(log.slice(-MAX));
+        // Sending ends "typing…" at once.
+        const e = this.live.get(String(m.u || '').toLowerCase());
+        if (e) e.typingUntil = 0;
         return reply({ ok: true, ts });
+      }
+      if (action === 'react') {
+        const user = String(body.user || '').trim().slice(0, 40);
+        const emoji = String(body.emoji || '');
+        if (!user || !TAPBACKS.includes(emoji)) return reply({ ok: false, error: 'not a reaction' }, 400);
+        const m = log.find((x) => x && x.ts === Number(body.ts));
+        if (!m) return reply({ ok: false, error: 'message not found' }, 404);
+        const key = user.toLowerCase();
+        const had = Object.keys(m.r || {}).find((e) => (m.r[e] || []).some((n) => n.toLowerCase() === key));
+        const r = {};
+        for (const [e, names] of Object.entries(m.r || {})) {
+          const left = (names || []).filter((n) => n.toLowerCase() !== key);
+          if (left.length) r[e] = left;
+        }
+        if (had !== emoji) r[emoji] = [...(r[emoji] || []), user].slice(-50);
+        if (Object.keys(r).length) m.r = r; else delete m.r;
+        await this.save(log);
+        return reply({ ok: true, r: m.r || {}, mine: had === emoji ? null : emoji });
       }
       if (action === 'delete') {
         const kept = log.filter((m) => !(m && m.ts === Number(body.ts) && m.u === body.u));

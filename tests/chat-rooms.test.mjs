@@ -242,3 +242,93 @@ test('staff chat: only moderators, admins and the owner can read or post; it doe
   await c.call('/admin/jobs/run', { method: 'POST', headers: owner, body: { id: 'chat-cleanup' } });
   assert.equal((await pollStaff(owner)).data.messages.length, 0);
 });
+
+test('chat (rooms): typing, who’s here and last seen', async () => {
+  const env = { TELEMETRY: makeKV(), ADMIN_TOKEN: ADMIN, OWNER: 'boss', OWNER_CODE: 'owner-code-9' };
+  env.CHAT_ROOMS = makeRooms(env);
+  const c = client(env);
+  const pollAs = (user, extra = '', headers = {}) => c.call(`/chat/poll?room=public&since=0&user=${user}${extra}`, { headers });
+  // kj has the chat open and starts typing; dub has the console open elsewhere.
+  await pollAs('kj', '&here=1&typing=1');
+  await pollAs('dub');
+  let r = (await pollAs('maya', '&here=1&typing=0')).data;
+  assert.deepEqual(r.typing, ['kj'], 'maya sees kj typing');
+  const state = (d, u) => (d.people.find((p) => p.u === u) || {}).state;
+  assert.equal(state(r, 'kj'), 'here');
+  assert.equal(state(r, 'dub'), 'online', 'console open, chat not on screen');
+  assert.equal(state(r, 'maya'), 'here');
+  assert.deepEqual((await pollAs('kj', '&here=1&typing=1')).data.typing, [], 'nobody sees themselves typing');
+  // Two typing at once, in the order they started.
+  await pollAs('maya', '&here=1&typing=1');
+  assert.deepEqual((await pollAs('dub', '&here=1')).data.typing, ['kj', 'maya']);
+  // Sending ends it at once; so does clearing the box (typing=0).
+  await send(c, 'kj', 'hey');
+  await pollAs('maya', '&here=1&typing=0');
+  assert.deepEqual((await pollAs('dub', '&here=1')).data.typing, []);
+  // Typing runs out on its own a few seconds after the last report.
+  await pollAs('kj', '&here=1&typing=1');
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 7000;
+    r = (await pollAs('dub', '&here=1')).data;
+    assert.deepEqual(r.typing, [], 'gone after 6 s without a report');
+    Date.now = () => realNow() + 20 * 60e3;
+    r = (await pollAs('dub', '&here=1')).data;
+    assert.equal(state(r, 'kj'), 'away', 'left: shows as away…');
+    assert.ok(r.people.find((p) => p.u === 'kj').ago >= 19 * 60e3, '…with how long ago they were last seen');
+  } finally { Date.now = realNow; }
+  await pollAs('kj', '&here=1&typing=0');
+
+  // People who can't post never show as typing: shadow-muted, blocked,
+  // banned from the room, or while chat is read-only.
+  await c.call('/admin/moderate', { method: 'POST', headers: owner, body: { user: 'sam', action: 'shadowmute' } });
+  await pollAs('sam', '&here=1&typing=1');
+  assert.deepEqual((await pollAs('dub', '&here=1')).data.typing, [], 'a shadow-muted person isn’t seen typing');
+  await c.call('/admin/moderate', { method: 'POST', headers: owner, body: { user: 'zed', action: 'block' } });
+  await pollAs('zed', '&here=1&typing=1');
+  assert.deepEqual((await pollAs('dub', '&here=1')).data.typing, [], 'nor a blocked one');
+  // The owner's name needs proof, as for posting.
+  await pollAs('boss', '&here=1&typing=1');
+  r = (await pollAs('dub', '&here=1')).data;
+  assert.deepEqual(r.typing, [], 'someone just typing the owner’s name');
+  assert.equal(r.people.some((p) => p.u === 'boss'), false);
+  await pollAs('boss', '&here=1&typing=1', { 'X-GPA-Owner': 'owner-code-9' });
+  assert.deepEqual((await pollAs('dub', '&here=1')).data.typing, ['boss'], 'the real owner');
+  // Anonymous readers are never listed.
+  await c.call('/chat/poll?room=public&since=0&here=1&typing=1');
+  assert.equal((await pollAs('dub', '&here=1')).data.people.some((p) => /anonymous/i.test(p.u)), false);
+});
+
+test('chat (rooms): reactions — one per person, toggle, replace, and everyone gets them', async () => {
+  const env = { TELEMETRY: makeKV(), ADMIN_TOKEN: ADMIN, OWNER: 'boss' };
+  env.CHAT_ROOMS = makeRooms(env);
+  const c = client(env);
+  const react = (user, ts, emoji, room = 'public', code) => c.call('/chat/react', { method: 'POST', body: { user, ts, emoji, room, code } });
+  const ts = (await send(c, 'maya', 'practice at 4')).data.ts;
+  // A reader that already has the message (since = its ts) still gets reactions.
+  const reactionsSeenBy = async () => (await poll(c, ts)).data.reactions[ts] || {};
+  assert.equal((await react('kj', ts, '❤️')).data.ok, true);
+  assert.equal((await react('dub', ts, '❤️')).data.ok, true);
+  assert.deepEqual(await reactionsSeenBy(), { '❤️': ['kj', 'dub'] });
+  // kj changes to 👍 (replaces), dub taps ❤️ again (takes it off).
+  await react('kj', ts, '👍');
+  const off = await react('dub', ts, '❤️');
+  assert.equal(off.data.mine, null);
+  assert.deepEqual(await reactionsSeenBy(), { '👍': ['kj'] });
+  // Only the six tapbacks; only real messages; only people who can post.
+  assert.equal((await react('kj', ts, '💩')).data.ok, false);
+  assert.equal((await react('kj', ts + 12345, '❤️')).data.ok, false);
+  await c.call('/admin/moderate', { method: 'POST', headers: owner, body: { user: 'zed', action: 'block' } });
+  assert.equal((await react('zed', ts, '❤️')).data.ok, false, 'blocked');
+  await c.call('/admin/moderate', { method: 'POST', headers: owner, body: { user: 'sam', action: 'shadowmute' } });
+  assert.equal((await react('sam', ts, '😂')).data.ok, true, 'shadow-muted: looks like it worked…');
+  assert.deepEqual(await reactionsSeenBy(), { '👍': ['kj'] }, '…but nobody sees it');
+  assert.equal((await c.call('/chat/react', { method: 'POST', body: { ts, emoji: '❤️', room: 'public' } })).data.ok, false, 'anonymous');
+  // A private room needs its code to react, like to read.
+  const room = (await c.call('/admin/rooms', { method: 'POST', headers: owner, body: { action: 'create', name: 'Study' } })).data;
+  const rts = (await send(c, 'kj', 'secret', room.id, room.code)).data.ts;
+  assert.equal((await react('dub', rts, '😂', room.id, 'WRONG')).data.ok, false);
+  assert.equal((await react('dub', rts, '😂', room.id, room.code)).data.ok, true);
+  assert.deepEqual((await poll(c, 0, room.id, room.code)).data.messages[0].r, { '😂': ['dub'] });
+  assert.deepEqual(await reactionsSeenBy(), { '👍': ['kj'] }, 'rooms are separate');
+});

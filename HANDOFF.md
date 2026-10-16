@@ -129,6 +129,22 @@ All on `main`. Each has tests; see section 6.
    `reads`; `renderChatReceipt()` draws "Delivered"/"Read by …" under your
    newest message when it is the last in the room. Test:
    `tests/browser/read-receipts.mjs`.
+   **Typing, who's here, reactions** (all in the room DO, `chat/room.js`):
+   polls while Chat is visible add `here=1&typing=1|0`; the DO keeps that
+   in memory (`this.live`; typing lasts 6 s after the last report, "here"
+   10 s, "online" 45 s) plus a saved last-seen per person (written at most
+   once a minute, `seen`), and every poll returns `typing` (names) and
+   `people` (`{u, state: here|online|away, ago}`). `mayPostInChat()` keeps
+   blocked/shadow-muted/banned people (and read-only chat) from showing as
+   typing; `mayActInChatAs()` makes the owner's name need proof. Reactions:
+   `POST /chat/react {room, code, user, ts, emoji}` (6 tapbacks, one per
+   person per message, same again = off), stored as `m.r`, and every poll
+   returns `reactions` (`ts → {emoji: [names]}`) for the whole room log.
+   Client: `#gpa-chat-people`, `#gpa-chat-typing`, `renderTapbacks()`, the
+   picker opens on double-click/double-tap/long-press or the ☺ button; a
+   250 ms guard stops the tap that opened it from picking. Opening Chat
+   now polls at once (`startChatPolling` restarts the loop). Tests:
+   `tests/chat-rooms.test.mjs`, `tests/browser/chat-live.mjs`.
 0. **Notification deep links**: every `notify()` carries a link built by
    `appLink(tab, params)` / `adminLink(sec, params)` in `worker.js`, e.g.
    `/console/#tab=admin&sec=users&user=renzo&focus=key`. In `script.js`,
@@ -247,7 +263,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (75 tests)
+npm test                                   # node --test tests/*.test.mjs (77 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -264,6 +280,7 @@ node tests/browser/read-receipts.mjs       # 13 (three phones: Delivered → Rea
 node tests/browser/subscribers.mjs         # 16 (add, start date, countdown, ended, renew)
 node tests/browser/staff-chat.mjs          # 19 (moderator, owner, regular user can't see it)
 node tests/browser/same-computer.mjs       # 12 (two websites, one computer: warn, move, cancel)
+node tests/browser/chat-live.mjs           # 23 (typing, who's here, reactions; 3 phones + laptop)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 
