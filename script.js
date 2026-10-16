@@ -744,7 +744,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       admin: ['feature', 'Subscribers: pick when someone subscribed (the end date counts from it), Change start later, record what they paid; totals for this month and in all'],
       console: ['feature', 'Subscribers see their own countdown under the header (“21 days left · ends Nov 5”), amber in the last 3 days'] } },
     { at: '2026-10-16T22:00:00-04:00', commit: '', title: 'Staff chat', parts: {
-      chat: ['feature', 'A staff-only room under Chat for moderators, admins and the owner, with its own unread badge; the Worker refuses it to everyone else'] } }
+      chat: ['feature', 'A staff-only room under Chat for moderators, admins and the owner, with its own unread badge; the Worker refuses it to everyone else'] } },
+    { at: '2026-10-16T23:00:00-04:00', commit: '', title: 'One sign-in: moving between websites on the same computer', parts: {
+      console: ['feature', 'Signing in on a second website on the same computer warns you first; “Sign in here” moves the sign-in and the other website is signed out, telling you where you signed in'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -2025,6 +2027,22 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-req-send:disabled { opacity: 0.7; cursor: default; }
       .gpa-login-request[data-state="denied"] { border-color: color-mix(in srgb, var(--gpa-danger, #e5453a) 40%, var(--gpa-border)); }
 
+      /* ---- Sign-in: "already signed in on this computer" ---- */
+      .gpa-login-move[hidden] { display: none; }
+      .gpa-login-move {
+        margin: 2px 0 12px; padding: 12px; border-radius: calc(12px * var(--gpa-rs));
+        border: 1px solid color-mix(in srgb, var(--gpa-warning, #e0a63b) 50%, var(--gpa-border));
+        background: color-mix(in srgb, var(--gpa-warning, #e0a63b) 9%, var(--gpa-field));
+      }
+      .gpa-login-move-text { margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; color: var(--gpa-text); }
+      .gpa-login-move-actions { display: flex; gap: 8px; }
+      .gpa-login-move-actions > button { flex: 1; }
+      .gpa-login-secondary {
+        padding: 9px; border-radius: calc(9px * var(--gpa-rs)); cursor: pointer; font-size: 13px; font-weight: 600;
+        background: transparent; color: var(--gpa-text); border: 1px solid var(--gpa-border);
+      }
+      .gpa-login-secondary:hover { background: color-mix(in srgb, var(--gpa-text) 6%, transparent); }
+
       /* ---- Admin → Security → access requests ---- */
       .gac-req-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
       .gac-req { padding: 10px 12px; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); background: var(--gpa-field); }
@@ -2956,6 +2974,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         <label class="gpa-login-label" for="gpa-login-pin">PIN</label>
         <input id="gpa-login-pin" class="gpa-login-input" type="password" placeholder="••••••" autocomplete="off" />
         <div id="gpa-login-msg" class="gpa-login-msg"></div>
+        <div id="gpa-login-move" class="gpa-login-move" role="alertdialog" aria-labelledby="gpa-login-move-text" hidden>
+          <p id="gpa-login-move-text" class="gpa-login-move-text"></p>
+          <div class="gpa-login-move-actions">
+            <button id="gpa-login-move-yes" class="gpa-login-primary" type="button">Sign in here</button>
+            <button id="gpa-login-move-no" class="gpa-login-secondary" type="button">Cancel</button>
+          </div>
+        </div>
         <div id="gpa-login-request" class="gpa-login-request" hidden>
           <div class="gpa-login-request-head">${GPS_ICONS.key}<span>Request access</span></div>
           <p id="gpa-req-text" class="gpa-login-request-text">This console is limited to people the owner has approved. You can ask the owner to let you in.</p>
@@ -13856,19 +13881,41 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     linkServerAccount(user, pin);
   }
 
+  // "Already signed in on this computer" prompt (see serverFirstSignIn).
+  const movePrompt = panel.querySelector('#gpa-login-move');
+  let moveConfirm = null;
+  function showMovePrompt(user, site, onYes) {
+    movePrompt.querySelector('#gpa-login-move-text').textContent = '“' + user + '” is already signed in on this computer' + (site ? ' on ' + site : ' on another website')
+      + '. You can only be signed in one place at a time: signing in here will sign you out ' + (site ? 'of ' + site : 'there') + '.';
+    moveConfirm = onYes;
+    movePrompt.hidden = false;
+    movePrompt.querySelector('#gpa-login-move-yes').focus();
+  }
+  function hideMovePrompt() { movePrompt.hidden = true; moveConfirm = null; }
+  movePrompt.querySelector('#gpa-login-move-yes').addEventListener('click', () => { const go = moveConfirm; hideMovePrompt(); if (go) go(); });
+  movePrompt.querySelector('#gpa-login-move-no').addEventListener('click', () => { hideMovePrompt(); showLoginMsg('Still signed in on the other website. Nothing changed.'); });
+
   // One sign-in per name (Allowed users on): the Worker checks the PIN and
   // hands out the only session for this name BEFORE the console opens, so a
   // username typed on someone else's device gets nothing without the PIN.
   // The server account is the source of truth here: a device without a local
   // profile gets one once the server accepts the PIN.
-  async function serverFirstSignIn(user, pin, creating) {
+  async function serverFirstSignIn(user, pin, creating, takeover) {
+    hideMovePrompt();
     let profile = readProfile(user);
     let localOk = false;
     if (profile) localOk = (await verifyPin(user.toLowerCase(), pin, profile.pinHash)).ok;
-    showLoginMsg('Checking your PIN with the server…');
+    showLoginMsg(takeover ? 'Signing in here…' : 'Checking your PIN with the server…');
     // A brand-new name may be claimed from Create, or from Sign in when this
     // device already proved the PIN against its own profile.
-    const r = await linkServerAccount(user, pin, { register: creating || localOk });
+    const r = await linkServerAccount(user, pin, { register: creating || localOk, takeover: !!takeover });
+    if (!r.ok && r.sameComputer) {
+      // Signed in on this same computer, on another website: one sign-in per
+      // name, so ask before moving it here (which signs the other one out).
+      showLoginMsg('');
+      showMovePrompt(user, r.site, () => serverFirstSignIn(user, pin, creating, true));
+      return;
+    }
     if (!r.ok) {
       showLoginMsg(r.missing ? 'No account with that name yet. Use Create to make one.'
         : r.wrongPin ? (creating ? 'That name is already taken. If it’s yours, use Sign in with your PIN.' : 'Wrong PIN.')
@@ -13978,7 +14025,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         } catch (e) { /* fall through to a normal sign-in */ }
       }
       const post = (path, extra) => fetch(AUTH_BASE() + path, {
-        method: 'POST', headers: { 'Content-Type': 'text/plain', ...(extra || {}) }, body: JSON.stringify({ user, verifier })
+        method: 'POST', headers: { 'Content-Type': 'text/plain', ...(extra || {}) },
+        // site: which website this copy of the console is on (shown in the
+        // "already signed in on …" warning); takeover: the person confirmed.
+        body: JSON.stringify({ user, verifier, site: location.host, ...(opts && opts.takeover ? { takeover: true } : {}) })
       }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => ({})) }));
       let r = await post('/auth/login');
       if (r.status === 404 && r.data.missing && !canRegister) {
@@ -13997,13 +14047,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       } else {
         serverSessionStatus = 'failed';
         serverSessionError = r.status === 401 ? 'This name is registered on the server with a different PIN.'
+          : r.status === 409 && r.data.inUse && r.data.sameComputer ? '“' + user + '” is already signed in on this computer' + (r.data.site ? ' on ' + r.data.site : '') + '.'
           : r.status === 409 && r.data.inUse ? '“' + user + '” is already signed in on another device. Sign out there first, or try again in about ' + (r.data.waitMin || 15) + ' min. The owner can also sign it out.'
             : r.status === 409 && r.data.exists ? 'That name is already taken.'
               : r.status === 403 && /reserved/.test(r.data.error || '') ? "This name is reserved for the console's owner."
                 : r.status === 403 && r.data.notAllowed ? ACCESS_DENIED_MSG
                   : r.status === 429 ? 'Too many attempts. Try again in a few minutes.'
                     : (r.data.error || ('HTTP ' + r.status));
-        result = { ok: false, wrongPin: r.status === 401 || (r.status === 409 && !!r.data.exists), inUse: r.status === 409 && !!r.data.inUse };
+        result = { ok: false, wrongPin: r.status === 401 || (r.status === 409 && !!r.data.exists), inUse: r.status === 409 && !!r.data.inUse,
+          sameComputer: r.status === 409 && !!r.data.sameComputer, site: (r.data && r.data.site) || '' };
       }
     } catch (e) {
       serverSessionStatus = 'offline';
@@ -18149,7 +18201,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (s.sessionRequired && currentUser) {
       hideModOverlay();
       const who = currentUser;
-      signOutWith(s.sessionProblem === 'signed_in_elsewhere' ? 'You were signed out because “' + who + '” signed in on another device.'
+      signOutWith(s.sessionProblem === 'signed_in_elsewhere' && s.elsewhereSite ? 'You were signed out here because “' + who + '” signed in on ' + s.elsewhereSite + ' on this computer. Only one sign-in at a time.'
+        : s.sessionProblem === 'signed_in_elsewhere' ? 'You were signed out because “' + who + '” signed in on another device.'
         : s.sessionProblem === 'revoked' ? 'Your sign-in was ended by the owner. Sign in again with your PIN.'
           : 'Please sign in again with your PIN.', true);
       return;
@@ -19090,7 +19143,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           const br = /Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
           return [os, br].filter(Boolean).join(' · ') || 'Unknown device';
         };
-        const LABEL = { signin_in_use: 'Second sign-ins refused', session_required: 'Name-only access refused', login_failed: 'Failed sign-ins', login_lockout: 'Sign-in lockouts', admin_auth_failed: 'Bad admin credentials', admin_lockout: 'Admin lockouts', forbidden: 'Forbidden requests', identity_mismatch: 'Spoofed usernames', rate_limited: 'Rate-limited', legacy_identity_refused: 'Legacy identity refused', bad_session: 'Bad sessions', owner_claim_refused: 'Owner-name claims refused', account_created: 'Accounts created', login_disabled: 'Disabled-account sign-ins' };
+        const LABEL = { signin_in_use: 'Second sign-ins refused', signin_moved: 'Sign-ins moved to another website (same computer)', session_required: 'Name-only access refused', login_failed: 'Failed sign-ins', login_lockout: 'Sign-in lockouts', admin_auth_failed: 'Bad admin credentials', admin_lockout: 'Admin lockouts', forbidden: 'Forbidden requests', identity_mismatch: 'Spoofed usernames', rate_limited: 'Rate-limited', legacy_identity_refused: 'Legacy identity refused', bad_session: 'Bad sessions', owner_claim_refused: 'Owner-name claims refused', account_created: 'Accounts created', login_disabled: 'Disabled-account sign-ins' };
         b.innerHTML = `<div class="gac-kpis">` + Object.entries(types).sort((a, b2) => b2[1] - a[1]).slice(0, 8).map(([t, n]) => kpi(LABEL[t] || t, num(n), 'last 7 days', /fail|forbid|mismatch|lockout|refused/.test(t) ? 'warn' : '')).join('')
           + (Object.keys(types).length ? '' : kpi('Security events', '0', 'last 7 days')) + `</div>`
           + `<div class="gpx-split"><div class="gpx-main">`

@@ -126,6 +126,16 @@ not enough to get in:
   in the last 15 minutes. Signing out frees the name at once; after 15 idle
   minutes a new sign-in replaces the old device, which is then signed out
   with the reason.
+- **Same computer, another website.** If the name is signed in on one
+  website and you sign in on a different website *on the same computer*
+  (same network address and same browser), you get a warning first:
+  "“kj” is already signed in on this computer on site-a.com… signing in
+  here will sign you out of site-a.com", with **Sign in here** and
+  **Cancel**. Cancel changes nothing. Sign in here moves the sign-in: the
+  other website is signed out on its next status check and says
+  "You were signed out here because “kj” signed in on site-b.com on this
+  computer." Still only one sign-in at a time. A *different* computer gets
+  no such option; it is refused as before.
 - Under the list you see each name's status: **Signed in** (with when, where
   and which device), **Signed out**, or **No PIN yet**. **Sign out** ends
   their session; **Reset PIN** deletes the account so they can create it

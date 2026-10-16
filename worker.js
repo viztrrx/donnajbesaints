@@ -733,6 +733,18 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     };
     const acctKey = (u) => 'acct:' + String(u || '').toLowerCase().slice(0, 40);
     const getAcct = async (kv, u) => (kv && u ? await kv.get(acctKey(u), 'json') : null);
+    // "Same computer": the same network address and the same browser. Only
+    // hashes are stored. Used to tell "you, on another website" apart from
+    // "another device" for one-sign-in-per-name.
+    let deviceHashesMemo = null;
+    const deviceHashes = async () => {
+      if (!deviceHashesMemo) {
+        const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Real-IP') || '';
+        deviceHashesMemo = { ipH: (await sha256hex('ip|' + ip)).slice(0, 32), uaH: (await sha256hex('ua|' + (req.headers.get('User-Agent') || ''))).slice(0, 32) };
+      }
+      return deviceHashesMemo;
+    };
+    const cleanSite = (s) => { const h = String(s || '').trim().toLowerCase().slice(0, 80); return /^[a-z0-9.-]+(:\d+)?$/.test(h) ? h : ''; };
 
     // ---- One sign-in per name ------------------------------------------------
     // While the owner's allowed-users list is on, a listed name is only usable
@@ -751,6 +763,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // Memoized for the life of this request.
     let principalMemo;
     let sessionProblem = '';   // why a presented session was refused (for the client)
+    let elsewhereSite = '';    // with 'signed_in_elsewhere': the website the name signed in on
     // /track keeps its preflight-free text/plain request, so its session token
     // travels in the body; everywhere else it is the X-GPA-Session header.
     let bodySessionToken = '';
@@ -783,7 +796,12 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           if (!acct) sessionProblem = 'no_account';
           else if (acct.disabled) sessionProblem = 'disabled';
           else if ((acct.epoch || 0) !== (p.e || 0) || (cfg.sessionEpoch || 0) !== (p.g || 0)) sessionProblem = 'revoked';
-          else if (singleSession(cfg, acct.user) && !((acct.sessions || [])[0] && acct.sessions[0].id === p.s)) sessionProblem = 'signed_in_elsewhere';
+          else if (singleSession(cfg, acct.user) && !((acct.sessions || [])[0] && acct.sessions[0].id === p.s)) {
+            sessionProblem = 'signed_in_elsewhere';
+            // Same computer, another website: say where, so the message makes sense.
+            const cur = (acct.sessions || [])[0];
+            if (cur && cur.site && cur.ipH && cur.uaH && cur.ipH === (await deviceHashes()).ipH && cur.uaH === (await deviceHashes()).uaH) elsewhereSite = cur.site;
+          }
           else {
             if (singleSession(cfg, acct.user)) {
               // Keep "last used" fresh so a second sign-in can tell whether
@@ -1555,13 +1573,14 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (!kv) return json({ ok: false, error: 'accounts need the TELEMETRY KV binding' }, 503);
       if (!sessionKey()) return json({ ok: false, error: 'accounts need ADMIN_TOKEN set on the worker' }, 503);
       const ip = clientIp(req);
-      const issue = async (acct) => {
+      const issue = async (acct, site) => {
         const cfg = await getConfig(kv);
         const sid = randHex(8);
         const now = Date.now();
         const token = await signSession({ u: acct.user, s: sid, e: acct.epoch || 0, g: cfg.sessionEpoch || 0, exp: now + SESSION_MS });
         const cf = req.cf || {};
-        const fresh = { id: sid, createdAt: now, lastSeen: now, country: cf.country || '??', ua: String(req.headers.get('User-Agent') || '').slice(0, 80) };
+        const dev = await deviceHashes();
+        const fresh = { id: sid, createdAt: now, lastSeen: now, country: cf.country || '??', ua: String(req.headers.get('User-Agent') || '').slice(0, 80), ipH: dev.ipH, uaH: dev.uaH, site: cleanSite(site) };
         // One sign-in per name: the new session replaces any older one, whose
         // token stops working on its next request (see resolvePrincipal).
         acct.sessions = singleSession(cfg, acct.user) ? [fresh] : [fresh, ...(acct.sessions || [])].slice(0, 5);
@@ -1598,7 +1617,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         }
         const salt = randHex(16);
         const acct = { user, verifier: await sha256hex(salt + '|' + verifier), salt, role: 'user', ownerVerified, createdAt: Date.now(), epoch: 0, sessions: [] };
-        const s = await issue(acct);
+        const s = await issue(acct, body.site);
         await noteSec('account_created', { user });
         if (userLower !== OWNER) notify({ cat: 'newuser', title: 'New account: ' + user, body: 'Registered at ' + ownerTime(env) + (req.cf && req.cf.country ? ' · ' + req.cf.country : ''), url: adminLink('users', { user }) });
         return json({ ok: true, token: s.token, exp: s.exp, account: view(acct, roleOf(acct)) });
@@ -1628,12 +1647,23 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         if (singleSession(await getConfig(kv), acct.user)) {
           const live = liveSession(acct, Date.now());
           if (live) {
-            await noteSec('signin_in_use', { user: acct.user, note: (live.country || '??') + ' · ' + (live.ua || '') });
-            const waitMin = Math.max(1, Math.ceil((ONE_SESSION_IDLE_MS - (Date.now() - (live.lastSeen || live.createdAt || 0))) / 60e3));
-            return json({ ok: false, error: 'This name is already signed in on another device.', inUse: true, waitMin }, 409);
+            const dev = await deviceHashes();
+            const sameComputer = !!(live.ipH && live.uaH && live.ipH === dev.ipH && live.uaH === dev.uaH);
+            if (sameComputer && body.takeover === true) {
+              // The person confirmed: sign in here, which signs the other
+              // website out (its token stops working on its next request).
+              await noteSec('signin_moved', { user: acct.user, note: (live.site || '?') + ' → ' + (cleanSite(body.site) || '?') });
+            } else if (sameComputer) {
+              // Same computer, another website: ask first (the console warns).
+              return json({ ok: false, error: 'Already signed in on this computer' + (live.site ? ' on ' + live.site : '') + '.', inUse: true, sameComputer: true, site: live.site || '' }, 409);
+            } else {
+              await noteSec('signin_in_use', { user: acct.user, note: (live.country || '??') + ' · ' + (live.ua || '') });
+              const waitMin = Math.max(1, Math.ceil((ONE_SESSION_IDLE_MS - (Date.now() - (live.lastSeen || live.createdAt || 0))) / 60e3));
+              return json({ ok: false, error: 'This name is already signed in on another device.', inUse: true, waitMin }, 409);
+            }
           }
         }
-        const s = await issue(acct);
+        const s = await issue(acct, body.site);
         return json({ ok: true, token: s.token, exp: s.exp, account: view(acct, roleOf(acct)) });
       }
 
@@ -2199,7 +2229,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const trackId = await effectiveUser(body.user);
       if (trackId.refused) {
         return json(trackId.sessionRequired
-          ? { ok: false, error: 'session_required', state: 'blocked', notAllowed: true, sessionRequired: true, sessionProblem: sessionProblem || 'none' }
+          ? { ok: false, error: 'session_required', state: 'blocked', notAllowed: true, sessionRequired: true, sessionProblem: sessionProblem || 'none', elsewhereSite: elsewhereSite || undefined }
           : { ok: false, error: 'session_required' }, 200);
       }
       const user = clip(trackId.user || 'anonymous', 80);
@@ -2373,6 +2403,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       return json({
         state: r.state, reason: r.reason, kickNonce: r.kickNonce, notAllowed: !!r.notAllowed, subscriptionEnded: !!r.subscriptionEnded,
         sessionRequired: !!statusId.sessionRequired, sessionProblem: statusId.sessionRequired ? (sessionProblem || 'none') : undefined,
+        elsewhereSite: statusId.sessionRequired && elsewhereSite ? elsewhereSite : undefined,
         owner: !!r.owner, private: !!r.private,
         broadcast: cfg.broadcast || '', reloadVersion: cfg.reloadVersion || 0,
         features: { ...(cfg.features || {}), ...(mod.features || {}) },

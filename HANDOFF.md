@@ -150,6 +150,18 @@ All on `main`. Each has tests; see section 6.
    `AUTH_BASE()` (the telemetry Worker). Admin → Security → Allowed users
    lists each name's status with Sign out / Reset PIN. Owner exempt.
    Known gap: the first person to register a listed name sets its PIN.
+   **Same computer, another website:** each session stores `ipH`/`uaH`
+   (hashes of the caller's IP and User-Agent, `deviceHashes()`) and `site`
+   (the host the console runs on, sent as `site` in the login body,
+   `cleanSite`). When the live session matches the caller's hashes,
+   `/auth/login` answers 409 `{ inUse, sameComputer, site }`; the console
+   shows `#gpa-login-move` ("Sign in here" / "Cancel") and on Yes repeats
+   the login with `takeover: true`, which issues a new session (logged as
+   `signin_moved`). The old site gets `signed_in_elsewhere` plus
+   `elsewhereSite` from /status or /track and shows where. A different
+   device is still refused with no takeover. "Same computer" is a best
+   guess (same network + same browser): two identical browsers behind one
+   home router look the same. Test: `tests/browser/same-computer.mjs`.
 1. **Music without keys** (`bf4b7f5`): Music tab searches **Audius** (free,
    keyless public API, streamed through the Worker) + a **shared library**
    in R2 that owner/admins upload to. Routes: `GET /music/search`,
@@ -235,7 +247,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (74 tests)
+npm test                                   # node --test tests/*.test.mjs (75 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -251,6 +263,7 @@ node tests/browser/chat-burst.mjs          # 4 (50 simultaneous messages, none l
 node tests/browser/read-receipts.mjs       # 13 (three phones: Delivered → Read by …)
 node tests/browser/subscribers.mjs         # 16 (add, start date, countdown, ended, renew)
 node tests/browser/staff-chat.mjs          # 19 (moderator, owner, regular user can't see it)
+node tests/browser/same-computer.mjs       # 12 (two websites, one computer: warn, move, cancel)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 

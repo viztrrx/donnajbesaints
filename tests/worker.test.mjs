@@ -1007,3 +1007,50 @@ test('subscribers: a chosen start date, changing it later, amounts paid, and the
     assert.equal(r.data.ledger.reduce((n, x) => n + x.amount, 0), 25.5);
   } finally { Date.now = realNow; }
 });
+
+test('one sign-in per name: same computer, another website — warn, then move the sign-in (the other site is signed out)', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['kj'] } } });
+  const chrome = 'Mozilla/5.0 (X11; CrOS x86_64) Chrome/130';
+  const login = (extra = {}, ip = '1.2.3.4', ua = chrome) => c.call('/auth/login', { method: 'POST', ip, headers: { 'User-Agent': ua }, body: { user: 'kj', verifier: verifierFor('kj', '4321'), ...extra } });
+  const first = await c.call('/auth/register', { method: 'POST', headers: { 'User-Agent': chrome }, body: { user: 'kj', verifier: verifierFor('kj', '4321'), site: 'www.google.com' } });
+  assert.equal(first.status, 200);
+  const tokA = first.data.token;
+
+  // Same computer (same network + browser), another website: a warning, not a refusal.
+  let r = await login({ site: 'www.youtube.com' });
+  assert.equal(r.status, 409);
+  assert.equal(r.data.sameComputer, true);
+  assert.equal(r.data.site, 'www.google.com', 'says where it is signed in');
+  assert.equal((await c.call('/status?user=kj', { headers: sess(tokA) })).data.state, 'active', 'the warning changes nothing');
+  // Wrong PIN never gets as far as the warning.
+  assert.equal((await c.call('/auth/login', { method: 'POST', headers: { 'User-Agent': chrome }, body: { user: 'kj', verifier: verifierFor('kj', '0000'), site: 'x.com' } })).status, 401);
+
+  // A different computer can't use the takeover: still "another device".
+  r = await login({ site: 'evil.example', takeover: true }, '9.9.9.9');
+  assert.equal(r.status, 409);
+  assert.equal(r.data.sameComputer, undefined);
+  assert.match(r.data.error, /another device/);
+  r = await login({ site: 'www.youtube.com', takeover: true }, '1.2.3.4', 'Mozilla/5.0 (Windows NT 10.0) Firefox/131');
+  assert.equal(r.status, 409, 'same network but another browser is another device too');
+  assert.match(r.data.error, /another device/);
+
+  // Confirmed on the same computer: signed in on YouTube, signed out on Google.
+  r = await login({ site: 'www.youtube.com', takeover: true });
+  assert.equal(r.status, 200);
+  const tokB = r.data.token;
+  assert.equal((await c.call('/status?user=kj', { headers: sess(tokB) })).data.state, 'active');
+  const old = (await c.call('/status?user=kj', { headers: { ...sess(tokA), 'User-Agent': chrome } })).data;
+  assert.equal(old.sessionRequired, true);
+  assert.equal(old.sessionProblem, 'signed_in_elsewhere');
+  assert.equal(old.elsewhereSite, 'www.youtube.com', 'the old tab is told where');
+  const beat = (await c.call('/track', { method: 'POST', headers: { 'User-Agent': chrome }, body: { user: 'kj', event: 'beat', sid: 'g1', session: tokA } })).data;
+  assert.equal(beat.elsewhereSite, 'www.youtube.com');
+  assert.equal((await env.TELEMETRY.get('acct:kj', 'json')).sessions.length, 1, 'still only one session');
+  // A different device being kicked isn't told the website.
+  const other = (await c.call('/status?user=kj', { ip: '8.8.8.8', headers: { ...sess(tokA), 'User-Agent': chrome } })).data;
+  assert.equal(other.elsewhereSite, undefined);
+  // It's in the security log, but doesn't buzz the owner as a threat.
+  const sec = await c.call('/admin/security', { headers: owner });
+  assert.ok(sec.data.recent.some((e) => e.type === 'signin_moved' && e.user === 'kj'));
+});

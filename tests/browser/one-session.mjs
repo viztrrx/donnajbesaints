@@ -32,8 +32,12 @@ const PIN = '482913';
 const shot = (page, name) => page.locator('#gpa-root-host').screenshot({ path: path.join(OUT, name) });
 const sr = (sel) => `#gpa-root-host >> ${sel}`;
 
+// Each device is its own browser (its own User-Agent): two windows of the
+// same browser on the same machine count as the same computer (that case is
+// tests/browser/same-computer.mjs).
+let deviceNo = 0;
 async function open() {
-  const ctx = await browser.newContext({ viewport: { width: 1000, height: 760 } });
+  const ctx = await browser.newContext({ viewport: { width: 1000, height: 760 }, userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 TestDevice' + (++deviceNo) });
   await ctx.addInitScript((u) => { try { localStorage.setItem('gpa_admin_tele_endpoint', u); } catch (e) { /* ignore */ } }, env.workerUrl);
   const page = await ctx.newPage();
   page._errors = [];

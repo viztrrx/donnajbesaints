@@ -31,7 +31,9 @@ const JOSUE = 'josue' + run, DUB = 'dub' + run;
 const shot = (page, name) => page.locator('#gpa-root-host').screenshot({ path: path.join(OUT, name) });
 
 async function open(device) {
-  const ctx = await browser.newContext(device === 'phone' ? { ...(devices['iPhone 15'] || devices['iPhone 14']) } : { viewport: { width: 1000, height: 760 } });
+  // 'other': a second computer (a different browser); the same browser on
+  // the same machine counts as the same computer and would be offered a move.
+  const ctx = await browser.newContext(device === 'phone' ? { ...(devices['iPhone 15'] || devices['iPhone 14']) } : { viewport: { width: 1000, height: 760 }, ...(device === 'other' ? { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 OtherComputer' } : {}) });
   await ctx.addInitScript((u) => {
     if (/iPhone/.test(navigator.userAgent)) Object.defineProperty(navigator, 'standalone', { value: true, configurable: true });
     try { localStorage.setItem('gpa_admin_tele_endpoint', u); } catch (e) { /* ignore */ }
@@ -71,7 +73,7 @@ try {
   // One sign-in per name: a second device is refused while the first is in
   // use, and gets in once the first signs out.
   const first = { ctx, page };
-  ({ ctx, page } = await open('desktop'));
+  ({ ctx, page } = await open('other'));
   const mixed = 'jOsue' + run;
   r = await attempt(page, mixed, 'signup');
   check(`A second device is refused while “${caps}” is signed in`, !r.inside && /already signed in on another device/.test(r.msg), JSON.stringify(r));
