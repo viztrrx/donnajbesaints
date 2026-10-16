@@ -33,7 +33,8 @@ export const PUSH_CATEGORIES = {
   security: { label: 'Security alerts', group: 'System', on: true },
   admin: { label: 'Actions by your admins', group: 'System', on: true },
   jobs: { label: 'Failed scheduled jobs', group: 'System', on: true },
-  digest: { label: 'Daily summary at 12 PM', group: 'System', on: true }
+  digest: { label: 'Daily summary at 12 PM', group: 'System', on: true },
+  weekly: { label: 'Weekly report (Sundays at 6 PM)', group: 'System', on: true }
 };
 const MAX_SUBS = 10;
 // Only real push services: the endpoint comes from the browser, and the

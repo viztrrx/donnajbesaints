@@ -144,12 +144,22 @@ not enough to get in:
   a "Security alerts" phone notification.
 - You (the owner) are exempt and can stay signed in on several devices.
 
-The first person to create an account for a listed name sets its PIN, so
-add a name when that person is ready to sign up, and check that it shows
-up as theirs (you also get a "New account" notification). If someone else
-got there first, use **Reset PIN**.
+**Invite codes.** A name you add to the list now gets an invite code (like
+`K7MQ-4X2P`), shown on its row under Allowed users with **Copy code** and
+**Remove code**. Only someone with that code can create the account: they
+tap ＋ on the sign-in screen, the console asks for the code, a wrong code is
+refused (and counts toward the sign-in lockout), and the code is used up once
+the account exists. Names that were already on the list before invite codes
+existed have no code and work exactly as before; you can give one a code with
+**Make invite code**. Removing a code, or the name, opens it again. Approving
+an access request doesn't make a code (that flow is unchanged).
 
-**Subscribers (paid access).** **Admin → Security → Subscribers** registers a name as a paying subscriber for a set time: 1 week, 2 weeks, 1 month (default), 3 months, 6 months or 1 year, with an optional note such as "$10 · Cash App". Adding someone puts them on Allowed users and lets them sign in right away. While **Only allow listed users** is on (the card offers to turn it on), a subscriber gets in exactly until their end time; at that moment the Worker refuses them, they're signed out with "Your subscription has ended. Ask the owner to renew it.", and within 5 minutes they're taken off Allowed users. You get a phone alert ("Subscriptions ending") 3 days before and when it ends. **Renew** adds the chosen length (on top of any time left, or from today if it already ended); **End now** cuts them off immediately; **Remove** forgets an ended record. Months are calendar months (Oct 15 → Nov 15; Jan 31 → Feb 28). **Subscribed on** (date and time, default now) sets when the time starts, so someone who paid on Oct 1 and is added on Oct 15 still ends on Nov 1; it can't be in the future, and a start so early that the time is already over is refused. **Change start** on a row moves the start (and the end with it) later. **Paid ($)** records what they paid; the card totals **this month** and **collected in all** (payments stay in the total even if a record is removed). Subscribers see their own countdown under the header on every tab ("Subscription · 21 days left · ends Nov 5 at 7:40 PM"), amber in the last 3 days with "Ask the owner to renew to keep access". An ended subscriber can tap **Ask to renew** on the sign-in screen; approving that request in Access requests lets them in for free (Renew is the paid way back). A subscription decides on its own, so a name left on the Allowed users text box doesn't let an expired subscriber back in.
+Without a code, the first person to create an account for a listed name sets
+its PIN, so add a name when that person is ready to sign up, and check that it
+shows up as theirs (you also get a "New account" notification). If someone
+else got there first, use **Reset PIN**.
+
+**Subscribers (paid access).** **Admin → Security → Subscribers** registers a name as a paying subscriber for a set time: 1 week, 2 weeks, 1 month (default), 3 months, 6 months or 1 year, with an optional note such as "$10 · Cash App". Adding someone puts them on Allowed users and lets them sign in right away. While **Only allow listed users** is on (the card offers to turn it on), a subscriber gets in exactly until their end time; at that moment the Worker refuses them, they're signed out with "Your subscription has ended. Ask the owner to renew it.", and within 5 minutes they're taken off Allowed users. You get a phone alert ("Subscriptions ending") 3 days before and when it ends. **Renew** adds the chosen length (on top of any time left, or from today if it already ended); **End now** cuts them off immediately; **Remove** forgets an ended record. Months are calendar months (Oct 15 → Nov 15; Jan 31 → Feb 28). **Subscribed on** (date and time, default now) sets when the time starts, so someone who paid on Oct 1 and is added on Oct 15 still ends on Nov 1; it can't be in the future, and a start so early that the time is already over is refused. **Change start** on a row moves the start (and the end with it) later. **Paid ($)** records what they paid; the card totals **this month** and **collected in all** (payments stay in the total even if a record is removed). In their last 3 days a subscriber also gets a pop-up once a day ("Your access ends in 2 days (Nov 5, 7:40 PM). Ask the owner to renew it…"). Subscribers see their own countdown under the header on every tab ("Subscription · 21 days left · ends Nov 5 at 7:40 PM"), amber in the last 3 days with "Ask the owner to renew to keep access". An ended subscriber can tap **Ask to renew** on the sign-in screen; approving that request in Access requests lets them in for free (Renew is the paid way back). A subscription decides on its own, so a name left on the Allowed users text box doesn't let an expired subscriber back in.
 
 **Requesting access.** Under "Unable to create account" the sign-in screen
 offers **Request access**: the person can add a short note and send it. You
@@ -415,7 +425,7 @@ A full admin surface in its own sidebar pane, **Admin**. It appears after the ol
 
 Every number comes from the Worker and every action is authorized there. The UI only hides what your role can't use, based on `/admin/whoami`. Sections:
 
-- **Overview**: users, active now, AI requests, latency, tokens, memory, moderation and security counts, a 7\-day chart, recent admin activity and system health.
+- **Overview**: users, active now, AI requests, latency, tokens, memory, moderation and security counts, a 7\-day chart, recent admin activity and system health. **When people are online**: a 7 × 24 heatmap of how many people have the console open, by day and hour in your time zone (sampled once an hour, averaged over the last 4 weeks; hover a cell for the number) with the busiest time called out. **Weekly report**: this week so far (people active and new, chat messages with the top three chatters across every room, AI requests, subscription money), with **Send it to my phone now**; it also arrives on its own every Sunday at 6 PM (notification "Weekly report").
 - **Users**: search, filter and sort; an inspector with usage history, sessions, security events, audit history, role, per\-user quotas and moderation actions.
 - **AI & Usage**: requests, failures, rate limits, latency, tokens and model mix over 7 or 30 days; global quotas; masked assigned keys with a health test; this device's model overrides and playground.
 - **Memory**: aggregate memory health. The owner can open one user's memories only with a stated reason, and that view is audited.

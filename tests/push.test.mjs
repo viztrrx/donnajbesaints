@@ -314,6 +314,19 @@ test('push: private rooms, mentions, approval queue, quiet hours, who\'s online 
       assert.equal((await got()).filter((m) => m.cat === 'digest').length, 0);
       at('2026-12-01T17:00:00Z'); await cron5();   // 12:00 PM EST
       assert.equal((await got()).filter((m) => m.cat === 'digest').length, 1, 'noon in winter too');
+      // Weekly report: Sundays at 6 PM New York time, once.
+      at('2026-10-25T21:55:00Z'); await cron5();   // Sun 5:55 PM EDT
+      assert.equal((await got()).filter((m) => m.cat === 'weekly').length, 0, 'not before 6 PM');
+      at('2026-10-25T22:00:00Z'); await cron5();   // Sun 6:00 PM EDT
+      const wk = (await got()).filter((m) => m.cat === 'weekly');
+      assert.equal(wk.length, 1, 'sent Sunday at 6 PM');
+      assert.match(wk[0].body, /people active|person active/);
+      assert.match(wk[0].body, /AI request/);
+      assert.equal(wk[0].url, '/console/#tab=admin&sec=overview');
+      at('2026-10-25T22:30:00Z'); await cron5();
+      assert.equal((await got()).filter((m) => m.cat === 'weekly').length, 0, 'once a week');
+      at('2026-10-26T22:00:00Z'); await cron5();   // Monday 6 PM
+      assert.equal((await got()).filter((m) => m.cat === 'weekly').length, 0, 'only on Sundays');
     } finally { Date.now = realNow; }
     assert.equal(n.length, 1);
     assert.match(n[0].body, /used the console/);

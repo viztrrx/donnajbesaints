@@ -753,7 +753,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       chat: ['feature', 'Reply to a message (with a quote you can tap to jump to it); unsend your own message within 2 minutes; several messages in a row show the picture and name once'] } },
     { at: '2026-10-17T11:30:00-04:00', commit: '', title: 'Fix: “Worker exceeded memory limit”', parts: {
       ask: ['fix', 'Photos you paste or attach are shrunk before sending (a 9 MB phone photo now goes as under 1 MB), so a photo question can no longer run the Worker out of memory and break chat for everyone'],
-      console: ['fix', 'The Worker refuses oversized requests with a clear message and no longer reads whole huge pages into memory'] } }
+      console: ['fix', 'The Worker refuses oversized requests with a clear message and no longer reads whole huge pages into memory'] } },
+    { at: '2026-10-17T14:00:00-04:00', commit: '', title: 'Invite codes, weekly report, activity heatmap, subscriber reminders', parts: {
+      admin: ['feature', 'Invite codes for newly added names (people already approved are unchanged); “When people are online” heatmap and the weekly report in Overview'],
+      console: ['feature', 'Sign-up asks for the invite code only when that name has one; subscribers get a once-a-day reminder in their last 3 days'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -2067,6 +2070,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gac-allow-list { width: 100%; min-height: 120px; padding: 10px; font: 13px/1.5 'Geist Mono', ui-monospace, monospace; resize: vertical; }
       .gac-acct-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); overflow: hidden; }
       .gac-acct { padding: 10px 12px; }
+      /* Activity heatmap: one hue, from the panel color (few) to full blue (busiest). */
+      .gac-heat { display: flex; flex-direction: column; gap: 2px; overflow-x: auto; }
+      .gac-heat-row { display: grid; grid-template-columns: 30px repeat(24, minmax(9px, 1fr)); gap: 2px; align-items: center; }
+      .gac-heat-day { font-size: 10.5px; color: var(--gpa-sub); }
+      .gac-heat-cell { height: 16px; border-radius: 3px; background: color-mix(in oklab, #3987e5 var(--heat, 0%), var(--gpa-panel)); }
+      .gac-heat-cell.is-none { background: transparent; box-shadow: inset 0 0 0 1px var(--gpa-border); }
+      .gac-heat-cell:hover { outline: 2px solid var(--gpa-text); outline-offset: 1px; }
+      .gac-heat-hours span { font-size: 9.5px; color: var(--gpa-sub); white-space: nowrap; overflow: visible; }
+      .gac-heat-key { display: flex; align-items: center; gap: 3px; margin: 8px 0 2px; font-size: 10.5px; color: var(--gpa-sub); }
+      .gac-heat-key i { width: 14px; height: 10px; border-radius: 2px; background: color-mix(in oklab, #3987e5 var(--heat), var(--gpa-panel)); }
+      .gac-heat-key span { margin: 0 4px; }
+      .gac-weekly-list li span { white-space: normal; }
+      .gac-invite-code { font-weight: 700; letter-spacing: .06em; padding: 1px 6px; border-radius: 6px; background: var(--gpa-field); color: var(--gpa-text); user-select: all; }
       .gac-acct + .gac-acct { border-top: 1px solid var(--gpa-border); }
       .gac-acct-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       /* ---- Admin → Security → Subscribers ---- */
@@ -2980,6 +2996,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         <input id="gpa-login-user" class="gpa-login-input" placeholder="e.g. j.smith" autocomplete="off" />
         <label class="gpa-login-label" for="gpa-login-pin">PIN</label>
         <input id="gpa-login-pin" class="gpa-login-input" type="password" placeholder="••••••" autocomplete="off" />
+        <div id="gpa-login-invite-wrap" hidden>
+          <label class="gpa-login-label" for="gpa-login-invite">Invite code</label>
+          <input id="gpa-login-invite" class="gpa-login-input" placeholder="e.g. K7MQ-4X2P" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+        </div>
         <div id="gpa-login-msg" class="gpa-login-msg"></div>
         <div id="gpa-login-move" class="gpa-login-move" role="alertdialog" aria-labelledby="gpa-login-move-text" hidden>
           <p id="gpa-login-move-text" class="gpa-login-move-text"></p>
@@ -14483,7 +14503,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     showLoginMsg(takeover ? 'Signing in here…' : 'Checking your PIN with the server…');
     // A brand-new name may be claimed from Create, or from Sign in when this
     // device already proved the PIN against its own profile.
-    const r = await linkServerAccount(user, pin, { register: creating || localOk, takeover: !!takeover });
+    const inviteWrap = panel.querySelector('#gpa-login-invite-wrap');
+    const invite = inviteWrap && !inviteWrap.hidden ? panel.querySelector('#gpa-login-invite').value.trim() : '';
+    const r = await linkServerAccount(user, pin, { register: creating || localOk, takeover: !!takeover, invite });
+    if (!r.ok && r.inviteRequired && inviteWrap) {
+      // An invited name: show the code box (only now, so nobody else ever sees it).
+      inviteWrap.hidden = false;
+      showLoginMsg(serverSessionError, true);
+      try { panel.querySelector('#gpa-login-invite').focus(); } catch (e) { /* ignore */ }
+      return;
+    }
     if (!r.ok && r.sameComputer) {
       // Signed in on this same computer, on another website: one sign-in per
       // name, so ask before moving it here (which signs the other one out).
@@ -14603,7 +14632,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         method: 'POST', headers: { 'Content-Type': 'text/plain', ...(extra || {}) },
         // site: which website this copy of the console is on (shown in the
         // "already signed in on …" warning); takeover: the person confirmed.
-        body: JSON.stringify({ user, verifier, site: location.host, ...(opts && opts.takeover ? { takeover: true } : {}) })
+        body: JSON.stringify({ user, verifier, site: location.host, ...(opts && opts.takeover ? { takeover: true } : {}), ...(opts && opts.invite ? { invite: opts.invite } : {}) })
       }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => ({})) }));
       let r = await post('/auth/login');
       if (r.status === 404 && r.data.missing && !canRegister) {
@@ -14625,12 +14654,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           : r.status === 409 && r.data.inUse && r.data.sameComputer ? '“' + user + '” is already signed in on this computer' + (r.data.site ? ' on ' + r.data.site : '') + '.'
           : r.status === 409 && r.data.inUse ? '“' + user + '” is already signed in on another device. Sign out there first, or try again in about ' + (r.data.waitMin || 15) + ' min. The owner can also sign it out.'
             : r.status === 409 && r.data.exists ? 'That name is already taken.'
+              : r.status === 403 && r.data.inviteRequired ? (r.data.wrongInvite ? 'That invite code isn’t right. Check it with the owner.' : '“' + user + '” needs an invite code from the owner. Enter it below, then tap ＋ (create account) again.')
               : r.status === 403 && /reserved/.test(r.data.error || '') ? "This name is reserved for the console's owner."
                 : r.status === 403 && r.data.notAllowed ? ACCESS_DENIED_MSG
                   : r.status === 429 ? 'Too many attempts. Try again in a few minutes.'
                     : (r.data.error || ('HTTP ' + r.status));
         result = { ok: false, wrongPin: r.status === 401 || (r.status === 409 && !!r.data.exists), inUse: r.status === 409 && !!r.data.inUse,
-          sameComputer: r.status === 409 && !!r.data.sameComputer, site: (r.data && r.data.site) || '' };
+          sameComputer: r.status === 409 && !!r.data.sameComputer, site: (r.data && r.data.site) || '', inviteRequired: r.status === 403 && !!r.data.inviteRequired };
       }
     } catch (e) {
       serverSessionStatus = 'offline';
@@ -18750,7 +18780,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const subStripEl = panel.querySelector('#gpa-substrip');
   function renderSubStrip(sub) {
     if (!subStripEl) return;
-    if (!sub || !currentUser || !(sub.expiresAt > Date.now())) { subStripEl.hidden = true; return; }
+    if (!sub || !currentUser || !(sub.expiresAt > Date.now())) {
+      subStripEl.hidden = true;
+      // Signed out or no longer a subscriber: the reminder must not stay over the sign-in screen.
+      const remind = panel.querySelector('.gpa-sub-remind');
+      if (remind) remind.remove();
+      return;
+    }
     const now = Date.now();
     const left = sub.expiresAt - now;
     const days = Math.ceil(left / 864e5);
@@ -18769,6 +18805,27 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       ? 'Your subscription ends ' + (sameDay ? 'today at ' + endTime : endDay + ' at ' + endTime) + '. Ask the owner to renew to keep access.'
       : 'Active since ' + new Date(sub.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' · ends ' + endDay + ' at ' + endTime;
     subStripEl.hidden = false;
+    if (left <= 3 * 864e5) remindSubscriber(sub, sameDay ? 'today at ' + endTime : (days === 1 ? 'tomorrow' : 'in ' + days + ' days') + ' (' + endDay + ', ' + endTime + ')');
+  }
+  // In the last 3 days, a reminder the subscriber has to tap away, at most
+  // once a day per device (the strip under the header stays up regardless).
+  function remindSubscriber(sub, when) {
+    const key = 'gpa_sub_remind_' + String(currentUser || '').toLowerCase();
+    const today = new Date().toDateString();
+    try { if (localStorage.getItem(key) === today) return; } catch (e) { /* show it */ }
+    if (panel.querySelector('.gpa-ann-backdrop')) return;   // one dialog at a time
+    try { localStorage.setItem(key, today); } catch (e) { /* storage blocked */ }
+    const back = document.createElement('div');
+    back.className = 'gpa-ann-backdrop gpa-sub-remind';
+    back.setAttribute('role', 'dialog');
+    back.setAttribute('aria-modal', 'true');
+    back.setAttribute('aria-label', 'Your subscription is ending');
+    back.innerHTML = `<div class="gpa-ann-card"><div class="gpa-ann-title">${GPS_ICONS.timer}<span>Your subscription is ending</span></div>`
+      + `<div class="gpa-ann-text"></div><button class="gpa-btn primary gpa-ann-ok" type="button">Got it</button></div>`;
+    back.querySelector('.gpa-ann-text').textContent = 'Your access ends ' + when + '. Ask the owner to renew it so you can keep using the console.';
+    back.querySelector('.gpa-ann-ok').addEventListener('click', () => back.remove());
+    panel.appendChild(back);
+    try { back.querySelector('.gpa-ann-ok').focus({ preventScroll: true }); } catch (e) { /* ignore */ }
   }
 
   function applyModeration(s) {
@@ -19583,6 +19640,41 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     });
 
     // ---- Renderers ----
+    // ---- Activity heatmap and weekly report (Admin → Overview) ----
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const hourLabel = (h) => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
+    async function renderHeatmap(el) {
+      if (!el) return;
+      let d;
+      try { d = await api('/admin/heatmap'); } catch (e) { el.innerHTML = `<p class="gps-hint">${esc(e.message)}</p>`; return; }
+      if (!d.samples) { el.innerHTML = '<p class="gps-hint">Collecting: the Worker counts who’s online once an hour, so this fills in over the next days. It shows the average over the last 4 weeks, in your time zone.</p>'; return; }
+      const max = Math.max(0.1, ...d.grid.flat().filter((v) => v != null));
+      const cell = (v, day, h) => {
+        const label = `${DAY_NAMES[day]} ${hourLabel(h)} · ` + (v == null ? 'no sample yet' : `${v} ${v === 1 ? 'person' : 'people'} online on average`);
+        const style = v == null ? '' : ` style="--heat:${Math.round(12 + (v / max) * 88)}%"`;
+        return `<span class="gac-heat-cell${v == null ? ' is-none' : ''}" role="cell" title="${esc(label)}" aria-label="${esc(label)}"${style}></span>`;
+      };
+      const rows = d.grid.map((row, day) => `<div class="gac-heat-row" role="row"><span class="gac-heat-day" role="rowheader">${DAY_NAMES[day]}</span>${row.map((v, h) => cell(v, day, h)).join('')}</div>`).join('');
+      const hours = `<div class="gac-heat-row gac-heat-hours" aria-hidden="true"><span class="gac-heat-day"></span>${Array.from({ length: 24 }, (_, h) => `<span>${h % 6 === 0 ? hourLabel(h).replace(' ', '') : ''}</span>`).join('')}</div>`;
+      el.innerHTML = `<div class="gac-heat" role="table" aria-label="Average people online by day and hour">${rows}${hours}</div>`
+        + `<div class="gac-heat-key"><span>Fewer</span>${[12, 34, 56, 78, 100].map((p) => `<i style="--heat:${p}%"></i>`).join('')}<span>More</span></div>`
+        + `<p class="gps-hint">${d.peak ? `Busiest: <b>${DAY_NAMES[d.peak.day]} around ${hourLabel(d.peak.hour)}</b> (${d.peak.avg} online on average). ` : ''}Average over ${d.weeks} week${d.weeks === 1 ? '' : 's'}, your time zone, sampled hourly. A good time for announcements is just before the busiest hours.</p>`;
+    }
+    async function renderWeekly(el) {
+      if (!el) return;
+      const show = (r, sent) => {
+        el.innerHTML = `<p class="gps-hint">Sent to your phone every Sunday at 6 PM (Settings → Account → notifications, “Weekly report”). This week so far:</p>`
+          + `<ul class="gac-health gac-weekly-list">${r.text.split('\n').map((l) => `<li class="ok"><i></i><span>${esc(l)}</span></li>`).join('')}</ul>`
+          + `<button class="gps-btn" id="gac-weekly-send" type="button">${sent ? 'Sent ✓' : 'Send it to my phone now'}</button>`;
+        el.querySelector('#gac-weekly-send').addEventListener('click', async (e) => {
+          e.target.disabled = true;
+          try { const x = await api('/admin/weekly', { method: 'POST', body: { send: true } }); show(x.report, true); showToast('Weekly report sent to your phone.'); }
+          catch (err) { e.target.disabled = false; showToast(err.message, { type: 'danger' }); }
+        });
+      };
+      try { const x = await api('/admin/weekly', { method: 'POST', body: {} }); show(x.report, false); }
+      catch (e) { el.innerHTML = `<p class="gps-hint">${esc(e.message)}</p>`; }
+    }
     const RENDER = {
       async overview() {
         const d = await api('/admin/overview');
@@ -19608,6 +19700,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             + healthRow('Memory', h.memoryEnabled, h.memoryEnabled ? 'On' : 'Off') + healthRow('Maintenance mode', !h.maintenance, h.maintenance ? 'ON' : 'Off')
             + `</ul>`, 'advanced')}</aside></div>`
           + `<p class="gps-hint gps-note">Counts that are not tied to a quota are buffered per worker instance to protect the storage write budget, so they can trail by up to a minute.</p>`;
+        // When people are online, and the weekly report: loaded after the
+        // rest so they never hold the overview up.
+        const main = body('overview').querySelector('.gpx-main');
+        if (main) {
+          main.insertAdjacentHTML('beforeend', card('When people are online', '<div id="gac-heat"><p class="gps-hint">Loading…</p></div>', 'timer', 'gac-heat-card')
+            + (can('system.manage') ? card('Weekly report', '<div id="gac-weekly"><p class="gps-hint">Loading…</p></div>', 'calendar', 'gac-weekly-card') : ''));
+          renderHeatmap(main.querySelector('#gac-heat'));
+          if (can('system.manage')) renderWeekly(main.querySelector('#gac-weekly'));
+        }
       },
       async users() {
         const d = await api('/admin/users');
@@ -19718,7 +19819,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           const br = /Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
           return [os, br].filter(Boolean).join(' · ') || 'Unknown device';
         };
-        const LABEL = { signin_in_use: 'Second sign-ins refused', signin_moved: 'Sign-ins moved to another website (same computer)', session_required: 'Name-only access refused', login_failed: 'Failed sign-ins', login_lockout: 'Sign-in lockouts', admin_auth_failed: 'Bad admin credentials', admin_lockout: 'Admin lockouts', forbidden: 'Forbidden requests', identity_mismatch: 'Spoofed usernames', rate_limited: 'Rate-limited', legacy_identity_refused: 'Legacy identity refused', bad_session: 'Bad sessions', owner_claim_refused: 'Owner-name claims refused', account_created: 'Accounts created', login_disabled: 'Disabled-account sign-ins' };
+        const LABEL = { signin_in_use: 'Second sign-ins refused', signin_moved: 'Sign-ins moved to another website (same computer)', invite_wrong: 'Wrong invite codes', session_required: 'Name-only access refused', login_failed: 'Failed sign-ins', login_lockout: 'Sign-in lockouts', admin_auth_failed: 'Bad admin credentials', admin_lockout: 'Admin lockouts', forbidden: 'Forbidden requests', identity_mismatch: 'Spoofed usernames', rate_limited: 'Rate-limited', legacy_identity_refused: 'Legacy identity refused', bad_session: 'Bad sessions', owner_claim_refused: 'Owner-name claims refused', account_created: 'Accounts created', login_disabled: 'Disabled-account sign-ins' };
         b.innerHTML = `<div class="gac-kpis">` + Object.entries(types).sort((a, b2) => b2[1] - a[1]).slice(0, 8).map(([t, n]) => kpi(LABEL[t] || t, num(n), 'last 7 days', /fail|forbid|mismatch|lockout|refused/.test(t) ? 'warn' : '')).join('')
           + (Object.keys(types).length ? '' : kpi('Security events', '0', 'last 7 days')) + `</div>`
           + `<div class="gpx-split"><div class="gpx-main">`
@@ -19742,8 +19843,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             + `<p class="gps-hint">One sign-in per name: while this is on, each listed name works only with its PIN, on one device at a time. A second device is refused while the first was used in the last 15 minutes; signing out frees the name right away.</p>`
             + ((d.config.allowAccounts || []).length ? `<ul class="gac-acct-list" id="gac-allow-accts">` + d.config.allowAccounts.map((a) => `<li class="gac-acct" data-user="${esc(a.user)}"><div class="gac-acct-top"><span class="gac-req-name">${esc(a.user)}</span>`
               + `<span class="gac-req-badge ${a.signedIn ? 'pending' : ''}">${a.signedIn ? 'Signed in' : a.claimed ? 'Signed out' : 'No PIN yet'}</span></div>`
-              + `<div class="gac-req-meta">${a.claimed ? (a.lastSeen ? 'Last used ' + ago(a.lastSeen) + (a.country && a.country !== '??' ? ' · ' + esc(a.country) : '') + (a.device ? ' · ' + esc(deviceName(a.device)) : '') : 'PIN set ' + (a.createdAt ? ago(a.createdAt) : '')) : 'The first person to create this account sets its PIN. Make sure it’s them.'}</div>`
-              + (a.claimed ? `<div class="gac-req-actions">${a.signedIn ? '<button class="gps-btn" data-acct="revokesessions" type="button">Sign out</button>' : ''}<button class="gps-btn" data-acct="release" type="button">Reset PIN</button></div>` : '')
+              + `<div class="gac-req-meta">${a.claimed ? (a.lastSeen ? 'Last used ' + ago(a.lastSeen) + (a.country && a.country !== '??' ? ' · ' + esc(a.country) : '') + (a.device ? ' · ' + esc(deviceName(a.device)) : '') : 'PIN set ' + (a.createdAt ? ago(a.createdAt) : ''))
+                : a.invite ? `Invite code <code class="gac-invite-code">${esc(a.invite)}</code> · only someone with this code can create “${esc(a.user)}”. Give it to them.`
+                  : 'The first person to create this account sets its PIN. Make sure it’s them, or make an invite code.'}</div>`
+              + (a.claimed ? `<div class="gac-req-actions">${a.signedIn ? '<button class="gps-btn" data-acct="revokesessions" type="button">Sign out</button>' : ''}<button class="gps-btn" data-acct="release" type="button">Reset PIN</button></div>`
+                : `<div class="gac-req-actions">${a.invite ? '<button class="gps-btn" data-acct="invite-copy" type="button">Copy code</button><button class="gps-btn" data-acct="invite-revoke" type="button">Remove code</button>' : '<button class="gps-btn" data-acct="invite-make" type="button">Make invite code</button>'}</div>`)
               + `</li>`).join('') + `</ul>` : ''), 'account') : '')
           + `<div id="gac-legacy-security"></div></aside></div>`;
         // ---- Subscribers: paid access for a set time ----
@@ -19859,6 +19963,21 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           const btn = e.target.closest('button[data-acct]');
           if (!btn) return;
           const user = btn.closest('.gac-acct').dataset.user, action = btn.dataset.acct;
+          if (action === 'invite-copy') {
+            const code = btn.closest('.gac-acct').querySelector('.gac-invite-code').textContent;
+            try { await navigator.clipboard.writeText(code); showToast('Copied ' + user + '’s invite code.'); } catch (err) { showToast(user + '’s invite code: ' + code); }
+            return;
+          }
+          if (action === 'invite-make' || action === 'invite-revoke') {
+            if (action === 'invite-revoke' && !confirm('Remove ' + user + '’s invite code? Then anyone can create “' + user + '” again.')) return;
+            btn.disabled = true;
+            try {
+              await api('/admin/invites', { method: 'POST', body: { action: action === 'invite-make' ? 'create' : 'revoke', user } });
+              showToast(action === 'invite-make' ? 'Invite code made for ' + user + '. Give it to them.' : user + '’s invite code was removed.');
+              RENDER.security().catch((err) => errorBox('security', err));
+            } catch (err) { btn.disabled = false; showToast(err.message, { type: 'danger' }); }
+            return;
+          }
           if (action === 'release' && !confirm('Reset the PIN for “' + user + '”? They’re signed out, and the next person to create “' + user + '” sets a new PIN — make sure that’s them.')) return;
           btn.disabled = true;
           try {
@@ -19899,9 +20018,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const saveAllow = async (on) => {
           const users = allowUsers.value.split(/[\s,;]+/).map((u) => u.trim().replace(/^@/, '')).filter(Boolean);
           if (on && !users.length && !confirm('Turn this on with nobody listed? Only you will be able to get in.')) return false;
+          // Names added now get an invite code; names already listed don't
+          // (everyone approved before keeps working exactly as before).
+          const before = new Set(((d.config.allowlist && d.config.allowlist.users) || []).map((u) => u.toLowerCase()));
+          const added = [...new Set(users.map((u) => u.toLowerCase()))].filter((u) => !before.has(u));
           try {
             await api('/admin/config', { method: 'POST', body: { allowlist: { on, users } } });
-            showToast(on ? 'Only listed users can get in now.' : 'Allowed-users list saved (currently off).');
+            const invited = [];
+            for (const u of added) {
+              try { await api('/admin/invites', { method: 'POST', body: { action: 'create', user: u } }); invited.push(u); } catch (e) { /* already has an account */ }
+            }
+            showToast((on ? 'Only listed users can get in now.' : 'Allowed-users list saved (currently off).')
+              + (invited.length ? ' Invite code' + (invited.length > 1 ? 's' : '') + ' made for ' + invited.join(', ') + ': give each person theirs (shown under Allowed users).' : ''));
             RENDER.security().catch((e) => errorBox('security', e));
             return true;
           } catch (e) { showToast(e.message, { type: 'danger' }); return false; }

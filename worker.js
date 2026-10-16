@@ -568,6 +568,130 @@ async function sendDailyDigest(env) {
   return notifyOwner(env, { cat: 'digest', title: 'Daily summary', body: parts.join(' · ') + '.', url: adminLink('overview') });
 }
 
+// ---- Weekly report and the activity heatmap ---------------------------------
+// The weekly report goes out Sundays at 6 PM owner time (the 5-minute cron
+// checks, like the daily summary). The heatmap samples how many people are
+// online once an hour (one KV write an hour) into one key per week, and
+// Admin shows the average over the last four weeks.
+const WEEKLY_DAY = 0, WEEKLY_HOUR = 18;   // Sunday, 6 PM
+function ownerWeekday(env, ts) {
+  const w = new Intl.DateTimeFormat('en-US', { timeZone: (env && env.OWNER_TZ) || 'America/New_York', weekday: 'short' }).format(new Date(ts == null ? Date.now() : ts));
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(w);
+}
+// The owner-time date of the Sunday that starts the week containing ts.
+function ownerWeekStart(env, ts) {
+  const t = ts == null ? Date.now() : ts;
+  return ownerClock(env, t - ownerWeekday(env, t) * 864e5).date;
+}
+// Distinct people with the console open now (presence keys), owner excluded.
+async function onlineNames(env) {
+  const kv = env && env.TELEMETRY;
+  const owner = String((env && env.OWNER) || 'viztrrx').toLowerCase();
+  const names = new Map();
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: 'session:', cursor });
+    for (const k of page.keys) {
+      const v = await kv.get(k.name, 'json');
+      if (v && v.user && v.user.toLowerCase() !== owner && v.user.toLowerCase() !== 'anonymous') names.set(v.user.toLowerCase(), v.user);
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor && names.size < 500);
+  return [...names.values()];
+}
+async function sampleActivity(env, ts) {
+  const kv = env && env.TELEMETRY;
+  if (!kv) return null;
+  const t = ts == null ? Date.now() : ts;
+  const clock = ownerClock(env, t);
+  const slot = clock.date + 'T' + clock.hour;
+  const key = 'heat:' + ownerWeekStart(env, t);
+  const rec = (await kv.get(key, 'json')) || { cells: {} };
+  if (rec.last === slot) return null;   // this hour is done
+  const n = (await onlineNames(env)).length;
+  rec.cells[ownerWeekday(env, t) + '-' + clock.hour] = n;
+  rec.last = slot;
+  await kv.put(key, JSON.stringify(rec), { expirationTtl: 40 * 24 * 3600 });
+  return n;
+}
+async function activityHeatmap(env, ts) {
+  const kv = env && env.TELEMETRY;
+  const t = ts == null ? Date.now() : ts;
+  const sum = {}, cnt = {};
+  let weeks = 0;
+  for (let w = 0; w < 4; w++) {
+    const rec = await kv.get('heat:' + ownerWeekStart(env, t - w * 7 * 864e5), 'json');
+    if (!rec || !rec.cells) continue;
+    weeks++;
+    for (const [cell, n] of Object.entries(rec.cells)) { sum[cell] = (sum[cell] || 0) + n; cnt[cell] = (cnt[cell] || 0) + 1; }
+  }
+  const grid = Array.from({ length: 7 }, (_, d) => Array.from({ length: 24 }, (_, h) => (cnt[d + '-' + h] ? Math.round((sum[d + '-' + h] / cnt[d + '-' + h]) * 10) / 10 : null)));
+  let peak = null;
+  grid.forEach((row, d) => row.forEach((v, h) => { if (v != null && (!peak || v > peak.avg)) peak = { day: d, hour: h, avg: v }; }));
+  return { weeks, grid, peak, samples: Object.values(cnt).reduce((a, b) => a + b, 0) };
+}
+// The report itself: people, chat, AI and money over the last 7 days.
+async function weeklyReport(env, ts) {
+  const kv = env && env.TELEMETRY;
+  const t = ts == null ? Date.now() : ts;
+  const since = t - 7 * 864e5;
+  let active = 0, fresh = 0, scanned = 0, cursor;
+  do {
+    const page = await kv.list({ prefix: 'user:', cursor });
+    for (const k of page.keys) {
+      if (++scanned > 2000) break;
+      const u = await kv.get(k.name, 'json');
+      if (u && u.lastSeen >= since) active++;
+      if (u && u.firstSeen >= since) fresh++;
+    }
+    cursor = page.list_complete || scanned > 2000 ? undefined : page.cursor;
+  } while (cursor);
+  // Chat: every room's own counts (Durable Objects), added up per person.
+  let messages = 0;
+  const people = {};
+  if (env && env.CHAT_ROOMS) {
+    const rooms = ['public', 'staff'];
+    try { const listed = await kv.list({ prefix: 'room:' }); for (const k of listed.keys) rooms.push(k.name.slice(5)); } catch (e) { /* public and staff only */ }
+    const from = new Date(since).toISOString().slice(0, 10);
+    for (const id of rooms) {
+      try {
+        const st = await chatRoomCall(env, id, 'stats', { from });
+        messages += st.total || 0;
+        for (const p of st.people || []) { const k = p.u.toLowerCase(); people[k] = { u: p.u, n: ((people[k] && people[k].n) || 0) + p.n }; }
+      } catch (e) { /* that room is unreachable: skip it */ }
+    }
+  }
+  const top = Object.values(people).sort((a, b) => b.n - a.n).slice(0, 3);
+  let ai = 0;
+  for (let d = 0; d < 7; d++) {
+    const usage = await kv.list({ prefix: `usage:${dayKey(t - d * 864e5)}:` });
+    for (const k of usage.keys) ai += parseUsage(await kv.get(k.name)).n;
+  }
+  const cfg = (await kv.get('config', 'json')) || {};
+  const paid = (Array.isArray(cfg.subLedger) ? cfg.subLedger : []).filter((x) => x && x.at >= since && x.amount > 0);
+  const money = paid.reduce((a, x) => a + x.amount, 0);
+  const fmt = (n) => '$' + (Math.round(n * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const lines = [
+    `${active} ${active === 1 ? 'person' : 'people'} active` + (fresh ? ` (${fresh} new)` : ''),
+    `${messages} chat message${messages === 1 ? '' : 's'}` + (top.length ? ' · top: ' + top.map((p) => `${p.u} ${p.n}`).join(', ') : ''),
+    `${ai} AI request${ai === 1 ? '' : 's'}`,
+    paid.length ? `${fmt(money)} from ${paid.length} subscription payment${paid.length === 1 ? '' : 's'}` : 'No subscription payments'
+  ];
+  return { active, fresh, messages, top, ai, money, payments: paid.length, text: lines.join('\n') };
+}
+async function maybeSendWeeklyReport(env, ts) {
+  const kv = env && env.TELEMETRY;
+  if (!kv) return null;
+  const t = ts == null ? Date.now() : ts;
+  const clock = ownerClock(env, t);
+  if (ownerWeekday(env, t) !== WEEKLY_DAY || clock.hour !== WEEKLY_HOUR) return null;
+  if ((await kv.get('push:weekly:last')) === clock.date) return null;
+  await kv.put('push:weekly:last', clock.date, { expirationTtl: 10 * 24 * 3600 });   // marked first: one per week
+  if (!(await anySubscriberWants(env, 'weekly'))) return null;
+  const r = await weeklyReport(env, t);
+  return notifyOwner(env, { cat: 'weekly', title: 'Weekly report', body: r.text, url: adminLink('overview') });
+}
+
 // Who made each /v1 (AI) request, so the fetch wrapper can tell the owner
 // when one fails without threading the name through every early return.
 const aiCallers = new WeakMap();
@@ -644,6 +768,8 @@ export default {
     if (event.cron === PRESENCE_CRON) {
       ctx.waitUntil(checkPresence(env, env.OWNER, null, { force: true }).catch(() => {}));
       ctx.waitUntil(maybeSendDailyDigest(env).catch(() => {}));
+      ctx.waitUntil(maybeSendWeeklyReport(env).catch(() => {}));
+      ctx.waitUntil(sampleActivity(env).catch(() => {}));
       ctx.waitUntil(sweepSubscriptions(env).catch(() => {}));
       return;
     }
@@ -1081,6 +1207,15 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // (and the owner) may sign in, create an account or use anything here.
     const ACCESS_DENIED = 'Unable to create account';
     const accessReqKey = (u) => 'accessreq:u:' + String(u || '').trim().toLowerCase().slice(0, 40);
+    const inviteKey = (u) => 'invite:' + String(u || '').trim().toLowerCase().slice(0, 40);
+    // "K7MQ-4X2P": no 0/O, 1/I/L, easy to read out loud.
+    const makeInviteCode = () => {
+      const abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+      const b = crypto.getRandomValues(new Uint8Array(8));
+      const c = [...b].map((x) => abc[x % abc.length]).join('');
+      return c.slice(0, 4) + '-' + c.slice(4);
+    };
+    const normInvite = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const SUB_ENDED = 'Your subscription has ended. Ask the owner to renew it.';
     const subscriptionOf = (cfg, user) => {
       const u = String(user || '').trim().toLowerCase();
@@ -1356,6 +1491,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       '/admin/access-requests':        { method: 'GET',  perm: 'system.manage' },
       '/admin/access-requests/decide': { method: 'POST', perm: 'system.manage' },
       '/admin/subscriptions':          { method: 'POST', perm: 'system.manage' },
+      '/admin/invites':                { method: 'POST', perm: 'system.manage' },
+      '/admin/heatmap':                { method: 'GET',  perm: 'users.view' },
+      '/admin/weekly':                 { method: 'POST', perm: 'system.manage' },
       '/admin/assignkey':      { method: 'POST', perm: 'keys.manage' },
       '/admin/clear':          { method: 'POST', perm: 'danger.execute' },
       '/admin/audit':          { method: 'GET',  perm: 'audit.view' },
@@ -1473,6 +1611,56 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const rank = { pending: 0, denied: 1, approved: 2 };
       items.sort((a, b) => (rank[a.status] - rank[b.status]) || (b.ts - a.ts));
       return json({ ok: true, requests: items.map(({ ip, ...r }) => r), pending: items.filter((r) => r.status === 'pending').length });
+    }
+    // Activity heatmap (Admin → Overview): average people online per hour of
+    // the week, last 4 weeks, owner time.
+    if (url.pathname === '/admin/heatmap') return json({ ok: true, ...(await activityHeatmap(env)) });
+    // Weekly report: preview it, or send it to the owner's phone now.
+    if (url.pathname === '/admin/weekly') {
+      let body = {};
+      try { body = JSON.parse(await req.text()) || {}; } catch (e) { /* preview */ }
+      const r = await weeklyReport(env);
+      let sent = false;
+      if (body.send) { await notifyOwner(env, { cat: 'weekly', title: 'Weekly report', body: r.text, url: adminLink('overview') }); sent = true; }
+      return json({ ok: true, report: r, sent });
+    }
+    // Invite codes (Admin → Security → Allowed users). A listed name with an
+    // invite can only be created by someone who has its code; it closes the
+    // gap where the first person to register a listed name set its PIN.
+    // Only names the owner gives a code get one: everyone already approved
+    // keeps working as before. POST { action: 'list' | 'create' | 'revoke', user }.
+    if (url.pathname === '/admin/invites') {
+      const kv = env.TELEMETRY;
+      let body = {};
+      try { body = JSON.parse(await req.text()) || {}; } catch (e) { return json({ error: 'invalid request' }, 400); }
+      const action = String(body.action || 'list');
+      const list = async () => {
+        const out = [];
+        let cursor;
+        do {
+          const page = await kv.list({ prefix: 'invite:', cursor });
+          for (const k of page.keys) { const v = await kv.get(k.name, 'json'); if (v) out.push(v); }
+          cursor = page.list_complete ? undefined : page.cursor;
+        } while (cursor && out.length < 500);
+        return out.sort((a, b) => b.createdAt - a.createdAt);
+      };
+      if (action === 'list') return json({ ok: true, invites: await list() });
+      const name = String(body.user || '').trim().replace(/^@/, '').toLowerCase();
+      if (!/^[a-z0-9_.-]{1,40}$/.test(name)) return json({ error: 'Enter a username' }, 400);
+      if (action === 'create') {
+        if (name === OWNER) return json({ error: 'The owner’s name doesn’t need an invite.' }, 400);
+        if (await getAcct(kv, name)) return json({ error: name + ' already has an account, so there’s nothing to invite.' }, 409);
+        const rec = { user: name, code: makeInviteCode(), createdAt: Date.now() };
+        await kv.put(inviteKey(name), JSON.stringify(rec));
+        await logAudit(kv, { route: url.pathname, action: 'invite_create', target: name });
+        return json({ ok: true, invite: rec, invites: await list() });
+      }
+      if (action === 'revoke') {
+        await kv.delete(inviteKey(name));
+        await logAudit(kv, { route: url.pathname, action: 'invite_revoke', target: name });
+        return json({ ok: true, invites: await list() });
+      }
+      return json({ error: 'action must be list, create or revoke' }, 400);
     }
     // Subscribers (Admin → Security → Subscribers). POST { action: 'list' |
     // 'add' | 'renew' | 'end' | 'delete', user, period, note }.
@@ -1625,6 +1813,16 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           return json({ ok: false, error: ACCESS_DENIED, notAllowed: true }, 403);
         }
         if (await getAcct(kv, user)) return json({ ok: false, error: 'account exists', exists: true }, 409);
+        // An invited name needs its code (see /admin/invites).
+        const invite = await kv.get(inviteKey(user), 'json');
+        if (invite) {
+          if (!body.invite) return json({ ok: false, error: 'This name needs an invite code from the owner.', inviteRequired: true }, 403);
+          if (!(await timingSafeEqualStr(normInvite(body.invite), normInvite(invite.code)))) {
+            await noteFailure(kv, 'login', ip);
+            await noteSec('invite_wrong', { user });
+            return json({ ok: false, error: 'That invite code isn’t right.', inviteRequired: true, wrongInvite: true }, 403);
+          }
+        }
         let ownerVerified = false;
         if (userLower === OWNER) {
           // The owner's name can only be claimed by proving OWNER_CODE; with no
@@ -1639,6 +1837,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const salt = randHex(16);
         const acct = { user, verifier: await sha256hex(salt + '|' + verifier), salt, role: 'user', ownerVerified, createdAt: Date.now(), epoch: 0, sessions: [] };
         const s = await issue(acct, body.site);
+        if (invite) await kv.delete(inviteKey(user));   // used up
         await noteSec('account_created', { user });
         if (userLower !== OWNER) notify({ cat: 'newuser', title: 'New account: ' + user, body: 'Registered at ' + ownerTime(env) + (req.cf && req.cf.country ? ' · ' + req.cf.country : ''), url: adminLink('users', { user }) });
         return json({ ok: true, token: s.token, exp: s.exp, account: view(acct, roleOf(acct)) });
@@ -2596,6 +2795,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const users = !('users' in a) ? ((cfg.allowlist && cfg.allowlist.users) || []) : [...new Set((Array.isArray(a.users) ? a.users : String(a.users || '').split(/[\s,;]+/))
           .map((u) => String(u || '').trim().replace(/^@/, '').toLowerCase()).filter((u) => /^[a-z0-9_.-]{1,40}$/.test(u)))].slice(0, 500);
         cfg.allowlist = { on: !!a.on, users };
+        // A name taken off the list loses its invite too.
+        const gone = ((cfgBefore.allowlist && cfgBefore.allowlist.users) || []).filter((u) => !users.includes(u));
+        for (const u of gone) { try { await kv.delete(inviteKey(u)); } catch (e) { /* best-effort */ } }
       }
       if ('monthlyQuota' in body) cfg.monthlyQuota = Math.max(0, parseInt(body.monthlyQuota, 10) || 0);
       if ('rpm' in body) cfg.rpm = Math.max(0, parseInt(body.rpm, 10) || 0);
@@ -3436,12 +3638,14 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             allowlist: { on: !!(cfg.allowlist && cfg.allowlist.on), users: (cfg.allowlist && cfg.allowlist.users) || [] },
             // Per listed name: has someone set a PIN for it yet, and is it
             // signed in right now (one sign-in per name).
-            allowAccounts: ((cfg.allowlist && cfg.allowlist.users) || []).map((u) => {
+            allowAccounts: await Promise.all(((cfg.allowlist && cfg.allowlist.users) || []).map(async (u) => {
               const a = (accts.find((x) => String(x.value.user || '').toLowerCase() === u) || {}).value;
               const s = a && (a.sessions || [])[0];
+              const inv = a ? null : await kv.get(inviteKey(u), 'json');
               return { user: u, claimed: !!a, createdAt: a ? a.createdAt || 0 : 0, signedIn: !!(a && liveSession(a, Date.now())),
-                lastSeen: s ? s.lastSeen || s.createdAt || 0 : 0, country: s ? s.country || '' : '', device: s ? s.ua || '' : '' };
-            }),
+                lastSeen: s ? s.lastSeen || s.createdAt || 0 : 0, country: s ? s.country || '' : '', device: s ? s.ua || '' : '',
+                invite: inv ? inv.code : '' };
+            })),
             blockedCountries: cfg.blockedCountries || [], allowedOrigins: cfg.allowedOrigins || []
           },
           approximate: true

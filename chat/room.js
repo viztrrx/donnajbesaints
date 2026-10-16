@@ -46,6 +46,10 @@ export const TAPBACKS = ['❤️', '👍', '👎', '😂', '‼️', '❓'];
 // it lose their text, and every poll lists the unsent ones so screens that
 // already show the message replace it too.
 export const UNSEND_MS = 2 * 60 * 1000;
+//
+// Counts for the owner's weekly report: messages per person per UTC day,
+// kept for COUNT_DAYS days (stored here, not in KV, so they cost no KV writes).
+const COUNT_DAYS = 14;
 
 const TTL_MS = 7 * 24 * 3600 * 1000;   // same week-long lifetime as before
 const MAX = 120;                       // newest messages kept per room
@@ -167,7 +171,26 @@ export class ChatRoom {
         // Sending ends "typing…" at once.
         const e = this.live.get(String(m.u || '').toLowerCase());
         if (e) e.typingUntil = 0;
+        const day = new Date(ts).toISOString().slice(0, 10);
+        const counts = (await this.storage.get('counts')) || {};
+        const who = String(m.u || '').toLowerCase();
+        counts[day] = counts[day] || {};
+        counts[day][who] = { u: m.u, n: ((counts[day][who] && counts[day][who].n) || 0) + 1 };
+        for (const d of Object.keys(counts).sort().slice(0, -COUNT_DAYS)) delete counts[d];
+        await this.storage.put('counts', counts);
         return reply({ ok: true, ts, re: msg.re || null });
+      }
+      if (action === 'stats') {
+        // Messages per person since a UTC day (inclusive).
+        const from = String(body.from || '');
+        const counts = (await this.storage.get('counts')) || {};
+        const people = {};
+        let total = 0;
+        for (const [d, byUser] of Object.entries(counts)) {
+          if (d < from) continue;
+          for (const [k, v] of Object.entries(byUser)) { people[k] = { u: v.u, n: ((people[k] && people[k].n) || 0) + v.n }; total += v.n; }
+        }
+        return reply({ ok: true, total, people: Object.values(people).sort((a, b) => b.n - a.n) });
       }
       if (action === 'unsend') {
         const key = String(body.user || '').trim().toLowerCase();

@@ -158,6 +158,24 @@ All on `main`. Each has tests; see section 6.
    hover; `regroupChat()` marks `.cont` on a run from one person within 5
    min (no picture/name; replies and unsent lines break a run). Tests:
    `tests/chat-rooms.test.mjs`, `tests/browser/chat-replies.mjs`.
+0. **Invite codes / weekly report / heatmap / subscriber reminder** (round 1
+   of the owner's "add all of that" list). `invite:<name>` KV records,
+   `/admin/invites` (list/create/revoke); `/auth/register` requires
+   `body.invite` only when that name has one (wrong code → `noteFailure`
+   login lockout + `invite_wrong`); used up on success; dropped when the name
+   leaves the list. The console's Save list makes codes only for names that
+   weren't listed before — existing approved names are untouched (the
+   owner's explicit requirement). Sign-up shows `#gpa-login-invite-wrap`
+   only after the Worker answers `inviteRequired`. Weekly report:
+   `weeklyReport()`/`maybeSendWeeklyReport()` (Sun 6 PM owner time, push
+   category `weekly`, `/admin/weekly` preview/send); chat counts come from
+   each room DO (`stats` action, `counts` kept 14 days). Heatmap:
+   `sampleActivity()` once an hour from the 5-minute cron into
+   `heat:<week start>` (1 KV write/hour), `/admin/heatmap` averages 4 weeks.
+   Subscriber reminder: `remindSubscriber()` once a day per device in the
+   last 3 days. Tests: `tests/owner-tools.test.mjs`,
+   `tests/browser/owner-tools.mjs` (the heatmap screenshot uses sample data
+   the test supplies; the math is unit-tested).
 0. **Memory (128 MB per Worker instance, shared by every request on it).**
    A "Worker exceeded memory limit" alert on `GET /chat/poll` means the
    instance ran out and everything on it failed, the chat poll included
@@ -290,7 +308,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (84 tests)
+npm test                                   # node --test tests/*.test.mjs (89 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -310,6 +328,7 @@ node tests/browser/same-computer.mjs       # 12 (two websites, one computer: war
 node tests/browser/chat-live.mjs           # 23 (typing, who's here, reactions; 3 phones + laptop)
 node tests/browser/chat-replies.mjs        # 20 (replies, unsend, grouping; 2 phones + laptop)
 node tests/browser/ask-photo-size.mjs      # 6 (a 9 MB phone photo leaves the console as 0.8 MB)
+node tests/browser/owner-tools.mjs         # 15 (invite codes, weekly report, heatmap, subscriber reminder)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 
