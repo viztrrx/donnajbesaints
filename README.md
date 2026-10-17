@@ -379,6 +379,18 @@ Each room's messages live in their own Durable Object (`CHAT_ROOMS`, see `chat/r
 
 **Unsend.** Your own messages show **Unsend** in their bar for 2 minutes after sending (the server enforces the 2 minutes and that it's yours). Everyone then sees "kj unsent a message" (you see "You unsent a message"); quotes of it say "Unsent message", its reactions go, and a photo in it is deleted. Push notifications that already went out can't be taken back.
 
+**@mentions.** Type `@` in the message box and a list of names appears (people in the room and recent senders); arrows and Enter/Tab or a tap pick one. A message that mentions you is highlighted for you, with your `@name` in bold, and you get a pop-up if Chat isn't on screen. **Mention alerts** (Settings → Account) puts a phone notification on your device when someone @mentions you in #public or staff chat (each person turns it on for their own device; on iPhone it needs the Home Screen app). Private rooms never send mention alerts, and staff chat only alerts staff.
+
+**Polls.** Type `/poll Pizza or tacos?` (it splits "X or Y" into two options) or `/poll Where to? | Park | Mall | Beach` (2 to 6 options), or tap 📊 for a template. Everyone sees a poll card with bars and counts that update live; tap an option to vote, another to change, the same one again to take your vote back. Hover an option to see who picked it.
+
+**Edit.** Your own message has **Edit** in its bar for 2 minutes after sending: the box takes its text with an "Editing message" banner; Enter saves, ✕ or Esc cancels. Everyone sees the new text marked "edited", and quotes and pins follow it. Polls can't be edited.
+
+**Pinned messages.** Staff (moderators, admins, you) get **📌 Pin** in a message's bar. Up to 3 pins per room; the newest shows above the chat for everyone (tap it to jump there, `1/3 ›` to see the others, ✕ to unpin for staff). Unsending a message removes its pin.
+
+**Voice messages.** Tap the mic next to the message box, talk (up to 30 seconds; a red dot and a timer show), then **Send** (or **Cancel**). Everyone gets a small player. The Worker checks the file really is audio and streams it in pieces so it plays on iPhone. Up to 40 a day per network.
+
+**Quiet hours.** Admin → Moderation → **Chat quiet hours** (off unless you turn it on): between the two hours you pick (your time zone), chat is read-only for everyone but staff. People see "🌙 Quiet hours: chat is read-only until 6 AM" and their message box is off; staff see that they can still post.
+
 **Grouping.** Several messages in a row from the same person (within 5 minutes) show their picture and name once, with the rest as plain lines underneath, like iMessage. Someone else's message, a reply or a 5-minute gap starts a new group. On a computer, hovering a grouped line shows its time and the ↩ / ☺ buttons.
 
 ### AI usage meter {#usage-meter}

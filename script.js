@@ -756,7 +756,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       console: ['fix', 'The Worker refuses oversized requests with a clear message and no longer reads whole huge pages into memory'] } },
     { at: '2026-10-17T14:00:00-04:00', commit: '', title: 'Invite codes, weekly report, activity heatmap, subscriber reminders', parts: {
       admin: ['feature', 'Invite codes for newly added names (people already approved are unchanged); “When people are online” heatmap and the weekly report in Overview'],
-      console: ['feature', 'Sign-up asks for the invite code only when that name has one; subscribers get a once-a-day reminder in their last 3 days'] } }
+      console: ['feature', 'Sign-up asks for the invite code only when that name has one; subscribers get a once-a-day reminder in their last 3 days'] } },
+    { at: '2026-10-17T18:00:00-04:00', commit: '', title: 'Chat: @mentions, polls, edit, pins, voice messages, quiet hours', parts: {
+      chat: ['feature', '@ name suggestions and highlighted mentions with optional phone alerts for everyone; /poll polls; edit within 2 minutes; staff pins; 30-second voice messages; owner-set quiet hours'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -3323,13 +3325,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <button id="gpa-chat-join" class="gpa-btn" title="Join a private room with a code">${gpxLbl('key', 'Join room')}</button>` })}
           <div id="gpa-chat-note" class="gpa-sub gpx-note"></div>
           <div id="gpa-chat-people" class="gpa-chat-people" hidden></div>
+          <div id="gpa-chat-quiet" class="gpa-chat-quiet" role="status" hidden></div>
+          <div id="gpa-chat-pins" class="gpa-chat-pins" hidden></div>
           <div id="gpa-chat-log" class="gpa-chat-log"></div>
           <div id="gpa-chat-typing" class="gpa-chat-typing" role="status" aria-live="polite" hidden></div>
           ${gpxEmpty({ cls: 'gpx-empty-chat', icon: 'users', title: 'No messages to show',
             desc: 'Messages in this room appear here as soon as the console reaches the chat server. Pick another room or join a private one with a code.' })}
           <div id="gpa-chat-replying" class="gpa-chat-replying" hidden></div>
+          <div id="gpa-chat-editing" class="gpa-chat-replying gpa-chat-editing" hidden><div class="r-col"><span class="r-who">Editing message</span><span class="r-text">Enter saves · within 2 minutes of sending</span></div><button type="button" class="r-x" aria-label="Cancel editing" title="Cancel editing">✕</button></div>
+          <ul id="gpa-chat-suggest" class="gpa-chat-suggest" role="listbox" aria-label="People to mention" hidden></ul>
+          <div id="gpa-chat-rec" class="gpa-chat-rec" hidden><span class="rec-dot" aria-hidden="true"></span><span id="gpa-chat-rec-time" class="rec-time">0:00</span><span class="rec-hint">Recording · up to 0:30</span><button type="button" id="gpa-chat-rec-cancel" class="gpa-btn">Cancel</button><button type="button" id="gpa-chat-rec-send" class="gpa-btn primary">Send</button></div>
           <div class="gpa-row gpx-composer gpx-composer-dock">
-            <input id="gpa-chat-input" class="gpa-input" placeholder="Message…" maxlength="500" autocomplete="off" aria-label="Chat message" />
+            <input id="gpa-chat-input" class="gpa-input" placeholder="Message…" maxlength="500" autocomplete="off" aria-label="Chat message" aria-autocomplete="list" aria-controls="gpa-chat-suggest" />
+            <button id="gpa-chat-poll" class="gpa-btn gpx-icon-btn" type="button" title="Make a poll" aria-label="Make a poll">📊</button>
+            <button id="gpa-chat-mic" class="gpa-btn gpx-icon-btn" type="button" title="Record a voice message (up to 30 seconds)" aria-label="Record a voice message">${GPS_ICONS.mic}</button>
             <button id="gpa-chat-attach" class="gpa-btn gpx-icon-btn" type="button" title="Attach a photo (up to 5 MB)" aria-label="Choose a chat photo">${GPS_ICONS.camera}</button>
             <button id="gpa-chat-send" class="gpa-btn primary">Send</button>
           </div>
@@ -4278,6 +4287,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                   </div>
                   <div class="gps-row" id="gpa-push-actions" hidden><button id="gpa-push-test" class="gps-btn" type="button">Send a test notification</button></div>
                   <p class="gps-hint" id="gpa-push-msg" role="status" aria-live="polite"></p>
+                </div>
+                <div class="gps-item gpa-push" id="gpa-mention-push" data-k="mention alerts notifications push phone iphone chat @">
+                  <div class="gpa-push-head">
+                    <div><div class="gps-label">Mention alerts</div><p class="gps-hint" id="gpa-mpush-hint">A notification on this device when someone @mentions you in #public or staff chat.</p></div>
+                    <button id="gpa-mpush-toggle" class="gps-btn" type="button">Turn on</button>
+                  </div>
+                  <div class="gps-row" id="gpa-mpush-actions" hidden><button id="gpa-mpush-test" class="gps-btn" type="button">Send a test</button></div>
+                  <p class="gps-hint" id="gpa-mpush-msg" role="status" aria-live="polite"></p>
                 </div>
                 <div class="gps-item gps-item-row" data-k="account server session sign in connected memory devices">
                   <div><div class="gps-label">Server account</div><p class="gps-hint" id="gps-srv-hint"></p></div>
@@ -5502,6 +5519,42 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         background: var(--gpa-panel); border: 1px solid var(--gpa-border); border-left: 3px solid var(--gpa-accent); border-radius: 10px; font-size: 12px;
       }
       .gpa-chat-replying[hidden] { display: none; }
+      /* Round 2: pinned messages, quiet hours, @ suggestions, polls, voice, edits. */
+      .gpa-chat-pins { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px; min-width: 0; font-size: 12px;
+        background: color-mix(in srgb, var(--gpa-accent) 10%, var(--gpa-panel)); border: 1px solid var(--gpa-border); border-radius: 10px; }
+      .gpa-chat-pins[hidden] { display: none; }
+      .gpa-chat-pins .p-main { flex: 1; min-width: 0; display: flex; gap: 6px; align-items: baseline; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+      .gpa-chat-pins .p-who { font-weight: 600; flex-shrink: 0; }
+      .gpa-chat-pins .p-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gpa-text); }
+      .gpa-chat-pins .p-n, .gpa-chat-pins button.p-btn { flex-shrink: 0; color: var(--gpa-sub); background: none; border: 0; font: inherit; font-size: 11.5px; cursor: pointer; padding: 2px 5px; border-radius: 6px; }
+      .gpa-chat-pins button.p-btn:hover { background: color-mix(in srgb, var(--gpa-text) 10%, transparent); color: var(--gpa-text); }
+      .gpa-chat-quiet { padding: 7px 10px; font-size: 12px; border-radius: 10px; border: 1px solid var(--gpa-border); background: var(--gpa-panel); color: var(--gpa-text); }
+      .gpa-chat-quiet[hidden] { display: none; }
+      .gpa-chat-suggest { list-style: none; margin: 0; padding: 4px; max-height: 180px; overflow-y: auto; background: var(--gpa-panel); border: 1px solid var(--gpa-border); border-radius: 10px; }
+      .gpa-chat-suggest[hidden] { display: none; }
+      .gpa-chat-suggest li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+      .gpa-chat-suggest li .avatar { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 10px; font-weight: 700; }
+      .gpa-chat-suggest li[aria-selected="true"], .gpa-chat-suggest li:hover { background: color-mix(in srgb, var(--gpa-accent) 18%, transparent); }
+      .gpa-chat-msg.mentions-me > .col > .body { background: color-mix(in srgb, var(--gpa-warning, #f59e0b) 14%, transparent); border-radius: 6px; box-shadow: -3px 0 0 var(--gpa-warning, #f59e0b); padding: 1px 6px; }
+      .gpa-chat-msg .body .at-me { font-weight: 700; }
+      .gpa-chat-msg .head .edited { font-size: 10px; color: var(--gpa-sub); font-style: italic; }
+      .gpa-chat-poll { margin-top: 5px; padding: 9px 10px; border: 1px solid var(--gpa-border); border-radius: 12px; background: var(--gpa-panel); display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+      .gpa-chat-poll .pq { font-weight: 600; }
+      .gpa-chat-poll button.po { position: relative; display: flex; justify-content: space-between; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 9px; overflow: hidden;
+        border: 1px solid var(--gpa-border); background: transparent; color: var(--gpa-text); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+      .gpa-chat-poll button.po i { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--gpa-accent) 22%, transparent); width: 0; transition: width .25s; }
+      .gpa-chat-poll button.po span { position: relative; }
+      .gpa-chat-poll button.po.mine { border-color: var(--gpa-accent); font-weight: 600; }
+      .gpa-chat-poll .pt { font-size: 11px; color: var(--gpa-sub); }
+      .gpa-chat-voice { display: block; margin-top: 5px; width: min(100%, 280px); height: 36px; }
+      .gpa-chat-rec { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border: 1px solid var(--gpa-border); border-radius: 10px; background: var(--gpa-panel); font-size: 12.5px; }
+      .gpa-chat-rec[hidden] { display: none; }
+      .gpa-chat-rec .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--gpa-danger, #ef4444); animation: gpaRecPulse 1s ease-in-out infinite; }
+      .gpa-chat-rec .rec-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+      .gpa-chat-rec .rec-hint { flex: 1; color: var(--gpa-sub); font-size: 11.5px; }
+      @keyframes gpaRecPulse { 50% { opacity: .35; } }
+      @media (prefers-reduced-motion: reduce) { .gpa-chat-rec .rec-dot { animation: none; } }
+      #gpa-chat-mic.is-on { color: var(--gpa-danger, #ef4444); }
       .gpa-chat-replying .r-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
       .gpa-chat-replying .r-who { font-weight: 600; color: var(--gpa-text); }
       .gpa-chat-replying .r-text { color: var(--gpa-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -11676,6 +11729,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return new RegExp('(^|\\s)@' + escaped + '(?![\\w-])', 'i').test(text);
   }
   function notifyMention(m) {
+    try { showToast(`${m.u} mentioned you: ${String(m.t || '').slice(0, 80)}`); } catch (e) { /* toasts are best-effort */ }
     try {
       if (!window.Notification || Notification.permission !== 'granted') return;
       const n = new Notification(`${m.u} mentioned you in #${chatRoom}`, { body: String(m.t || '').slice(0, 140) });
@@ -11718,6 +11772,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       + (m.unsent ? ' unsent' : '');
     div.dataset.ts = String(m.ts);
     div.dataset.u = String(m.u || '');
+    div.dataset.raw = String(m.t || '');
     const avatar = document.createElement('span');
     avatar.className = 'avatar';
     avatar.textContent = String(m.u || '?').trim().charAt(0).toUpperCase();
@@ -11748,7 +11803,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!m.unsent) { head.appendChild(replyBtn); head.appendChild(reactBtn); }
     const body = document.createElement('div');
     body.className = 'body';
-    body.textContent = m.t || '';
+    setChatBodyText(body, m.t || '');
+    if (m.edited && !m.unsent) head.insertBefore(chatEditedEl(), replyBtn);
     if (m.unsent) {
       body.textContent = (currentUser && m.u === currentUser ? 'You' : m.u) + ' unsent a message';
       const col0 = document.createElement('div');
@@ -11779,11 +11835,31 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       thumbButton.addEventListener('click', () => openChatImageViewer(imageUrl, 'Photo shared by ' + m.u, thumbButton));
       body.appendChild(thumbButton);
     }
+    // A voice message: a player and its length.
+    if (m.media && typeof m.media.id === 'string' && /^[a-f0-9-]{36}$/.test(m.media.id) && /^audio\//.test(m.media.type || '')) {
+      const audio = document.createElement('audio');
+      audio.className = 'gpa-chat-voice';
+      audio.controls = true;
+      audio.preload = 'metadata';
+      audio.src = telemetryEndpoint() + '/chat/media/' + m.media.id;
+      audio.setAttribute('aria-label', 'Voice message from ' + m.u + (m.media.dur ? ', ' + m.media.dur + ' seconds' : ''));
+      body.appendChild(audio);
+      div.classList.add('has-voice');
+    }
+    // A poll: the question and an option button each, with live counts.
+    if (m.poll && Array.isArray(m.poll.options)) {
+      body.textContent = '';
+      body.appendChild(chatPollEl(m.poll));
+      div.classList.add('has-poll');
+      div.dataset.poll = '1';
+    }
+    if (currentUser && m.u !== currentUser && mentionsUser(m.t, currentUser)) div.classList.add('mentions-me');
     col.appendChild(head);
     if (m.re && Number(m.re.ts)) col.appendChild(chatQuoteEl(m.re));
     col.appendChild(body);
     div.appendChild(avatar); div.appendChild(col);
     renderTapbacks(div, m.r);
+    if (m.poll) renderPollVotes(div, m.pv || {});
     return div;
   }
 
@@ -11861,6 +11937,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (Array.isArray(data.unsent)) data.unsent.forEach(markChatUnsent);
       if (added || (data.unsent && data.unsent.length)) regroupChat();
       if (data.reactions && typeof data.reactions === 'object') applyChatReactions(data.reactions);
+      markChatPollsAndPins(data);
       chatTyping = Array.isArray(data.typing) ? data.typing : [];
       chatPeople = Array.isArray(data.people) ? data.people : [];
       renderChatTyping();
@@ -12062,6 +12139,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     p.innerHTML = '<div class="tb-emojis">' + TAPBACKS.map((e) => `<button type="button" data-emoji="${e}" class="${e === mine ? 'on' : ''}" aria-pressed="${e === mine}" title="${TAPBACK_NAMES[e]}" aria-label="${TAPBACK_NAMES[e]}">${e}</button>`).join('') + '</div>'
       + '<div class="tb-actions"><button type="button" data-act="reply">↩ Reply</button>'
       + (msgEl.querySelector('.body').textContent.trim() ? '<button type="button" data-act="copy">Copy</button>' : '')
+      + (canUnsend && !msgEl.classList.contains('has-poll') && (msgEl.dataset.raw || '').trim() && chatServerNow() - Number(msgEl.dataset.ts) < EDIT_MS - 3000 ? '<button type="button" data-act="edit">Edit</button>' : '')
+      + (isStaffClient() ? (chatPins.some((p) => p.ts === Number(msgEl.dataset.ts)) ? '<button type="button" data-act="unpin">Unpin</button>' : '<button type="button" data-act="pin">📌 Pin</button>') : '')
       + (canUnsend ? '<button type="button" data-act="unsend" class="danger">Unsend</button>' : '')
       + '</div>';
     msgEl.querySelector('.col').insertBefore(p, msgEl.querySelector('.body'));
@@ -12098,6 +12177,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   chatLog.addEventListener('click', (ev) => {
     const q = ev.target.closest('.gpa-chat-quote');
     if (q) { jumpToChatMessage(q.dataset.ts); return; }
+    const po = ev.target.closest('.gpa-chat-poll button.po');
+    if (po) { if (Date.now() - tapbackOpenedAt >= 250) voteInPoll(po.closest('.gpa-chat-msg'), Number(po.dataset.option)); return; }
     const b = ev.target.closest('.gpa-tapback-picker button, .gpa-chat-tapbacks .gpa-tapback, .gpa-chat-react-btn, .gpa-chat-reply-btn');
     if (!b) return;
     const msgEl = b.closest('.gpa-chat-msg');
@@ -12108,6 +12189,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (Date.now() - tapbackOpenedAt < 250 && ev.detail !== 0) return;
     if (b.dataset.act === 'reply' || b.classList.contains('gpa-chat-reply-btn')) { closeTapbackPicker(); startChatReply(msgEl); return; }
     if (b.dataset.act === 'unsend') { closeTapbackPicker(); unsendChatMessage(msgEl); return; }
+    if (b.dataset.act === 'edit') { closeTapbackPicker(); startChatEdit(msgEl); return; }
+    if (b.dataset.act === 'pin' || b.dataset.act === 'unpin') { closeTapbackPicker(); pinChatMessage(msgEl, b.dataset.act === 'pin'); return; }
     if (b.dataset.act === 'copy') {
       const text = msgEl.querySelector('.body').textContent;
       closeTapbackPicker();
@@ -12160,6 +12243,414 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   root.addEventListener('pointerdown', (ev) => {
     if (tapbackFor && !ev.composedPath().some((n) => n && n.classList && (n.classList.contains('gpa-tapback-picker') || n.classList.contains('gpa-chat-react-btn')))) closeTapbackPicker();
   }, true);
+
+  // ---- Round 2: mentions, edits, polls, pins, quiet hours, voice -----------
+  // Text with "@you" in bold (DOM nodes, never HTML from the message).
+  function setChatBodyText(body, text) {
+    body.textContent = '';
+    const me = currentUser ? String(currentUser) : '';
+    if (!me || !text || text.indexOf('@') < 0) { body.textContent = text; return; }
+    const re = new RegExp('(^|\\s)(@' + me.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![\\w-])', 'gi');
+    let last = 0, m;
+    while ((m = re.exec(text))) {
+      const at = m.index + m[1].length;
+      body.appendChild(document.createTextNode(text.slice(last, at)));
+      const b = document.createElement('span');
+      b.className = 'at-me';
+      b.textContent = m[2];
+      body.appendChild(b);
+      last = at + m[2].length;
+    }
+    body.appendChild(document.createTextNode(text.slice(last)));
+  }
+  function chatEditedEl() {
+    const e = document.createElement('span');
+    e.className = 'edited';
+    e.textContent = 'edited';
+    return e;
+  }
+  function chatPollEl(poll) {
+    const card = document.createElement('div');
+    card.className = 'gpa-chat-poll';
+    const q = document.createElement('div');
+    q.className = 'pq';
+    q.textContent = '📊 ' + poll.q;
+    card.appendChild(q);
+    poll.options.forEach((o, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'po';
+      b.dataset.option = String(i);
+      b.innerHTML = '<i></i><span class="pl"></span><span class="pn">0</span>';
+      b.querySelector('.pl').textContent = o;
+      card.appendChild(b);
+    });
+    const t = document.createElement('div');
+    t.className = 'pt';
+    t.textContent = 'No votes yet · tap to vote';
+    card.appendChild(t);
+    return card;
+  }
+  function renderPollVotes(msgEl, pv) {
+    const card = msgEl.querySelector('.gpa-chat-poll');
+    if (!card) return;
+    const key = JSON.stringify(pv || {}) + '|' + (currentUser || '');
+    if (card.dataset.key === key) return;
+    card.dataset.key = key;
+    const total = Object.values(pv || {}).reduce((n, names) => n + names.length, 0);
+    let mine = null;
+    card.querySelectorAll('button.po').forEach((b) => {
+      const names = (pv && pv[b.dataset.option]) || [];
+      const isMine = names.some(isMe);
+      if (isMine) mine = b.querySelector('.pl').textContent;
+      b.classList.toggle('mine', isMine);
+      b.setAttribute('aria-pressed', String(isMine));
+      b.querySelector('.pn').textContent = String(names.length);
+      b.querySelector('i').style.width = (total ? Math.round((names.length / total) * 100) : 0) + '%';
+      b.title = names.length ? names.join(', ') : 'No votes yet';
+    });
+    card.querySelector('.pt').textContent = total ? total + (total === 1 ? ' vote' : ' votes') + (mine ? ' · you voted ' + mine + ' (tap again to take it back)' : ' · tap to vote') : 'No votes yet · tap to vote';
+  }
+  async function chatPost(path, payload, extraHeaders) {
+    const auth = { ...staffProofHeaders(chatRoom), ...ownerProofHeader(), ...(extraHeaders || {}) };
+    if (sessionToken()) auth['X-GPA-Session'] = sessionToken();
+    const res = await fetch(telemetryEndpoint() + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain', ...auth },
+      body: JSON.stringify({ room: chatRoom, code: chatCodeFor(chatRoom), user: currentUser, ...payload })
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!d.ok) throw Error(d.error || 'That didn’t work.');
+    return d;
+  }
+  async function voteInPoll(msgEl, option) {
+    try {
+      const d = await chatPost('/chat/vote', { ts: Number(msgEl.dataset.ts), option });
+      renderPollVotes(msgEl, d.votes || {});
+    } catch (e) { chatNote.textContent = e.message; }
+  }
+  function applyChatVotes(map) {
+    chatLog.querySelectorAll('.gpa-chat-msg.has-poll').forEach((el) => { if (map[el.dataset.ts]) renderPollVotes(el, map[el.dataset.ts]); });
+  }
+  function applyChatEdits(map) {
+    for (const [ts, e] of Object.entries(map || {})) {
+      const el = chatLog.querySelector(`.gpa-chat-msg[data-ts="${Number(ts)}"]:not(.unsent)`);
+      if (!el || el.dataset.editedAt === String(e.at)) continue;
+      el.dataset.editedAt = String(e.at);
+      el.dataset.raw = String(e.t || '');
+      const body = el.querySelector(':scope > .col > .body');
+      const media = [...body.querySelectorAll('.gpa-chat-thumb-button, audio')];
+      setChatBodyText(body, e.t);
+      media.forEach((x) => body.appendChild(x));
+      el.classList.toggle('mentions-me', !!currentUser && el.dataset.u !== currentUser && mentionsUser(e.t, currentUser));
+      if (!el.querySelector('.head .edited')) el.querySelector('.head').insertBefore(chatEditedEl(), el.querySelector('.head .gpa-chat-reply-btn'));
+      chatLog.querySelectorAll(`.gpa-chat-quote[data-ts="${Number(ts)}"]:not(.gone) .q-text`).forEach((q) => { q.textContent = String(e.t).slice(0, 140); });
+    }
+  }
+  // Pinned messages: the newest one shows above the chat; ‹ › cycles; tap jumps.
+  const chatPinsEl = panel.querySelector('#gpa-chat-pins');
+  let chatPins = [];
+  let chatPinAt = 0;
+  function renderChatPins() {
+    if (!chatPins.length) { chatPinsEl.hidden = true; chatPinsEl.innerHTML = ''; chatPinsEl.dataset.key = ''; return; }
+    chatPinAt = Math.min(chatPinAt, chatPins.length - 1);
+    const p = chatPins[chatPinAt];
+    const key = JSON.stringify(chatPins) + '|' + chatPinAt + '|' + (isStaffClient() ? 1 : 0);
+    if (chatPinsEl.dataset.key === key) return;
+    chatPinsEl.dataset.key = key;
+    chatPinsEl.hidden = false;
+    chatPinsEl.innerHTML = `<span aria-hidden="true">📌</span><button type="button" class="p-main" data-pin-jump="${p.ts}" title="Show the pinned message"><span class="p-who"></span><span class="p-text"></span></button>`
+      + (chatPins.length > 1 ? `<button type="button" class="p-btn" data-pin-next aria-label="Next pinned message">${chatPinAt + 1}/${chatPins.length} ›</button>` : '')
+      + (isStaffClient() ? `<button type="button" class="p-btn" data-pin-off="${p.ts}" aria-label="Unpin this message" title="Unpin">✕</button>` : '');
+    chatPinsEl.querySelector('.p-who').textContent = p.u + ':';
+    chatPinsEl.querySelector('.p-text').textContent = p.t;
+  }
+  chatPinsEl.addEventListener('click', async (ev) => {
+    const j = ev.target.closest('[data-pin-jump]');
+    if (j) { jumpToChatMessage(j.dataset.pinJump); return; }
+    if (ev.target.closest('[data-pin-next]')) { chatPinAt = (chatPinAt + 1) % chatPins.length; renderChatPins(); return; }
+    const off = ev.target.closest('[data-pin-off]');
+    if (off) { try { const d = await chatPost('/chat/pin', { ts: Number(off.dataset.pinOff), pin: false }, staffProofHeaders('staff')); chatPins = d.pins || []; renderChatPins(); } catch (e) { chatNote.textContent = e.message; } }
+  });
+  async function pinChatMessage(msgEl, on) {
+    // Pinning is staff-only in every room: send the staff proof (session role, owner code or admin token).
+    try { const d = await chatPost('/chat/pin', { ts: Number(msgEl.dataset.ts), pin: on }, staffProofHeaders('staff')); chatPins = d.pins || []; chatPinAt = 0; renderChatPins(); }
+    catch (e) { chatNote.textContent = e.message; }
+  }
+  // Quiet hours: a banner, and the message box is off unless you're staff.
+  const chatQuietEl = panel.querySelector('#gpa-chat-quiet');
+  let chatQuiet = null;
+  function renderChatQuiet() {
+    const q = chatQuiet && chatQuiet.active ? chatQuiet : null;
+    chatQuietEl.hidden = !q;
+    chatQuietEl.textContent = q ? (q.exempt ? `🌙 Quiet hours (${q.from}–${q.until}): chat is read-only for everyone else; you can still post as staff.` : `🌙 Quiet hours: chat is read-only until ${q.until}.`) : '';
+    const locked = !!(q && !q.exempt);
+    if (chatInput.disabled !== locked) {
+      chatInput.disabled = locked;
+      chatInput.placeholder = locked ? 'Quiet hours until ' + q.until : 'Message…';
+      ['#gpa-chat-send', '#gpa-chat-attach', '#gpa-chat-mic', '#gpa-chat-poll'].forEach((sel) => { const b = panel.querySelector(sel); if (b) b.disabled = locked; });
+    }
+  }
+  // Editing your own message (within 2 minutes): the box takes its text.
+  const EDIT_MS = 2 * 60 * 1000;
+  const chatEditingEl = panel.querySelector('#gpa-chat-editing');
+  let chatEditing = null;
+  function startChatEdit(msgEl) {
+    clearChatReply();
+    chatEditing = { ts: Number(msgEl.dataset.ts), before: chatInput.value };
+    chatInput.value = msgEl.dataset.raw || '';
+    chatEditingEl.hidden = false;
+    try { chatInput.focus({ preventScroll: true }); chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length); } catch (e) { /* ignore */ }
+  }
+  function stopChatEdit(restore) {
+    if (!chatEditing) return;
+    if (restore) chatInput.value = chatEditing.before || '';
+    chatEditing = null;
+    chatEditingEl.hidden = true;
+  }
+  chatEditingEl.addEventListener('click', (ev) => { if (ev.target.closest('.r-x')) { stopChatEdit(true); chatInput.focus({ preventScroll: true }); } });
+  async function saveChatEdit() {
+    const text = chatInput.value.trim();
+    const ts = chatEditing.ts;
+    try {
+      const d = await chatPost('/chat/edit', { ts, text });
+      applyChatEdits({ [ts]: { t: d.t, at: d.edited } });
+      chatInput.value = '';
+      stopChatEdit(false);
+      chatNote.textContent = '';
+    } catch (e) { chatNote.textContent = e.message; }
+  }
+  // "/poll Pizza or tacos? | Pizza | Tacos", or just "/poll Pizza or tacos?".
+  function parsePollCommand(text) {
+    const m = /^\/poll\s+(.+)$/i.exec(text.trim());
+    if (!m) return null;
+    const parts = m[1].split('|').map((x) => x.trim()).filter(Boolean);
+    let q = parts[0] || '';
+    let options = parts.slice(1);
+    if (options.length < 2) {
+      const or = /^(?:(.*?)[:,]\s*)?(.+?)\s+or\s+(.+?)\??$/i.exec(q);
+      if (or) options = [or[2], or[3]].map((x) => x.trim().replace(/^./, (c) => c.toUpperCase()));
+    }
+    if (!/\?$/.test(q)) q += '?';
+    return { q, options };
+  }
+  panel.querySelector('#gpa-chat-poll').addEventListener('click', () => {
+    chatInput.value = '/poll Question? | Option 1 | Option 2';
+    chatInput.focus({ preventScroll: true });
+    try { chatInput.setSelectionRange(6, 15); } catch (e) { /* ignore */ }
+  });
+  function markChatPollsAndPins(data) {
+    if (data.edits && typeof data.edits === 'object') applyChatEdits(data.edits);
+    if (data.votes && typeof data.votes === 'object') applyChatVotes(data.votes);
+    if (Array.isArray(data.pins)) { chatPins = data.pins; renderChatPins(); }
+    chatQuiet = data.quiet || null;
+    renderChatQuiet();
+  }
+
+  // ---- Voice messages: tap the mic, talk (up to 30 s), Send ------------------
+  const micBtn = panel.querySelector('#gpa-chat-mic');
+  const recBar = panel.querySelector('#gpa-chat-rec');
+  const recTime = panel.querySelector('#gpa-chat-rec-time');
+  const VOICE_MAX_S = 30;
+  let rec = null;
+  function pickVoiceType() {
+    const c = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
+    try { return c.find((t) => MediaRecorder.isTypeSupported(t)) || ''; } catch (e) { return ''; }
+  }
+  async function startVoice() {
+    if (rec) return;
+    if (!currentUser) { chatNote.textContent = 'Sign in first.'; return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) { chatNote.textContent = 'This browser can’t record audio.'; return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { chatNote.textContent = 'Microphone access is blocked. Allow it for this site to send voice messages.'; return; }
+    const type = pickVoiceType();
+    let mr;
+    try { mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined); }
+    catch (e) { stream.getTracks().forEach((t) => t.stop()); chatNote.textContent = 'This browser can’t record audio.'; return; }
+    const r = { mr, chunks: [], stream, started: Date.now(), type: mr.mimeType || type || 'audio/webm' };
+    rec = r;
+    mr.ondataavailable = (e) => { if (e.data && e.data.size) r.chunks.push(e.data); };
+    mr.start(250);
+    recBar.hidden = false;
+    micBtn.classList.add('is-on');
+    micBtn.setAttribute('aria-label', 'Stop and send the voice message');
+    chatNote.textContent = '';
+    recTime.textContent = '0:00';
+    r.timer = setInterval(() => {
+      const sec = Math.floor((Date.now() - r.started) / 1000);
+      recTime.textContent = '0:' + String(Math.min(sec, VOICE_MAX_S)).padStart(2, '0');
+      if (sec >= VOICE_MAX_S) finishVoice(true);
+    }, 250);
+  }
+  async function finishVoice(send) {
+    if (!rec) return;
+    const r = rec;
+    rec = null;
+    clearInterval(r.timer);
+    recBar.hidden = true;
+    micBtn.classList.remove('is-on');
+    micBtn.setAttribute('aria-label', 'Record a voice message');
+    if (r.mr.state !== 'inactive') {
+      const stopped = new Promise((res) => { r.mr.onstop = res; });
+      try { r.mr.stop(); } catch (e) { /* already stopped */ }
+      await stopped;
+    }
+    r.stream.getTracks().forEach((t) => t.stop());
+    if (!send) { chatNote.textContent = ''; return; }
+    const dur = Math.min(VOICE_MAX_S, Math.max(1, Math.round((Date.now() - r.started) / 1000)));
+    const base = String(r.type).split(';')[0];
+    const blob = new Blob(r.chunks, { type: base });
+    if (blob.size < 200) { chatNote.textContent = 'That recording was empty. Try again.'; return; }
+    chatNote.textContent = 'Sending voice message…';
+    try {
+      const auth = { ...staffProofHeaders(chatRoom), ...ownerProofHeader() };
+      if (sessionToken()) auth['X-GPA-Session'] = sessionToken();
+      const form = new FormData();
+      form.append('voice', new File([blob], 'voice.' + (base.includes('mp4') ? 'm4a' : base.includes('ogg') ? 'ogg' : 'webm'), { type: base }));
+      form.append('room', chatRoom);
+      form.append('user', currentUser);
+      form.append('code', chatCodeFor(chatRoom) || '');
+      form.append('dur', String(dur));
+      const up = await fetch(telemetryEndpoint() + '/chat/media/upload', { method: 'POST', headers: auth, body: form });
+      const u = await up.json().catch(() => ({}));
+      if (!up.ok || !u.ok) throw Error(u.error || 'The voice message didn’t upload.');
+      await chatPost('/chat/send', { text: '', mediaId: u.id, ...(chatReplyTo ? { replyTo: chatReplyTo.ts } : {}) });
+      clearChatReply();
+      chatNote.textContent = '';
+      await chatPoll();
+    } catch (e) { chatNote.textContent = e.message || 'Couldn’t send the voice message.'; }
+  }
+  micBtn.addEventListener('click', () => (rec ? finishVoice(true) : startVoice()));
+  panel.querySelector('#gpa-chat-rec-send').addEventListener('click', () => finishVoice(true));
+  panel.querySelector('#gpa-chat-rec-cancel').addEventListener('click', () => finishVoice(false));
+
+  // ---- @mention suggestions: type "@" and pick a name ----------------------
+  const suggestEl = panel.querySelector('#gpa-chat-suggest');
+  let suggestItems = [];
+  let suggestSel = 0;
+  let suggestFrom = -1;
+  function mentionCandidates() {
+    const names = new Map();
+    chatPeople.forEach((p) => { if (p && p.u) names.set(p.u.toLowerCase(), p.u); });
+    chatLog.querySelectorAll('.gpa-chat-msg').forEach((el) => { const u = el.dataset.u; if (u && !names.has(u.toLowerCase())) names.set(u.toLowerCase(), u); });
+    if (currentUser) names.delete(currentUser.toLowerCase());
+    return [...names.values()];
+  }
+  function hideSuggest() { suggestEl.hidden = true; suggestEl.innerHTML = ''; suggestItems = []; chatInput.removeAttribute('aria-activedescendant'); }
+  function renderSuggest() {
+    suggestEl.innerHTML = suggestItems.map((n, i) => `<li role="option" id="gpa-sug-${i}" aria-selected="${i === suggestSel}" data-i="${i}">${faceHtml(n)}<span>${escapeHtml(n)}</span></li>`).join('');
+    suggestEl.hidden = false;
+    chatInput.setAttribute('aria-activedescendant', 'gpa-sug-' + suggestSel);
+  }
+  function updateSuggest() {
+    const v = chatInput.value;
+    const caret = chatInput.selectionStart == null ? v.length : chatInput.selectionStart;
+    const m = /(^|\s)@([\w.-]{0,40})$/.exec(v.slice(0, caret));
+    if (!m) { hideSuggest(); return; }
+    const part = m[2].toLowerCase();
+    suggestItems = mentionCandidates().filter((n) => n.toLowerCase().startsWith(part)).sort((a, b) => a.localeCompare(b)).slice(0, 6);
+    if (!suggestItems.length) { hideSuggest(); return; }
+    suggestFrom = caret - m[2].length - 1;
+    suggestSel = 0;
+    renderSuggest();
+  }
+  function pickSuggest(i) {
+    const name = suggestItems[i];
+    if (!name) return;
+    const v = chatInput.value;
+    const caret = chatInput.selectionStart == null ? v.length : chatInput.selectionStart;
+    const insert = '@' + name + ' ';
+    chatInput.value = v.slice(0, suggestFrom) + insert + v.slice(caret);
+    const pos = suggestFrom + insert.length;
+    try { chatInput.setSelectionRange(pos, pos); } catch (e) { /* ignore */ }
+    hideSuggest();
+    chatInput.focus({ preventScroll: true });
+  }
+  chatInput.addEventListener('input', updateSuggest);
+  chatInput.addEventListener('blur', () => setTimeout(hideSuggest, 150));
+  // Capture phase, so Enter/Tab pick a name before Enter sends the message.
+  chatInput.addEventListener('keydown', (ev) => {
+    if (suggestEl.hidden || !suggestItems.length) return;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      suggestSel = (suggestSel + (ev.key === 'ArrowDown' ? 1 : -1) + suggestItems.length) % suggestItems.length;
+      renderSuggest();
+    } else if (ev.key === 'Enter' || ev.key === 'Tab') {
+      ev.preventDefault(); ev.stopImmediatePropagation();
+      pickSuggest(suggestSel);
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault(); ev.stopImmediatePropagation();
+      hideSuggest();
+    }
+  }, true);
+  suggestEl.addEventListener('pointerdown', (ev) => { const li = ev.target.closest('li[data-i]'); if (li) { ev.preventDefault(); pickSuggest(Number(li.dataset.i)); } });
+
+  // ---- Mention alerts (Settings → Account), for everyone -------------------
+  (function mentionAlerts() {
+    const card = panel.querySelector('#gpa-mention-push');
+    if (!card) return;
+    const toggle = card.querySelector('#gpa-mpush-toggle'), hint = card.querySelector('#gpa-mpush-hint');
+    const msg = card.querySelector('#gpa-mpush-msg'), actions = card.querySelector('#gpa-mpush-actions');
+    const KEY = 'gpa_mention_push';
+    const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; } };
+    const save = (v) => { try { if (v) localStorage.setItem(KEY, JSON.stringify(v)); else localStorage.removeItem(KEY); } catch (e) { /* storage blocked */ } };
+    const say = (t) => { msg.textContent = t; };
+    const post = async (path, body) => {
+      const res = await fetch(telemetryEndpoint() + path, { method: 'POST', headers: { 'Content-Type': 'text/plain', 'X-GPA-Session': sessionToken() }, body: JSON.stringify(body || {}) });
+      return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
+    };
+    const keyBytes = (b64) => { const s2 = b64.replace(/-/g, '+').replace(/_/g, '/'); return Uint8Array.from(atob(s2 + '='.repeat((4 - s2.length % 4) % 4)), (c) => c.charCodeAt(0)); };
+    function render() {
+      const dev = load() && String(load().u).toLowerCase() === String(currentUser || '').toLowerCase() ? load() : null;
+      toggle.textContent = dev ? 'Turn off' : 'Turn on';
+      toggle.classList.toggle('primary', !dev);
+      actions.hidden = !dev;
+      toggle.disabled = !supported || !APP_MODE || !sessionToken();
+      hint.textContent = !supported ? (isIOS ? 'Add Agent Console to your Home Screen (Share → Add to Home Screen), open it from there, then turn this on.' : 'This browser can’t receive notifications.')
+        : !APP_MODE ? 'Open the Agent Console app (/console/ on the Worker) to turn on mention alerts for this device.'
+          : !sessionToken() ? 'Sign in with your PIN to turn on mention alerts.'
+            : dev ? 'This device gets a notification when someone @mentions you in #public or staff chat.'
+              : 'A notification on this device when someone @mentions you in #public or staff chat.';
+    }
+    toggle.addEventListener('click', async () => {
+      const dev = load();
+      say('');
+      if (dev && String(dev.u).toLowerCase() === String(currentUser || '').toLowerCase()) {
+        toggle.disabled = true;
+        await post('/push/me/unsubscribe', { id: dev.id, key: dev.key }).catch(() => null);
+        save(null);
+        say('Mention alerts are off on this device.');
+        render();
+        return;
+      }
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { say('Notifications are blocked. Turn them on in your phone’s Settings → Notifications → Agent Console.'); return; }
+      toggle.disabled = true;
+      say('Turning on…');
+      try {
+        const info = await (await fetch(telemetryEndpoint() + '/push/key')).json();
+        const reg = await navigator.serviceWorker.ready;
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(info.publicKey) });
+        const r = await post('/push/me/subscribe', { subscription: sub.toJSON(), name: isIOS ? 'iPhone' : 'Browser' });
+        if (!r.ok) { say(r.data.error || 'Couldn’t turn on mention alerts.'); return; }
+        save({ u: currentUser, id: r.data.subscription.id, key: r.data.subscription.manageKey });
+        say('Mention alerts are on. Send a test to check.');
+      } catch (e) { say('Couldn’t turn on mention alerts on this device.'); }
+      finally { render(); }
+    });
+    card.querySelector('#gpa-mpush-test').addEventListener('click', async () => {
+      const dev = load();
+      if (!dev) return;
+      const r = await post('/push/me/test', { id: dev.id, key: dev.key }).catch(() => null);
+      say(r && r.ok ? 'Test sent. It should arrive in a few seconds.' : 'The test didn’t go through. Turn mention alerts off and on again.');
+    });
+    // After start-up: the signed-in user and session are declared further down.
+    setTimeout(() => { try { render(); onSessionChange(render); } catch (e) { /* not ready */ } }, 0);
+  })();
 
   // ---- Replies, unsend and grouping -----------------------------------------
   // Reply: from the message bar (or ↩ on hover); a banner above the box
@@ -12219,7 +12710,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (ev.target.closest('.r-x')) { clearChatReply(); chatInput.focus({ preventScroll: true }); }
     else if (chatReplyTo) jumpToChatMessage(chatReplyTo.ts);
   });
-  chatInput.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && chatReplyTo) { ev.preventDefault(); clearChatReply(); } });
+  chatInput.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    if (chatEditing) { ev.preventDefault(); stopChatEdit(true); }
+    else if (chatReplyTo) { ev.preventDefault(); clearChatReply(); }
+  });
   // Turns a message on screen into "kj unsent a message" (and its quotes).
   function markChatUnsent(ts) {
     const el = chatLog.querySelector(`.gpa-chat-msg[data-ts="${Number(ts)}"]:not(.unsent)`);
@@ -12374,6 +12869,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     chatTyping = [];
     chatPeople = [];
     clearChatReply();
+    stopChatEdit(true);
+    chatPins = []; chatPinAt = 0; renderChatPins();
     renderChatTyping();
     renderChatPeople();
     chatBootstrap = true;
@@ -12434,9 +12931,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   async function chatSend() {
     if (chatSending) return;
-    const text = chatInput.value.trim();
+    if (chatEditing) { await saveChatEdit(); return; }
+    const pollCmd = parsePollCommand(chatInput.value);
+    if (pollCmd && pollCmd.options.length < 2) { chatNote.textContent = 'Write a poll like: /poll Pizza or tacos?  or  /poll Where to? | Park | Mall | Beach'; return; }
+    const text = pollCmd ? '' : chatInput.value.trim();
     const photo = chatFileInput.files && chatFileInput.files[0];
-    if (!text && !photo) return;
+    if (!text && !photo && !pollCmd) return;
     if (!currentUser) { chatNote.textContent = 'Sign in first.'; return; }
     if (!telemetryOn()) { chatNote.textContent = 'Chat needs the worker to be set up.'; return; }
     if (photo && (!['image/jpeg','image/png','image/webp','image/gif'].includes(photo.type) ||
@@ -12474,6 +12974,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         body: JSON.stringify({
           room: chatRoom, user: currentUser, text, code: chatCodeFor(chatRoom),
           ...(mediaId ? { mediaId } : {}),
+          ...(pollCmd ? { poll: pollCmd } : {}),
           ...(chatReplyTo ? { replyTo: chatReplyTo.ts } : {})
         })
       });
@@ -20056,8 +20557,28 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             + `<blockquote></blockquote><p class="gps-hint">Reported by ${esc(r.reporter)}${r.reason ? ': ' + esc(r.reason) : ''}${r.resolution ? ' · ' + esc(r.resolution) + (r.resolvedBy ? ' by ' + esc(r.resolvedBy) : '') : ''}</p>`
             + (r.status === 'open' && can('moderation.manage') ? `<div class="gps-row"><button class="gps-btn gps-btn-danger" data-rep="${esc(r.id)}" data-ra="delete_message">Delete message</button><button class="gps-btn" data-rep="${esc(r.id)}" data-ra="resolve">Resolve</button><button class="gps-btn" data-rep="${esc(r.id)}" data-ra="dismiss">Dismiss</button><button class="gps-btn" data-open-user="${esc(r.msgUser)}">Open user</button></div>` : '')
             + `</article>`).join('')}</div>` : empty(filt === 'open' ? 'No open reports' : 'Nothing here', 'Signed-in users can report chat messages. Reports land here for review.'))
+          + (can('system.manage') ? card('Chat quiet hours', `<p class="gps-hint">Chat goes read-only for everyone except staff between these hours (your time zone). Off unless you turn it on.</p>`
+            + `<div class="gac-allow-row"><span>Quiet hours</span><button class="gps-switch${d.chatQuiet && d.chatQuiet.on ? ' primary' : ''}" id="gac-quiet-on" type="button" aria-pressed="${d.chatQuiet && d.chatQuiet.on ? 'true' : 'false'}" aria-label="Chat quiet hours">Chat quiet hours</button></div>`
+            + `<div class="gac-allow-row"><label>From <select id="gac-quiet-start" class="gpa-input" aria-label="Quiet hours start"></select></label><label>To <select id="gac-quiet-end" class="gpa-input" aria-label="Quiet hours end"></select></label></div>`, 'timer', 'gac-quiet-card') : '')
           + `<div id="gac-legacy-moderation"></div>`;
         b.querySelectorAll('.gac-report blockquote').forEach((q, i) => { q.textContent = list[i].msgText; });
+        const quietCard = b.querySelector('#gac-quiet-card');
+        if (quietCard) {
+          const cq = d.chatQuiet || { on: false, start: 23, end: 6 };
+          const hourName = (h) => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
+          const st = quietCard.querySelector('#gac-quiet-start'), en = quietCard.querySelector('#gac-quiet-end'), sw = quietCard.querySelector('#gac-quiet-on');
+          [st, en].forEach((sel) => { for (let h = 0; h < 24; h++) sel.insertAdjacentHTML('beforeend', `<option value="${h}">${hourName(h)}</option>`); });
+          st.value = String(cq.start); en.value = String(cq.end);
+          const saveQuiet = async (on) => {
+            try {
+              await api('/admin/config', { method: 'POST', body: { chatQuiet: { on, start: Number(st.value), end: Number(en.value) } } });
+              sw.classList.toggle('primary', on); sw.setAttribute('aria-pressed', String(on));
+              showToast(on ? `Quiet hours on: chat is read-only ${hourName(Number(st.value))}–${hourName(Number(en.value))} for everyone but staff.` : 'Quiet hours off.');
+            } catch (e) { showToast(e.message, { type: 'danger' }); }
+          };
+          sw.addEventListener('click', () => saveQuiet(sw.getAttribute('aria-pressed') !== 'true'));
+          [st, en].forEach((sel) => sel.addEventListener('change', () => { if (sw.getAttribute('aria-pressed') === 'true') saveQuiet(true); }));
+        }
         b.querySelectorAll('.gac-rf').forEach((x) => x.addEventListener('click', () => { state.repFilter = x.dataset.rf; RENDER.moderation().catch((e) => errorBox('moderation', e)); }));
         b.querySelectorAll('[data-rep]').forEach((x) => x.addEventListener('click', async () => {
           try { await api('/admin/reports/action', { method: 'POST', body: { id: x.dataset.rep, action: x.dataset.ra } }); RENDER.moderation().catch((e) => errorBox('moderation', e)); }

@@ -263,6 +263,60 @@ export async function notifyOwner(env, event, origin) {
   }
 }
 
+// ---- Mention alerts for everyone (not just the owner) ---------------------------
+// Each signed-in person can turn on alerts for when someone @mentions them,
+// on up to USER_MAX_DEVICES devices. Stored per person ("push:user:<name>"),
+// separate from the owner's subscriptions; same manage-key scheme.
+const USER_MAX_DEVICES = 3;
+const userKey = (user) => 'push:user:' + String(user || '').trim().toLowerCase().slice(0, 40);
+async function readUserSubs(kv, user) { try { return (await kv.get(userKey(user), 'json')) || []; } catch (e) { return []; } }
+export async function addUserSubscription(env, user, sub, name) {
+  const kv = env.TELEMETRY;
+  const subs = (await readUserSubs(kv, user)).filter((s) => s.endpoint !== sub.endpoint);
+  if (subs.length >= USER_MAX_DEVICES) subs.splice(0, subs.length - USER_MAX_DEVICES + 1);
+  const manageKey = b64u.enc(crypto.getRandomValues(new Uint8Array(24)));
+  const rec = { id: crypto.randomUUID(), keyHash: await sha256hex(manageKey), endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth,
+    name: String(name || 'iPhone').slice(0, 40), created: Date.now() };
+  subs.push(rec);
+  await kv.put(userKey(user), JSON.stringify(subs));
+  return { id: rec.id, manageKey, name: rec.name, created: rec.created };
+}
+export async function findUserSubscription(env, user, id, manageKey) {
+  const subs = await readUserSubs(env.TELEMETRY, user);
+  const hash = await sha256hex(String(manageKey || ''));
+  return subs.find((s) => s.id === id && s.keyHash === hash) || null;
+}
+export async function removeUserSubscription(env, user, id, manageKey) {
+  const kv = env.TELEMETRY;
+  const subs = await readUserSubs(kv, user);
+  const hash = await sha256hex(String(manageKey || ''));
+  const left = subs.filter((s) => !(s.id === id && s.keyHash === hash));
+  if (left.length === subs.length) return false;
+  if (left.length) await kv.put(userKey(user), JSON.stringify(left)); else await kv.delete(userKey(user));
+  return true;
+}
+export async function userHasAlerts(env, user) { return (await readUserSubs(env.TELEMETRY, user)).length > 0; }
+// event: { title, body, url, tag? }. Never throws.
+export async function notifyUser(env, user, event, origin) {
+  try {
+    const kv = env && env.TELEMETRY;
+    const subs = await readUserSubs(kv, user);
+    if (!subs.length) return { sent: 0 };
+    const keys = await vapidKeys(env);
+    if (!keys) return { sent: 0 };
+    const subject = env.VAPID_SUBJECT || origin || 'https://donnajbe.viztrrx.workers.dev';
+    const message = { title: String(event.title || 'Agent Console').slice(0, 120), body: String(event.body || '').slice(0, 400),
+      tag: event.tag ? String(event.tag).slice(0, 64) : undefined, url: event.url || '/console/', cat: 'mention', ts: Date.now(), urgency: 'high' };
+    const results = await Promise.all(subs.map((s) => sendPush(s, message, keys, subject)));
+    const gone = subs.filter((s, i) => results[i].gone).map((s) => s.id);
+    if (gone.length) {
+      const left = subs.filter((s) => !gone.includes(s.id));
+      if (left.length) await kv.put(userKey(user), JSON.stringify(left)); else await kv.delete(userKey(user));
+    }
+    return { sent: results.filter((r) => r.ok).length };
+  } catch (e) { return { sent: 0, error: String(e && e.message || e) }; }
+}
+
 export async function anySubscriberWants(env, cat) {
   try { return (await readSubs(env.TELEMETRY)).some((s) => wants(s, cat)); } catch (e) { return false; }
 }

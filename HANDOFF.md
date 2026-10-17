@@ -2,7 +2,7 @@
 
 Context for the next Claude session working on this repository. Read this
 first, then `README.md` for user-facing docs. Last updated 2026-10-17
-(round 1 of the feature list pushed as `04ed68b`; round 2 in progress).
+(rounds 1-2 of the feature list done; round 3 next).
 
 ---
 
@@ -30,12 +30,24 @@ first, then `README.md` for user-facing docs. Last updated 2026-10-17
 | Round | Features | Status |
 |---|---|---|
 | 1 | Invite codes · weekly report · subscriber "ending" reminders · activity heatmap | **Done, pushed `04ed68b`** (details in §4) |
-| 2 | @mentions with autocomplete + phone alerts for everyone · pinned messages · polls · edit within 2 min · voice messages · chat quiet hours | **In progress** |
-| 3 | Chat effects (confetti/balloons) · profile flair · daily streaks · game leaderboards · daily trivia · "now playing" in chat | Next |
+| 2 | @mentions with autocomplete + phone alerts for everyone · pinned messages · polls · edit within 2 min · voice messages · chat quiet hours | **Done** (see the round 2 notes below; pushed right after this update) |
+| 3 | Chat effects (confetti/balloons) · profile flair · daily streaks · game leaderboards · daily trivia · "now playing" in chat | **Next** |
 | 4 | Rewrite this HANDOFF.md end to end with all context, goals and the owner's way of working | After round 3 |
 
-**Round 2 plan (design decided; the room-object part of it is written but
-uncommitted in the session that wrote this):**
+**Round 2 as built** (it follows the plan below; differences: the admin
+token also proves the owner for chat actions (`mayActInChatAs`), pin
+requests always carry the staff proof (`staffProofHeaders('staff')`),
+the quiet-hours setting rides on `/admin/reports` for the Moderation card,
+`/chat/media/:id` answers Range for every file, and voice uploads have
+their own 40/day counter). Tests: `tests/chat-round2.test.mjs` (6),
+`tests/browser/chat-round2.mjs` (26 checks, fake microphone; the recording
+came out as `audio/mp4` in Chromium). Known gaps: phone mention alerts
+couldn't be tried on a real iPhone from here (the subscribe/notify path is
+unit-tested with real encryption); the 2-minute Edit/Unsend window is
+checked server-side, the button's disappearance after 2 minutes isn't
+browser-tested.
+
+**Round 2 plan (kept for reference):**
 - *Room DO (`chat/room.js`)*: actions `edit` (own message, within
   `EDIT_MS` = 2 min, not polls; quotes and pins follow the new text),
   `pin` (`{ts, by, pin}`; up to 3 pins, stored in `pins`; unsend/clear drop
@@ -415,7 +427,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (89 tests)
+npm test                                   # node --test tests/*.test.mjs (95 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -436,6 +448,7 @@ node tests/browser/chat-live.mjs           # 23 (typing, who's here, reactions; 
 node tests/browser/chat-replies.mjs        # 20 (replies, unsend, grouping; 2 phones + laptop)
 node tests/browser/ask-photo-size.mjs      # 6 (a 9 MB phone photo leaves the console as 0.8 MB)
 node tests/browser/owner-tools.mjs         # 15 (invite codes, weekly report, heatmap, subscriber reminder)
+node tests/browser/chat-round2.mjs         # 26 (mentions, polls, edit, pins, voice, quiet hours; fake mic)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 

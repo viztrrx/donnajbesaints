@@ -50,6 +50,14 @@ export const UNSEND_MS = 2 * 60 * 1000;
 // Counts for the owner's weekly report: messages per person per UTC day,
 // kept for COUNT_DAYS days (stored here, not in KV, so they cost no KV writes).
 const COUNT_DAYS = 14;
+//
+// Edit: the sender can change a message's text within EDIT_MS (it then
+// says "edited"; quotes of it follow). Pins: staff pin up to PINS_MAX
+// messages to the top of a room. Polls: a message can carry a poll
+// (m.poll = { q, options }); each person has one vote (m.pv = { index:
+// [names] }), voting again for the same option takes it back.
+export const EDIT_MS = 2 * 60 * 1000;
+const PINS_MAX = 3;
 
 const TTL_MS = 7 * 24 * 3600 * 1000;   // same week-long lifetime as before
 const MAX = 120;                       // newest messages kept per room
@@ -149,12 +157,18 @@ export class ChatRoom {
         // message was first delivered, so "since" can't cover them).
         const reactions = {};
         const unsent = [];
+        const edits = {};
+        const votes = {};
         for (const m of log) {
-          if (m && m.unsent) unsent.push(m.ts);
-          else if (m && m.r && Object.keys(m.r).length) reactions[m.ts] = m.r;
+          if (!m) continue;
+          if (m.unsent) { unsent.push(m.ts); continue; }
+          if (m.r && Object.keys(m.r).length) reactions[m.ts] = m.r;
+          if (m.edited) edits[m.ts] = { t: m.t, at: m.edited };
+          if (m.poll) votes[m.ts] = m.pv || {};
         }
+        const pins = ((await this.storage.get('pins')) || []).filter((p) => log.some((m) => m && m.ts === p.ts && !m.unsent));
         const { typing, people } = await this.presence(reader, now);
-        return reply({ ok: true, messages: log.filter((m) => m && m.ts > since), reads: fresh, reactions, unsent, typing, people });
+        return reply({ ok: true, messages: log.filter((m) => m && m.ts > since), reads: fresh, reactions, unsent, edits, votes, pins, typing, people });
       }
       if (action === 'append') {
         const m = body.msg && typeof body.msg === 'object' ? body.msg : null;
@@ -180,6 +194,49 @@ export class ChatRoom {
         await this.storage.put('counts', counts);
         return reply({ ok: true, ts, re: msg.re || null });
       }
+      if (action === 'edit') {
+        const key = String(body.user || '').trim().toLowerCase();
+        const text = String(body.text || '').trim().slice(0, 500);
+        const m = log.find((x) => x && x.ts === Number(body.ts));
+        if (!m || m.unsent || !key || String(m.u || '').toLowerCase() !== key) return reply({ ok: false, error: 'message not found' }, 404);
+        if (Date.now() - m.ts > EDIT_MS) return reply({ ok: false, error: 'You can only edit a message within 2 minutes of sending it.' }, 403);
+        if (!text && !m.media) return reply({ ok: false, error: 'A message can’t be empty. Unsend it instead.' }, 400);
+        if (m.poll) return reply({ ok: false, error: 'Polls can’t be edited.' }, 400);
+        m.t = text;
+        m.edited = Date.now();
+        for (const x of log) if (x && x.re && x.re.ts === m.ts && !x.re.unsent) x.re = { ...x.re, t: text.slice(0, 140) };
+        const pins = (await this.storage.get('pins')) || [];
+        if (pins.some((p) => p.ts === m.ts)) await this.storage.put('pins', pins.map((p) => (p.ts === m.ts ? { ...p, t: text.slice(0, 140) } : p)));
+        await this.save(log);
+        return reply({ ok: true, t: m.t, edited: m.edited });
+      }
+      if (action === 'pin') {
+        const m = log.find((x) => x && x.ts === Number(body.ts) && !x.unsent);
+        let pins = (await this.storage.get('pins')) || [];
+        if (body.pin === false) pins = pins.filter((p) => p.ts !== Number(body.ts));
+        else {
+          if (!m) return reply({ ok: false, error: 'message not found' }, 404);
+          pins = [{ ts: m.ts, u: m.u, t: String(m.t || (m.media ? (/^audio\//.test(m.media.type) ? '🎤 Voice message' : '📷 Photo') : '')).slice(0, 140), by: String(body.by || '').slice(0, 40), at: Date.now() },
+            ...pins.filter((p) => p.ts !== m.ts)].slice(0, PINS_MAX);
+        }
+        await this.storage.put('pins', pins);
+        return reply({ ok: true, pins });
+      }
+      if (action === 'vote') {
+        const user = String(body.user || '').trim().slice(0, 40);
+        const key = user.toLowerCase();
+        const m = log.find((x) => x && x.ts === Number(body.ts) && !x.unsent && x.poll);
+        const opt = Number(body.option);
+        if (!m || !user) return reply({ ok: false, error: 'poll not found' }, 404);
+        if (!Number.isInteger(opt) || opt < 0 || opt >= m.poll.options.length) return reply({ ok: false, error: 'not an option' }, 400);
+        const had = Object.keys(m.pv || {}).find((k) => (m.pv[k] || []).some((n) => n.toLowerCase() === key));
+        const pv = {};
+        for (const [k, names] of Object.entries(m.pv || {})) { const left = names.filter((n) => n.toLowerCase() !== key); if (left.length) pv[k] = left; }
+        if (had !== String(opt)) pv[opt] = [...(pv[opt] || []), user].slice(-500);
+        m.pv = pv;
+        await this.save(log);
+        return reply({ ok: true, votes: pv, mine: had === String(opt) ? null : opt });
+      }
       if (action === 'stats') {
         // Messages per person since a UTC day (inclusive).
         const from = String(body.from || '');
@@ -202,6 +259,8 @@ export class ChatRoom {
         const i = log.indexOf(m);
         log[i] = { u: m.u, ts: m.ts, unsent: true, ...(m.owner ? { owner: true } : {}) };
         for (const x of log) if (x && x.re && x.re.ts === m.ts) x.re = { ts: m.ts, u: m.u, t: '', unsent: true };
+        const pins = (await this.storage.get('pins')) || [];
+        if (pins.some((p) => p.ts === m.ts)) await this.storage.put('pins', pins.filter((p) => p.ts !== m.ts));
         await this.save(log);
         return reply({ ok: true, media });
       }
@@ -230,7 +289,7 @@ export class ChatRoom {
       }
       if (action === 'clear') {
         const n = log.length;
-        await this.storage.put({ log: [], reads: {}, updatedAt: Date.now(), seeded: true });
+        await this.storage.put({ log: [], reads: {}, pins: [], updatedAt: Date.now(), seeded: true });
         return reply({ ok: true, deleted: n });
       }
       return reply({ ok: false, error: 'unknown action' }, 404);

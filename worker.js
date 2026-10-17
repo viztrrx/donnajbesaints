@@ -1,7 +1,8 @@
 import { webApp } from './web/handler.js';
 import { consoleApp } from './web/console/handler.js';
-import { audiusSearch, audiusStream, listLibrary, addToLibrary, removeFromLibrary, serveLibraryFile } from './web/music.js';
-import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime, cleanCategories, anySubscriberWants } from './web/console/push.js';
+import { audiusSearch, audiusStream, listLibrary, addToLibrary, removeFromLibrary, serveLibraryFile, audioKind } from './web/music.js';
+import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime, cleanCategories, anySubscriberWants,
+  ownerHour, addUserSubscription, findUserSubscription, removeUserSubscription, userHasAlerts, notifyUser } from './web/console/push.js';
 import { validateMutation } from './mobile/backend/validation.js';
 import { AdminMobileState, stateCall, digest, randomToken, validSource, relayCall, queueEvent } from './mobile/backend/state.js';
 export { AdminMobileState };
@@ -2665,6 +2666,26 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const rec = await addSubscription(env, body.subscription, { categories: body.categories, name: body.name, quiet: body.quiet });
         return json({ ok: true, subscription: rec });
       }
+      // Mention alerts for everyone: each signed-in person manages their own.
+      if (url.pathname.startsWith('/push/me/')) {
+        const p = await resolvePrincipal();
+        if (!p || p.kind !== 'session' || !p.user) return json({ error: 'Sign in with your PIN to turn on mention alerts.' }, 401);
+        if (url.pathname === '/push/me/subscribe') {
+          if (!validSubscription(body.subscription)) return json({ error: 'That is not a push subscription from a supported browser.' }, 400);
+          await vapidKeys(env, { create: true });
+          return json({ ok: true, subscription: await addUserSubscription(env, p.user, body.subscription, body.name) });
+        }
+        const mid = String(body.id || ''), mkey = String(body.key || '');
+        if (url.pathname === '/push/me/unsubscribe') return json({ ok: await removeUserSubscription(env, p.user, mid, mkey) });
+        const mine = await findUserSubscription(env, p.user, mid, mkey);
+        if (!mine) return json({ error: 'unknown device' }, 404);
+        if (url.pathname === '/push/me/status') return json({ ok: true, subscription: { id: mine.id, name: mine.name, created: mine.created } });
+        if (url.pathname === '/push/me/test') {
+          const r = await sendPush(mine, { title: 'Agent Console', body: 'Mention alerts are working. Sent at ' + ownerTime(env) + '.', cat: 'test', url: appLink('chat', {}), ts: Date.now() }, await vapidKeys(env), env.VAPID_SUBJECT || url.origin);
+          return json({ ok: r.ok, status: r.status }, r.ok ? 200 : 502);
+        }
+        return json({ error: 'not found' }, 404);
+      }
       const id = String(body.id || ''), key = String(body.key || '');
       if (!/^[0-9a-f-]{36}$/.test(id) || !key) return json({ error: 'unknown device' }, 404);
       if (url.pathname === '/push/update') {
@@ -2789,6 +2810,14 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const cfg = await getConfig(kv);
       const cfgBefore = JSON.parse(JSON.stringify(cfg));
       if ('privateMode' in body) cfg.privateMode = !!body.privateMode;
+      // Chat quiet hours: read-only for everyone but staff between two hours
+      // (owner time zone). Off unless the owner turns it on.
+      if ('chatQuiet' in body) {
+        const q = body.chatQuiet && typeof body.chatQuiet === 'object' ? body.chatQuiet : {};
+        const h = (x, d) => (Number.isInteger(Number(x)) && Number(x) >= 0 && Number(x) <= 23 ? Number(x) : d);
+        cfg.chatQuiet = { on: !!q.on, start: h(q.start, 23), end: h(q.end, 6) };
+        if (cfg.chatQuiet.start === cfg.chatQuiet.end) return json({ error: 'Pick different start and end hours.' }, 400);
+      }
       if ('allowlist' in body) {
         const a = body.allowlist && typeof body.allowlist === 'object' ? body.allowlist : {};
         // Just flipping the switch ({ on }) keeps the current list.
@@ -2894,15 +2923,32 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // same proof as posting under it: a verified session or the owner code.
     const mayActInChatAs = async (id) => {
       if (String(id.user || '').toLowerCase() !== OWNER || !(env && env.OWNER_CODE) || id.verified) return true;
+      const p = await resolvePrincipal();
+      if (p && p.role === 'owner') return true;   // the admin token
       return timingSafeEqualStr(req.headers.get('X-GPA-Owner') || '', env.OWNER_CODE);
     };
     // Could this person post in this room right now? (Typing and reactions
     // follow the same rules as messages.)
+    // Quiet hours right now? { on, active, start, end, until } (owner time).
+    const chatQuietNow = (cfg) => {
+      const q = cfg && cfg.chatQuiet;
+      if (!q || !q.on || q.start === q.end) return null;
+      const hr = ownerHour(env);
+      const active = q.start < q.end ? hr >= q.start && hr < q.end : hr >= q.start || hr < q.end;
+      const label = (x) => (x % 12 || 12) + (x < 12 ? ' AM' : ' PM');
+      return { on: true, active, start: q.start, end: q.end, until: label(q.end), from: label(q.start) };
+    };
+    const quietBlocks = async (cfg, user) => {
+      const q = chatQuietNow(cfg);
+      if (!q || !q.active || String(user || '').toLowerCase() === OWNER) return null;
+      return (await isStaffCaller()) ? null : q;
+    };
     const mayPostInChat = async (kv, user, roomId) => {
       const u = String(user || '').toLowerCase();
       if (u === OWNER) return true;
       const cfg = await getConfig(kv);
       if (cfg.readOnly || (cfg.maintenance && cfg.maintenance.on)) return false;
+      if (await quietBlocks(cfg, user)) return false;
       const mod = await getMod(kv, user);
       if (mod.shadowMuted) return false;
       if ((await resolve(kv, user)).state === 'blocked') return false;
@@ -2992,6 +3038,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     const CHAT_IMAGE_TYPES={
       'image/jpeg':true,'image/png':true,'image/webp':true,'image/gif':true
     };
+    // Voice messages (up to ~30 s): the type is taken from the file's own
+    // bytes (audioKind), never from what the browser claims.
+    const CHAT_AUDIO_TYPES={'audio/webm':true,'audio/mp4':true,'audio/ogg':true,'audio/mpeg':true,'audio/aac':true};
+    const chatMediaType=(t)=>CHAT_IMAGE_TYPES[t]||CHAT_AUDIO_TYPES[t];
     const chatImageSignature=(data,type)=>{
       const starts=(...bytes)=>bytes.every((byte,i)=>data[i]===byte);
       const textAt=(offset,text)=>[...text].every((ch,i)=>data[offset+i]===ch.charCodeAt(0));
@@ -3009,9 +3059,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if(contentLength>CHAT_IMAGE_LIMIT+65536)return json({ok:false,error:'Photo must be 5 MB or less'},413);
       let form;
       try{form=await req.formData();}catch(e){return json({ok:false,error:'Invalid photo upload'},400);}
-      const file=form.get('photo');
+      const voice=form.get('voice');
+      const file=voice||form.get('photo');
+      const baseType=String(file&&file.type||'').split(';')[0].trim().toLowerCase();
       if(!file||typeof file.arrayBuffer!=='function'||!file.size||file.size>CHAT_IMAGE_LIMIT||
-        !CHAT_IMAGE_TYPES[file.type])return json({ok:false,error:'Choose a JPG, PNG, WebP, or GIF up to 5 MB'},400);
+        !(voice?CHAT_AUDIO_TYPES[baseType]:CHAT_IMAGE_TYPES[baseType]))return json({ok:false,error:voice?'That voice message can’t be sent (unsupported or over 5 MB).':'Choose a JPG, PNG, WebP, or GIF up to 5 MB'},400);
       const identity=await effectiveUser(form.get('user'));
       if(identity.refused||!String(identity.user||'').trim())return json({ok:false,error:'Sign in to upload a photo'},401);
       const user=String(identity.user).trim().slice(0,40);
@@ -3023,6 +3075,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const state=await resolve(kvMain,user);
       if(state.state==='blocked'||(cfg.readOnly&&lower!==OWNER)||
         (cfg.maintenance?.on&&lower!==OWNER))return json({ok:false,error:'Chat is unavailable for this account'},403);
+      const quietUp=await quietBlocks(cfg,user);
+      if(quietUp)return json({ok:false,error:`Chat is in quiet hours until ${quietUp.until}.`},403);
       if(cfg.blockedCountries?.includes(String(req.cf?.country||'').toUpperCase()))
         return json({ok:false,error:'Chat is unavailable in your region'},403);
       const room=await checkRoomAccess(kvMain,form.get('room'),form.get('code'));
@@ -3030,47 +3084,69 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const rules=await getRoomCfg(kvMain,room.id);
       if(rules.bannedUsers.includes(lower))return json({ok:false,error:'Banned from this room'},403);
       const bytes=new Uint8Array(await file.arrayBuffer());
-      if(bytes.length>CHAT_IMAGE_LIMIT||!chatImageSignature(bytes,file.type))
+      let storedType=baseType;
+      if(voice){
+        storedType=audioKind(bytes);
+        if(bytes.length>CHAT_IMAGE_LIMIT||!storedType||!CHAT_AUDIO_TYPES[storedType])
+          return json({ok:false,error:'This file is not a supported voice recording'},400);
+      }else if(bytes.length>CHAT_IMAGE_LIMIT||!chatImageSignature(bytes,baseType))
         return json({ok:false,error:'This file is not a supported photo'},400);
+      const dur=voice?Math.max(0,Math.min(60,Math.round(Number(form.get('dur'))||0))):0;
       // Guest chat remains available, but per-client upload limits prevent
-      // an anonymous user from filling R2 with large image files.
-      const rateKey='chat-photo-rate:'+dayKey()+':'+
+      // an anonymous user from filling R2 with large files.
+      const rateKey=(voice?'chat-voice-rate:':'chat-photo-rate:')+dayKey()+':'+
         (await sha256hex(clientIp(req)||'unknown')).slice(0,28);
       const uploaded=parseInt(await kvMain.get(rateKey)||'0',10)||0;
-      if(uploaded>=12)return json({ok:false,error:'Daily photo upload limit reached (12)'},429);
+      const cap=voice?40:12;
+      if(uploaded>=cap)return json({ok:false,error:voice?'Daily voice message limit reached (40)':'Daily photo upload limit reached (12)'},429);
       await kvMain.put(rateKey,String(uploaded+1),{expirationTtl:172800});
       const id=crypto.randomUUID();
       try{
         await chatMediaBucket.put('chat-media/'+id,bytes,{
-          httpMetadata:{contentType:file.type},
-          customMetadata:{uploader:lower,room:room.id,type:file.type}
+          httpMetadata:{contentType:storedType},
+          customMetadata:{uploader:lower,room:room.id,type:storedType,...(dur?{dur:String(dur)}:{})}
         });
       }catch(e){return json({ok:false,error:'Photo storage is temporarily unavailable'},503);}
-      return json({ok:true,id,type:file.type,url:'/chat/media/'+id});
+      return json({ok:true,id,type:storedType,url:'/chat/media/'+id,...(dur?{dur}:{})});
     }
     if(url.pathname.startsWith('/chat/media/')&&req.method==='GET'){
       const id=url.pathname.slice('/chat/media/'.length);
       if(!/^[a-f0-9-]{36}$/.test(id))return json({error:'Photo not found'},404);
       if(!chatMediaBucket)return json({error:'Chat photo storage is unavailable'},503);
-      const photo=await chatMediaBucket.get('chat-media/'+id);
-      if(!photo||!CHAT_IMAGE_TYPES[photo.customMetadata?.type])
+      const head=await chatMediaBucket.head('chat-media/'+id);
+      if(!head||!chatMediaType(head.customMetadata?.type))
         return json({error:'Photo not found'},404);
-      return new Response(photo.body,{headers:{
-        'Content-Type':photo.customMetadata.type,
+      const base={
+        'Content-Type':head.customMetadata.type,
         'X-Content-Type-Options':'nosniff',
         'Cache-Control':'public, max-age=300',
         'Cross-Origin-Resource-Policy':'cross-origin',
-        'Access-Control-Allow-Origin':'*'
-      }});
+        'Access-Control-Allow-Origin':'*',
+        'Accept-Ranges':'bytes'
+      };
+      // Range requests: Safari only plays audio it can fetch in pieces.
+      const size=head.size;
+      const m=/^bytes=(\d*)-(\d*)$/.exec(req.headers.get('Range')||'');
+      if(m&&(m[1]||m[2])){
+        let start=m[1]?Number(m[1]):size-Number(m[2]);
+        let end=m[1]&&m[2]?Number(m[2]):size-1;
+        start=Math.max(0,start);end=Math.min(size-1,end);
+        if(start>end||start>=size)return new Response(null,{status:416,headers:{...base,'Content-Range':`bytes */${size}`}});
+        const part=await chatMediaBucket.get('chat-media/'+id,{range:{offset:start,length:end-start+1}});
+        return new Response(part.body,{status:206,headers:{...base,'Content-Length':String(end-start+1),'Content-Range':`bytes ${start}-${end}/${size}`}});
+      }
+      const photo=await chatMediaBucket.get('chat-media/'+id);
+      return new Response(photo.body,{headers:{...base,'Content-Length':String(size)}});
     }
     const chatPhoto=async(id,user,room)=>{
       if(!id)return null;
       if(typeof id!=='string'||!/^[a-f0-9-]{36}$/.test(id)||!chatMediaBucket)return false;
       const photo=await chatMediaBucket.head('chat-media/'+id);
-      if(!photo||!CHAT_IMAGE_TYPES[photo.customMetadata?.type]||
+      if(!photo||!chatMediaType(photo.customMetadata?.type)||
         photo.customMetadata.uploader!==user.toLowerCase()||
         photo.customMetadata.room!==room)return false;
-      return {id,type:photo.customMetadata.type};
+      const dur=Number(photo.customMetadata.dur)||0;
+      return {id,type:photo.customMetadata.type,...(dur?{dur}:{})};
     };
 
     if (url.pathname === '/chat/send' && req.method === 'POST') {
@@ -3083,7 +3159,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const user = String(sendId.user || 'anonymous').slice(0, 40);
       const userLower = user.toLowerCase();
       const text = String(body.text || '').trim().slice(0, 500);
-      if (!text && !body.mediaId) return json({ ok: false, error: 'empty message' }, 200);
+      if (!text && !body.mediaId && !body.poll) return json({ ok: false, error: 'empty message' }, 200);
       // Nobody may claim the owner's username without proving it (OWNER_CODE,
       // sent as X-GPA-Owner) — otherwise any visitor could sign in as the
       // owner's name and inherit the 👑 badge and moderation immunity in
@@ -3103,6 +3179,18 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (st.state === 'blocked') return json({ ok: false, error: 'You are blocked from chat.' }, 200);
       const cfg = await getConfig(kv);
       if (cfg.readOnly && userLower !== OWNER) return json({ ok: false, error: 'chat is read-only' }, 200);
+      const quiet = await quietBlocks(cfg, user);
+      if (quiet) return json({ ok: false, error: `Chat is in quiet hours until ${quiet.until}.`, quiet }, 200);
+      // A poll: a question and 2-6 options (the text is the question).
+      let poll = null;
+      if (body.poll && typeof body.poll === 'object') {
+        const q = String(body.poll.q || text || '').trim().slice(0, 140);
+        const options = (Array.isArray(body.poll.options) ? body.poll.options : []).map((o) => String(o || '').trim().slice(0, 60)).filter(Boolean);
+        if (!q || options.length < 2 || options.length > 6 || new Set(options.map((o) => o.toLowerCase())).size !== options.length) {
+          return json({ ok: false, error: 'A poll needs a question and 2 to 6 different options.' }, 200);
+        }
+        poll = { q, options };
+      }
       const cf = req.cf || {};
       if (cfg.blockedCountries.length && cfg.blockedCountries.includes(String(cf.country || '').toUpperCase())) {
         return json({ ok: false, error: 'not available in your region' }, 403);
@@ -3138,7 +3226,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           // The room appends it and assigns its timestamp (in log order).
           // A reply names the message it answers (replyTo = its ts); the room
           // attaches a short quote of it.
-          const added = await chatRoomCall(env, access.id, 'append', { msg: { u: user, t: text, owner: userLower === OWNER, ...(media ? { media } : {}) }, replyTo: Number(body.replyTo) || 0 });
+          const added = await chatRoomCall(env, access.id, 'append', { msg: { u: user, t: text || (poll ? poll.q : ''), owner: userLower === OWNER, ...(media ? { media } : {}), ...(poll ? { poll } : {}) }, replyTo: Number(body.replyTo) || 0 });
           ts = added.ts;
           replied = added.re || null;
         } else {
@@ -3151,6 +3239,24 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         }
       } catch (e) {
         return json({ ok: false, error: 'could not store message' }, 200);
+      }
+      // @mentions alert the people named, on their phones if they turned
+      // mention alerts on (#public and staff chat only: the Worker can't tell
+      // who has joined a private room, and the alert shows the text).
+      if (access.id === 'public' || access.id === STAFF_ROOM) {
+        const named = [...new Set([...text.matchAll(/(^|[^a-z0-9_])@([a-z0-9_.-]{1,40})/gi)].map((m) => m[2].toLowerCase().replace(/\.+$/, '')))]
+          .filter((n) => n && n !== userLower && n !== OWNER).slice(0, 5);
+        const where = access.id === 'public' ? '#public' : 'staff chat';
+        const said = text || (media ? 'Sent ' + (/^audio\//.test(media.type) ? 'a voice message' : 'a photo') : '');
+        for (const n of named) {
+          if (!(await userHasAlerts(env, n))) continue;
+          if (access.id === STAFF_ROOM) { const a = await getAcct(kv, n); if (!a || (ROLE_RANK_V2[a.role] || 0) < ROLE_RANK_V2.moderator) continue; }
+          const tk = 'push:mrl:' + userLower + ':' + n;
+          if (await kv.get(tk)) continue;   // one alert per sender → person per minute
+          await kv.put(tk, '1', { expirationTtl: 60 });
+          const p = notifyUser(env, n, { title: user + ' mentioned you in ' + where, body: said, url: appLink('chat', { room: access.id }), tag: 'mention-' + access.id }, url.origin);
+          if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+        }
       }
       if (userLower !== OWNER) {
         const roomLabel = access.id === 'public' ? '#public' : '#' + ((access.room && access.room.name) || access.id);
@@ -3198,7 +3304,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         let typing = url.searchParams.get('typing') === '1' ? true : url.searchParams.get('typing') === '0' ? false : null;
         if (typing === true && reader && !(await mayPostInChat(kv, reader, access.id))) typing = false;
         const room = chatInRooms ? await chatRoomCall(env, access.id, 'read', { since, reader, seen, here: here && !!reader, typing: reader ? typing : null }) : null;
-        if (room) { reads = room.reads || []; live = { reactions: room.reactions || {}, unsent: room.unsent || [], typing: room.typing || [], people: room.people || [] }; }
+        if (room) { reads = room.reads || []; live = { reactions: room.reactions || {}, unsent: room.unsent || [], edits: room.edits || {}, votes: room.votes || {}, pins: room.pins || [], typing: room.typing || [], people: room.people || [] }; }
         messages = (room ? room.messages : await readRoomLog(kv, access.id))
           .filter((m) => m && m.ts > since)
           .sort((a, b) => a.ts - b.ts)
@@ -3206,7 +3312,48 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       } catch (e) {
         return json({ ok: false, error: 'chat storage is temporarily unavailable', messages: [], now: Date.now() }, 200);
       }
+      // Quiet hours: shown to everyone; "exempt" for staff, who can still post.
+      const quietNow = chatQuietNow(await getConfig(kv));
+      if (quietNow && quietNow.active) live.quiet = { ...quietNow, exempt: !(await quietBlocks(await getConfig(kv), pollId.user)) };
       return json({ ok: true, room: access.id, messages, reads, ...live, now: Date.now() });
+    }
+
+    // ---- Edit (own, 2 min), poll votes, pins (staff) ------------------------
+    // Same identity rules as reacting; the room object enforces the rest.
+    const chatActor = async (body) => {
+      const kv = env && env.TELEMETRY;
+      if (!kv || !chatInRooms) return { error: json({ ok: false, error: 'not available on this server' }, 200) };
+      const who = await effectiveUser(body.user);
+      if (who.refused) return { error: json({ ok: false, error: 'Sign in again to chat.' }, 200) };
+      const user = String(who.user || '').slice(0, 40);
+      if (!user || user.toLowerCase() === 'anonymous') return { error: json({ ok: false, error: 'Sign in first.' }, 200) };
+      if (!(await mayActInChatAs(who))) return { error: json({ ok: false, error: 'name reserved' }, 200) };
+      if (!allowedUser(await getConfig(kv), user)) return { error: json({ ok: false, error: ACCESS_DENIED }, 403) };
+      const access = await checkRoomAccess(kv, body.room, body.code);
+      if (!access.ok) return { error: json({ ok: false, error: access.error }, 200) };
+      return { kv, user, access };
+    };
+    if ((url.pathname === '/chat/edit' || url.pathname === '/chat/vote' || url.pathname === '/chat/pin') && req.method === 'POST') {
+      let body = {};
+      try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
+      const a = await chatActor(body);
+      if (a.error) return a.error;
+      try {
+        if (url.pathname === '/chat/pin') {
+          if (!(await isStaffCaller())) return json({ ok: false, error: 'Only staff can pin messages.' }, 403);
+          const r = await chatRoomCall(env, a.access.id, 'pin', { ts: Number(body.ts) || 0, by: a.user, pin: body.pin !== false });
+          return json({ ok: true, pins: r.pins });
+        }
+        if (!(await mayPostInChat(a.kv, a.user, a.access.id))) return json({ ok: false, error: 'You can’t do that in this chat right now.' }, 200);
+        if (url.pathname === '/chat/edit') {
+          const r = await chatRoomCall(env, a.access.id, 'edit', { ts: Number(body.ts) || 0, user: a.user, text: String(body.text || '') });
+          return json({ ok: true, t: r.t, edited: r.edited });
+        }
+        const r = await chatRoomCall(env, a.access.id, 'vote', { ts: Number(body.ts) || 0, user: a.user, option: Number(body.option) });
+        return json({ ok: true, votes: r.votes, mine: r.mine });
+      } catch (e) {
+        return json({ ok: false, error: String(e && e.message || 'could not do that') }, 200);
+      }
     }
 
     // ---- /chat/unsend : take back your own message within 2 minutes ----
@@ -3656,7 +3803,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const listed = await kv.list({ prefix: 'report:', limit: 500 });
         const reports = [];
         for (const k of listed.keys.slice(-200)) { const v = await kv.get(k.name, 'json'); if (v) reports.push(v); }
-        return json({ ok: true, reports: reports.sort((a, b) => b.createdAt - a.createdAt) });
+        // Moderation also shows the chat quiet-hours setting (owner changes it).
+        const cq = (await getConfig(kv)).chatQuiet || { on: false, start: 23, end: 6 };
+        return json({ ok: true, reports: reports.sort((a, b) => b.createdAt - a.createdAt), chatQuiet: cq });
       }
 
       if (url.pathname === '/admin/reports/action') {

@@ -134,7 +134,7 @@ try {
   await send(maya.page, 'lmao ' + run);
   await has(kj.page, 'lmao ' + run);
   const kjActions = await holdOn(kj.page, TYPO);
-  check('On his own new message kj gets Unsend', JSON.stringify(kjActions) === JSON.stringify(['↩ Reply', 'Copy', 'Unsend']), JSON.stringify(kjActions));
+  check('On his own new message kj gets Edit and Unsend', JSON.stringify(kjActions) === JSON.stringify(['↩ Reply', 'Copy', 'Edit', 'Unsend']), JSON.stringify(kjActions));
   await kj.page.waitForTimeout(150);
   await shot(kj.page, '05-unsend-option.png');
   await kj.page.click(sr('.gpa-tapback-picker [data-act="unsend"]'));
