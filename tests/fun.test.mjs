@@ -1,5 +1,5 @@
 // Round 3 ("fun"): daily trivia, game leaderboards with record posts,
-// daily streaks, flair, chat extras, shared songs, the staff badge.
+// weekday streaks, flair, chat extras, shared songs, the staff badge.
 // Run with `npm test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -121,18 +121,37 @@ test('game leaderboards: top 10, one entry each, lower-is-better games, a new #1
   assert.equal((await msgs(t)).filter((x) => x.sys === 'game').length, 2);
 });
 
-test('streaks: days in a row the console was opened (owner time zone)', async () => {
+test('streaks: weekdays in a row; weekends neither count nor break it (owner time zone)', async () => {
   const t = setup();
   const open = (user) => t.call('/track', { method: 'POST', body: { user, event: 'open', sid: 's-' + user + Math.random() } });
   try {
-    for (const [iso, want] of [['2026-10-20T14:00:00Z', 1], ['2026-10-20T20:00:00Z', 1], ['2026-10-21T14:00:00Z', 2], ['2026-10-22T03:30:00Z', 2 /* still Oct 21 in New York */], ['2026-10-22T14:00:00Z', 3]]) {
+    // Oct 19-23 2026 is Monday-Friday.
+    for (const [iso, want] of [
+      ['2026-10-19T14:00:00Z', 1], ['2026-10-19T20:00:00Z', 1], ['2026-10-20T14:00:00Z', 2],
+      ['2026-10-21T03:30:00Z', 2 /* still Tuesday in New York */], ['2026-10-21T14:00:00Z', 3],
+      ['2026-10-22T14:00:00Z', 4], ['2026-10-23T14:00:00Z', 5],
+      ['2026-10-24T15:00:00Z', 5 /* Saturday doesn't add */], ['2026-10-25T15:00:00Z', 5 /* nor Sunday */],
+      ['2026-10-26T14:00:00Z', 6 /* Monday carries on */]]) {
       Date.now = () => Date.parse(iso);
       const r = (await open('kj')).data;
       assert.equal(r.yourStats.streak, want, iso);
     }
-    assert.deepEqual((await t.call('/chat/extras?user=x')).data.streaks, { kj: 3 });
-    Date.now = () => Date.parse('2026-10-24T14:00:00Z');   // skipped a day
-    assert.equal((await open('kj')).data.yourStats.streak, 1, 'a missed day starts over');
+    assert.deepEqual((await t.call('/chat/extras?user=x')).data.streaks, { kj: 6 });
+    // Someone who used it Mon-Fri and stays away all weekend is still on 5 on Monday.
+    for (const d of [19, 20, 21, 22, 23]) { Date.now = () => Date.parse(`2026-10-${d}T15:00:00Z`); await open('sam'); }
+    Date.now = () => Date.parse('2026-10-25T15:00:00Z');   // Sunday: still shown as alive
+    assert.equal((await t.call('/chat/extras?user=x')).data.streaks.sam, 5);
+    Date.now = () => Date.parse('2026-10-26T15:00:00Z');
+    assert.equal((await t.call('/chat/extras?user=x')).data.streaks.sam, 5, 'alive on Monday before opening');
+    assert.equal((await open('sam')).data.yourStats.streak, 6);
+    // Skipping a weekday starts over (Mon 26 -> Wed 28).
+    Date.now = () => Date.parse('2026-10-28T14:00:00Z');
+    assert.equal((await open('kj')).data.yourStats.streak, 1, 'a missed weekday starts over');
+    // First ever open on a weekend: no streak yet, starts Monday.
+    Date.now = () => Date.parse('2026-10-31T15:00:00Z');
+    assert.equal((await open('new')).data.yourStats.streak, 0);
+    Date.now = () => Date.parse('2026-11-02T15:00:00Z');
+    assert.equal((await open('new')).data.yourStats.streak, 1);
   } finally { Date.now = realNow; }
 });
 
@@ -159,4 +178,8 @@ test('flair: the owner gives someone a badge; staff get a shield; songs can be s
   const tr = (await msgs(t)).find((x) => x.track).track;
   assert.deepEqual(tr, { source: 'shared', id, title: 'Sunrise', artist: 'Lo-fi Kid', duration: 183, stream: '/music/file/' + id });
   assert.equal((await send(t, 'kj', '', { track: { source: 'youtube', id: 'abc' } })).data.ok, false);
+  // Someone's own upload (My music) shares the same way.
+  const mid = 'abcdef01-0123-4567-89ab-0123456789ab';
+  await send(t, 'kj', '', { track: { source: 'mine', id: mid, title: 'Demo', artist: 'kj', duration: 60 } });
+  assert.equal((await msgs(t)).filter((x) => x.track).pop().track.stream, '/music/file/' + mid);
 });

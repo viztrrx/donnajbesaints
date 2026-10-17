@@ -762,7 +762,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-17T23:00:00-04:00', commit: '', title: 'Fun: effects, flair, streaks, leaderboards, trivia, song sharing', parts: {
       chat: ['feature', 'Confetti and balloons; flair badges and a staff shield; daily trivia at noon; new game records announced; share a song from Music'],
       games: ['feature', 'Top-10 leaderboards per game from your personal bests'],
-      welcome: ['feature', 'Your day streak'] } }
+      welcome: ['feature', 'Your day streak'] } },
+    { at: '2026-10-17T23:30:00-04:00', commit: '', title: 'My music and weekday streaks', parts: {
+      music: ['feature', 'My music: upload your own songs, saved to your account on every device, and share them in chat for others to stream'],
+      welcome: ['fix', 'Streaks count weekdays only; weekends don’t break them'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1514,6 +1517,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         border-radius: var(--gps-r2); background: var(--gpa-field); border: 1px solid var(--gpa-border);
       }
       .gpx-seg-inline { display: inline-grid; grid-auto-columns: auto; }
+      /* Five music sources don't fit one row on a phone: two rows instead. */
+      @media (max-width: 640px) { .gpx-seg.gpx-seg-wrap { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
       .gpx-seg .gps-seg-btn, .gpx-seg-inline .gps-seg-btn {
         min-height: 34px; padding: 0 12px; border: none; border-radius: var(--gps-r1); background: transparent; color: var(--gpa-sub);
         font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
@@ -3138,7 +3143,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 </div>
                 <div class="gpa-snapshot-stat" id="gpa-welcome-streak-box" hidden>
                   <div id="gpa-welcome-streak" class="gpa-snapshot-num">--</div>
-                  <div class="gpa-snapshot-label">Day streak</div>
+                  <div class="gpa-snapshot-label" title="Days in a row, Monday to Friday. Weekends don't count and don't break it.">Weekday streak</div>
                 </div>
               </div>
             </div>
@@ -3383,9 +3388,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             </div>
             <audio id="gpa-np-audio" preload="none"></audio>
           </div>
-          <div class="gps-seg gpx-seg" role="group" aria-label="Music source">
+          <div class="gps-seg gpx-seg gpx-seg-wrap" role="group" aria-label="Music source">
             <button class="gps-seg-btn gpx-src" data-src="search">${gpxLbl('search', 'Search')}</button>
             <button class="gps-seg-btn gpx-src" data-src="shared">${gpxLbl('users', 'Shared')}</button>
+            <button class="gps-seg-btn gpx-src" data-src="mine">${gpxLbl('upload', 'My music')}</button>
             <button class="gps-seg-btn gpx-src" data-src="soundcloud">${gpxLbl('link', 'SoundCloud')}</button>
             <button class="gps-seg-btn gpx-src" data-src="library">${gpxLbl('music', 'This device')}</button>
           </div>
@@ -3411,6 +3417,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div id="gpa-shared-status" class="gpa-sub" role="status" aria-live="polite"></div>
             <div id="gpa-shared-list" class="gpa-tracks-wrap"></div>
           </section>
+          <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="mine">
+            <div class="gpx-card-head">${GPS_ICONS.upload || GPS_ICONS.music}<div class="gpa-card-title">My music</div>
+              <button id="gpa-mine-add" class="gpa-btn" type="button">${gpxLbl('upload', 'Upload songs')}</button>
+              <input type="file" id="gpa-mine-file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.wav,.flac,.webm" multiple hidden />
+            </div>
+            <p class="gpa-sub">Upload songs from your computer. They're saved to your account, so they're here on any device when you sign in. Play one and tap 💬 to share it in chat; anyone there can stream it.</p>
+            <div id="gpa-mine-usage" class="gpa-sub"></div>
+            <div id="gpa-mine-status" class="gpa-sub" role="status" aria-live="polite"></div>
+            <div id="gpa-mine-list" class="gpa-tracks-wrap"></div>
+          </section>
           <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="soundcloud">
             <div class="gpx-card-head">${GPS_ICONS.link}<div class="gpa-card-title">SoundCloud link</div></div>
             <div class="gpa-row gpx-composer">
@@ -3425,7 +3441,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <button id="gpa-local-clear-btn" class="gpa-btn gpx-btn-ghost">${gpxLbl('trash', 'Clear saved')}</button>
               <input type="file" id="gpa-local-file-input" accept="audio/*" multiple style="display:none" />
             </div>
-            <p class="gpa-sub">Files you add are saved on this device and play without internet.</p>
+            <p class="gpa-sub">Files you add are saved on this device and play without internet. To keep songs on your account and share them, use <b>My music</b>.</p>
             <div id="gpa-local-status" class="gpa-sub"></div>
             <div id="gpa-local-player" class="gpa-local-player gpx-player" style="display:none;">
               <div id="gpa-local-nowplaying" class="gpx-player-title"></div>
@@ -6927,11 +6943,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (sinceEl && stats.firstSeen) {
       sinceEl.textContent = new Date(stats.firstSeen).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
     }
-    // Days in a row you've opened the console.
+    // Weekdays in a row you've opened the console (weekends pause it).
     const streakBox = panel.querySelector('#gpa-welcome-streak-box');
     if (streakBox && typeof stats.streak === 'number') {
-      streakBox.hidden = stats.streak < 1;
+      streakBox.hidden = stats.streak < 1 && !stats.weekend;
       panel.querySelector('#gpa-welcome-streak').textContent = '🔥 ' + stats.streak;
+      const lbl = streakBox.querySelector('.gpa-snapshot-label');
+      if (lbl) lbl.textContent = stats.weekend ? (stats.streak ? 'Weekday streak · safe this weekend' : 'Weekday streak · starts Monday') : 'Weekday streak';
     }
   }
   function fetchYourStats() {
@@ -10207,6 +10225,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     src: panel.querySelector('#gpa-np-src'), seek: panel.querySelector('#gpa-np-seek'), cur: panel.querySelector('#gpa-np-cur'),
     dur: panel.querySelector('#gpa-np-dur'), play: panel.querySelector('#gpa-np-play'), queue: [], index: -1, seeking: false
   };
+  // "Mine" for your own uploads; someone else's upload shows their name.
+  const srcLabel = (t) => t.source === 'audius' ? 'Audius' : t.source === 'mine' ? (t.owner && currentUser && t.owner.toLowerCase() !== currentUser.toLowerCase() ? t.owner + '’s' : 'Mine') : 'Shared';
   function markPlaying() {
     const t = np.queue[np.index];
     panel.querySelectorAll('.gpa-track').forEach((row) => row.classList.toggle('is-playing', !!t && row.dataset.key === t.source + ':' + t.id));
@@ -10223,7 +10243,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     np.bar.hidden = false;
     np.title.textContent = t.title;
     np.artist.textContent = t.artist || 'Unknown artist';
-    np.src.textContent = t.source === 'audius' ? 'Audius' : 'Shared';
+    np.src.textContent = srcLabel(t);
     np.art.innerHTML = GPS_ICONS.music;
     if (t.art) {
       const img = document.createElement('img');
@@ -10238,7 +10258,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     np.cur.textContent = '0:00';
     if ('mediaSession' in navigator) {
       try {
-        navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist || '', album: t.source === 'audius' ? 'Audius' : 'Shared library', artwork: t.art ? [{ src: t.art, sizes: '150x150' }] : [] });
+        navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: t.artist || '', album: t.source === 'audius' ? 'Audius' : t.source === 'mine' ? 'My music' : 'Shared library', artwork: t.art ? [{ src: t.art, sizes: '150x150' }] : [] });
       } catch (e) { /* older browsers */ }
     }
     markPlaying();
@@ -10308,7 +10328,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       text.appendChild(title); text.appendChild(meta);
       const badge = document.createElement('span');
       badge.className = 'gpa-track-src ' + t.source;
-      badge.textContent = t.source === 'audius' ? 'Audius' : 'Shared';
+      badge.textContent = srcLabel(t);
       const icon = document.createElement('span');
       icon.className = 'gpa-track-play';
       icon.innerHTML = GPS_ICONS.play;
@@ -10320,8 +10340,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         del.type = 'button';
         del.className = 'gpa-btn gpx-icon-btn gpx-btn-ghost gpa-track-del';
         del.innerHTML = GPS_ICONS.trash;
-        del.title = 'Remove from the shared library';
-        del.setAttribute('aria-label', 'Remove ' + t.title + ' from the shared library');
+        const where = opts.deleteWhere || 'the shared library';
+        del.title = 'Remove from ' + where;
+        del.setAttribute('aria-label', 'Remove ' + t.title + ' from ' + where);
         del.addEventListener('click', () => opts.onDelete(t));
         li.appendChild(del);
       }
@@ -10439,9 +10460,75 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (ok) sharedStatus.textContent = `Added ${ok} ${ok === 1 ? 'song' : 'songs'}. ` + sharedStatus.textContent;
   });
   panel.querySelectorAll('.gpx-src[data-src="shared"]').forEach((b) => b.addEventListener('click', loadShared));
+
+  // ---- My music (your own uploads, saved to your account) ----
+  const mineList = panel.querySelector('#gpa-mine-list');
+  const mineStatus = panel.querySelector('#gpa-mine-status');
+  const mineUsageEl = panel.querySelector('#gpa-mine-usage');
+  const mineAdd = panel.querySelector('#gpa-mine-add');
+  const mineFile = panel.querySelector('#gpa-mine-file');
+  const fmtMB = (b) => (b / 1048576).toFixed(b < 10485760 ? 1 : 0) + ' MB';
+  function showMineUsage(u) {
+    mineUsageEl.textContent = u ? `${u.songs} of ${u.maxSongs} songs · ${fmtMB(u.bytes)} of ${fmtMB(u.maxBytes)} used` : '';
+  }
+  async function loadMine() {
+    if (!currentUser) {
+      mineList.innerHTML = ''; showMineUsage(null); mineAdd.disabled = true;
+      mineStatus.textContent = 'Sign in to upload and keep your own music.';
+      return;
+    }
+    mineAdd.disabled = false;
+    try {
+      const d = await musicGet('/music/mine');
+      if (d.storage === false) { mineAdd.disabled = true; mineStatus.textContent = 'Music storage isn’t set up yet.'; }
+      showMineUsage(d.usage);
+      if (!d.tracks.length) {
+        mineList.innerHTML = '';
+        if (d.storage !== false) mineStatus.textContent = 'No songs yet. Tap Upload songs to add some from your computer.';
+        return;
+      }
+      mineStatus.textContent = '';
+      renderTracks(mineList, d.tracks, { deletable: true, deleteWhere: 'your music', onDelete: async (t) => {
+        if (!confirm('Delete “' + t.title + '” from your music? Anyone it was shared with won’t be able to play it anymore.')) return;
+        try {
+          const r = await fetch(musicBase() + withUser('/music/mine/delete'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...musicStaffHeaders() }, body: JSON.stringify({ id: t.id }) });
+          if (!r.ok) throw new Error();
+        } catch (e) { mineStatus.textContent = 'Couldn’t delete that song.'; return; }
+        loadMine();
+      } });
+    } catch (e) {
+      mineList.innerHTML = '';
+      mineStatus.textContent = e.message;
+    }
+  }
+  mineAdd.addEventListener('click', () => mineFile.click());
+  mineFile.addEventListener('change', async () => {
+    const files = [...mineFile.files];
+    mineFile.value = '';
+    let ok = 0, failed = '';
+    mineAdd.disabled = true;
+    for (let i = 0; i < files.length; i++) {
+      mineStatus.textContent = `Uploading ${i + 1} of ${files.length}: ${files[i].name}…`;
+      if (files[i].size > 25 * 1024 * 1024) { failed = files[i].name + ': each song must be 25 MB or less'; continue; }
+      const fd = new FormData();
+      fd.append('file', files[i]);
+      fd.append('duration', String(await audioLength(files[i])));
+      try {
+        const r = await fetch(musicBase() + withUser('/music/mine/upload'), { method: 'POST', headers: musicStaffHeaders(), body: fd });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) ok++;
+        else { failed = files[i].name + ': ' + (d.error || 'upload failed'); if (r.status === 409 || r.status === 429) break; }
+      } catch (e) { failed = files[i].name + ': upload failed'; }
+    }
+    mineAdd.disabled = false;
+    await loadMine();
+    mineStatus.textContent = [ok ? `Added ${ok} ${ok === 1 ? 'song' : 'songs'}.` : '', failed].filter(Boolean).join(' ') || mineStatus.textContent;
+  });
+  panel.querySelectorAll('.gpx-src[data-src="mine"]').forEach((b) => b.addEventListener('click', loadMine));
   panel.querySelectorAll('.gpa-dropdown-item[data-tab="music"]').forEach((b) => b.addEventListener('click', () => {
     const active = panel.querySelector('.gpx-src.primary');
     if (active && active.dataset.src === 'shared') loadShared();
+    if (active && active.dataset.src === 'mine') loadMine();
   }));
 
   // ---- Local file player (fully offline — no network, no website involved) --
@@ -12850,7 +12937,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const info = document.createElement('span');
     info.className = 'tr-info';
     const ti = document.createElement('b'); ti.textContent = t.title;
-    const ar = document.createElement('small'); ar.textContent = (t.artist || 'Unknown artist') + (t.source === 'audius' ? ' · Audius' : ' · Shared library');
+    const ar = document.createElement('small'); ar.textContent = (t.artist || 'Unknown artist') + (t.source === 'audius' ? ' · Audius' : t.source === 'mine' ? ' · Uploaded song' : ' · Shared library');
     info.appendChild(ti); info.appendChild(ar);
     const play = document.createElement('button');
     play.type = 'button';
@@ -23806,7 +23893,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     panel.querySelectorAll('.gpx-src').forEach((b) => b.addEventListener('click', () => showSource(b.dataset.src)));
     let savedSrc = null;
     try { savedSrc = localStorage.getItem(SRC_KEY); } catch (e) { savedSrc = null; }
-    showSource(['search', 'shared', 'soundcloud', 'library'].includes(savedSrc) ? savedSrc : 'search');
+    showSource(['search', 'shared', 'mine', 'soundcloud', 'library'].includes(savedSrc) ? savedSrc : 'search');
 
     // ---- Proxy: mirror the frame's own status ----
     const proxyRoom = q('.gpa-pane[data-pane="browser"] .gpx-room');

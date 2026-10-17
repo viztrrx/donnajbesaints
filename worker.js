@@ -1,6 +1,6 @@
 import { webApp } from './web/handler.js';
 import { consoleApp } from './web/console/handler.js';
-import { audiusSearch, audiusStream, listLibrary, addToLibrary, removeFromLibrary, serveLibraryFile, audioKind } from './web/music.js';
+import { audiusSearch, audiusStream, listLibrary, addToLibrary, removeFromLibrary, serveLibraryFile, audioKind, listMine, mineUsage, addToMine, removeFromMine, MINE_DAILY_UPLOADS } from './web/music.js';
 import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime, cleanCategories, anySubscriberWants,
   ownerHour, addUserSubscription, findUserSubscription, removeUserSubscription, userHasAlerts, notifyUser } from './web/console/push.js';
 import { validateMutation } from './mobile/backend/validation.js';
@@ -569,6 +569,25 @@ async function sendDailyDigest(env) {
     rl ? `${rl} hit a limit` : '', secEvents ? `${secEvents} security events` : ''].filter(Boolean);
   return notifyOwner(env, { cat: 'digest', title: 'Daily summary', body: parts.join(' · ') + '.', url: adminLink('overview') });
 }
+
+// ---- Weekday streaks ---------------------------------------------------------
+// A streak counts Monday to Friday only: using the console every weekday is a
+// 5-day streak, and weekends neither add to it nor break it (Friday → Monday
+// keeps going). Dates are the owner's calendar dates ("YYYY-MM-DD").
+const dowOf = (date) => new Date(date + 'T12:00:00Z').getUTCDay();
+const isWeekend = (date) => dowOf(date) === 0 || dowOf(date) === 6;
+const shiftDate = (date, days) => new Date(Date.parse(date + 'T12:00:00Z') + days * 864e5).toISOString().slice(0, 10);
+const lastWeekdayOnOrBefore = (date) => { let d = date; while (isWeekend(d)) d = shiftDate(d, -1); return d; };
+const prevWeekday = (date) => lastWeekdayOnOrBefore(shiftDate(date, -1));
+// The streak after opening the console on `today` (owner date).
+function nextStreak(prev, today) {
+  if (isWeekend(today)) return prev || null;               // weekends don't count
+  const last = prev && prev.day ? lastWeekdayOnOrBefore(prev.day) : null;
+  if (last === today) return { n: prev.n, day: today };
+  return { n: last === prevWeekday(today) ? prev.n + 1 : 1, day: today };
+}
+// Still alive on `today`? (counted today, or on the last weekday before it)
+const streakAlive = (s, today) => !!(s && s.day && [today, prevWeekday(today), lastWeekdayOnOrBefore(today)].includes(lastWeekdayOnOrBefore(s.day)));
 
 // ---- Weekly report and the activity heatmap ---------------------------------
 // The weekly report goes out Sundays at 6 PM owner time (the 5-minute cron
@@ -2547,10 +2566,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         if (body.event === 'open') {
           const uKey = 'user:' + userLower;
           const prev = await kv.get(uKey, 'json');
-          // Daily streak: days in a row the console was opened (owner time zone).
-          const today = ownerClock(env, now).date, yesterday = ownerClock(env, now - 864e5).date;
+          // Weekday streak (Mon-Fri; weekends don't count or break it).
+          const today = ownerClock(env, now).date;
           const ps = (prev && prev.streak) || null;
-          const streak = ps && ps.day === today ? ps : { n: ps && ps.day === yesterday ? ps.n + 1 : 1, day: today };
+          const streak = nextStreak(ps, today);
           await kv.put(uKey, JSON.stringify({
             user,
             host: rec.host,
@@ -2561,10 +2580,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             opens: ((prev && prev.opens) || 0) + 1,
             streak
           }));
-          if (!ps || ps.day !== today) {
-            // Everyone's current streaks in one key, for chat (once a day per person).
+          if (streak && (!ps || ps.day !== streak.day || ps.n !== streak.n)) {
+            // Everyone's current streaks in one key, for chat (once a weekday per person).
             const all = (await kv.get('streaks', 'json')) || {};
-            all[userLower] = { u: user, n: streak.n, day: today };
+            all[userLower] = { u: user, n: streak.n, day: streak.day };
             await kv.put('streaks', JSON.stringify(all));
           }
           // Approval queue: a genuinely new username (no prior rollup) starts
@@ -2613,7 +2632,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         usage: r.state === 'active' ? await usageMeter(kv, user, mod, cfg) : null,
         subscription: mySubscription(cfg, user),
         yourStats: { opens: (uRec && uRec.opens) || 0, firstSeen: (uRec && uRec.firstSeen) || now,
-          streak: uRec && uRec.streak && [ownerClock(env, now).date, ownerClock(env, now - 864e5).date].includes(uRec.streak.day) ? uRec.streak.n : 0 },
+          streak: uRec && streakAlive(uRec.streak, ownerClock(env, now).date) ? uRec.streak.n : 0, weekend: isWeekend(ownerClock(env, now).date) },
         dismissed: dismissed ? { broadcast: dismissed.broadcast || null, announcement: dismissed.announcement || null } : null
       });
     }
@@ -3042,11 +3061,13 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // ---- Music (Music tab): Audius search/streams and the shared library ----
     // No keys or sign-ins for listeners. The allowed-users list applies (the
     // player passes ?user= because audio elements can't send headers);
-    // uploading and deleting is for the owner and admins only.
+    // the shared library is uploaded by the owner and admins, and anyone
+    // signed in keeps their own songs under /music/mine.
     if (url.pathname.startsWith('/music/')) {
       const kv = env && env.TELEMETRY;
       const cfg = await getConfig(kv);
-      const listener = (await effectiveUser(url.searchParams.get('user'))).user;
+      const who = await effectiveUser(url.searchParams.get('user'));
+      const listener = who.user;
       const staff = async () => {
         const p = await resolvePrincipal();
         if (p && (ROLE_RANK_V2[p.role] || 0) >= 2) return p.user || p.actor || p.role;
@@ -3085,6 +3106,41 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           const track = await addToLibrary(env, form, who);
           await logAudit(kv, { route: url.pathname, action: 'music_upload', target: track.title + ' — ' + track.artist });
           return json({ ok: true, track });
+        }
+        // My music: the signed-in person's own uploads (see web/music.js).
+        if (url.pathname.startsWith('/music/mine')) {
+          // Saved to an account, so a signed-in session is required (a typed
+          // name alone could write to someone else's list).
+          const me = String(listener || '').trim();
+          if (!me || !who.verified || me.toLowerCase() === 'anonymous') return json({ ok: false, error: 'Sign in to keep your own music.' }, 401);
+          if (url.pathname === '/music/mine' && req.method === 'GET') {
+            return json({ ok: true, tracks: await listMine(kv, me), usage: await mineUsage(kv, me), storage: !!(env && env.donnajbe_eaglercraft_client) });
+          }
+          if (url.pathname === '/music/mine/upload' && req.method === 'POST') {
+            const len = Number(req.headers.get('Content-Length') || 0);
+            if (!len) return json({ ok: false, error: 'Upload needs a Content-Length' }, 411);
+            if (len > 26 * 1024 * 1024) return json({ ok: false, error: 'Each song must be 25 MB or less' }, 413);
+            const st = await resolve(kv, me);
+            if (st.state === 'blocked') return json({ ok: false, error: 'blocked by the owner' }, 403);
+            const rk = 'mylib-rate:' + dayKey() + ':' + me.toLowerCase();
+            const n = parseInt(await kv.get(rk), 10) || 0;
+            if (n >= MINE_DAILY_UPLOADS) return json({ ok: false, error: `Daily upload limit reached (${MINE_DAILY_UPLOADS}). Try again tomorrow.` }, 429);
+            let form;
+            try { form = await req.formData(); } catch (e) { return json({ ok: false, error: 'Invalid upload' }, 400); }
+            const track = await addToMine(env, form, me);
+            await kv.put(rk, String(n + 1), { expirationTtl: 2 * 24 * 3600 });
+            return json({ ok: true, track, usage: await mineUsage(kv, me) });
+          }
+          if (url.pathname === '/music/mine/delete' && req.method === 'POST') {
+            let body = {};
+            try { body = JSON.parse(await req.text()) || {}; } catch (e) { return json({ ok: false, error: 'invalid request' }, 400); }
+            const id = String(body.id || '');
+            let ok = await removeFromMine(env, me, id);
+            // The owner and admins can remove anyone's upload.
+            if (!ok && (await staff())) { ok = await removeFromMine(env, '', id); if (ok) await logAudit(kv, { route: url.pathname, action: 'music_mine_delete', target: id }); }
+            return json({ ok, usage: await mineUsage(kv, me) }, ok ? 200 : 404);
+          }
+          return json({ error: 'not found' }, 404);
         }
         if (url.pathname === '/music/delete' && req.method === 'POST') {
           if (!(await staff())) return json({ ok: false, error: 'Only the owner and admins can remove songs.' }, 403);
@@ -3294,11 +3350,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (body.track && typeof body.track === 'object') {
         const tk = body.track;
         const tid = String(tk.id || '');
-        if ((tk.source === 'shared' && /^[0-9a-f-]{36}$/.test(tid)) || (tk.source === 'audius' && /^[A-Za-z0-9]{1,32}$/.test(tid))) {
+        if (((tk.source === 'shared' || tk.source === 'mine') && /^[0-9a-f-]{36}$/.test(tid)) || (tk.source === 'audius' && /^[A-Za-z0-9]{1,32}$/.test(tid))) {
           const art = /^https:\/\/[^\s"'<>]{1,300}$/.test(String(tk.art || '')) ? String(tk.art) : '';
           track = { source: tk.source, id: tid, title: String(tk.title || 'Untitled').slice(0, 120), artist: String(tk.artist || '').slice(0, 80),
             duration: Math.max(0, Math.min(36000, Math.round(Number(tk.duration) || 0))), ...(art ? { art } : {}),
-            stream: tk.source === 'shared' ? '/music/file/' + tid : '/music/audius/stream/' + tid };
+            stream: tk.source === 'audius' ? '/music/audius/stream/' + tid : '/music/file/' + tid };
         } else return json({ ok: false, error: 'That song can’t be shared.' }, 200);
       }
       // Shadow mute: report success so the sender is none the wiser, but
@@ -3459,9 +3515,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const cfg = await getConfig(kv);
       if (!allowedUser(cfg, (await effectiveUser(url.searchParams.get('user'))).user)) return json({ ok: false, error: ACCESS_DENIED }, 403);
       const now = Date.now();
-      const days = [ownerClock(env, now).date, ownerClock(env, now - 864e5).date];
+      const today = ownerClock(env, now).date;
       const streaks = {}, trivia = {};
-      for (const [k, v] of Object.entries((await kv.get('streaks', 'json')) || {})) if (v && v.n >= 2 && days.includes(v.day)) streaks[k] = v.n;
+      for (const [k, v] of Object.entries((await kv.get('streaks', 'json')) || {})) if (v && v.n >= 2 && streakAlive(v, today)) streaks[k] = v.n;
       for (const [k, v] of Object.entries((await kv.get('trivia:points', 'json')) || {})) if (v && v.n > 0) trivia[k] = v.n;
       return json({ ok: true, flair: cfg.flair || {}, streaks, trivia });
     }

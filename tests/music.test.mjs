@@ -168,3 +168,65 @@ test('music: the allowed-users list applies to listening too', async () => {
     assert.equal((await t.call('/music/file/' + up.track.id + '?user=KJ&s=' + encodeURIComponent(reg.token))).status, 200, 'listed names in any case, with their session');
   } finally { t.restore(); }
 });
+
+test('my music: anyone signed in uploads their own songs; saved to their account; shareable', async () => {
+  const t = setup();
+  try {
+    const v = (u) => (u + '0'.repeat(64)).slice(0, 64).replace(/[^0-9a-f]/g, 'a');
+    const login = async (u) => {
+      await t.call('/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: u, verifier: v(u) }) });
+      return (await t.jsonOf(await t.call('/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: u, verifier: v(u) }) }))).token;
+    };
+    const kj = await login('kj'), sam = await login('sam');
+    assert.ok(kj && sam);
+    const up = (tok, user, bytes = MP3, name = 'Nova - Midnight Drive.mp3') => {
+      const fd = new FormData();
+      fd.append('file', new File([bytes], name, { type: 'audio/mpeg' }));
+      fd.append('duration', '187');
+      // Encode like a browser does, Content-Length included.
+      const enc = new Response(fd);
+      return enc.arrayBuffer().then((body) => t.call('/music/mine/upload?user=' + user, { method: 'POST',
+        headers: { 'Content-Type': enc.headers.get('Content-Type'), 'Content-Length': String(body.byteLength), ...(tok ? { 'X-GPA-Session': tok } : {}) }, body }));
+    };
+    // Needs a real sign-in: a typed name alone can't write to someone's music.
+    assert.equal((await up(null, 'kj')).status, 401);
+    assert.equal((await t.call('/music/mine?user=kj')).status, 401);
+    // Upload, then it's listed for kj only.
+    const r = await up(kj, 'kj');
+    const d = await t.jsonOf(r);
+    assert.equal(r.status, 200, JSON.stringify(d));
+    assert.equal(d.track.source, 'mine');
+    assert.equal(d.track.title, 'Midnight Drive');
+    assert.equal(d.track.artist, 'Nova');
+    assert.equal(d.track.stream, '/music/file/' + d.track.id);
+    assert.equal(d.usage.songs, 1);
+    const mine = await t.jsonOf(await t.call('/music/mine?user=kj', { headers: { 'X-GPA-Session': kj } }));
+    assert.deepEqual(mine.tracks.map((x) => x.id), [d.track.id]);
+    assert.equal(mine.tracks[0].owner, 'kj');
+    // A new sign-in (another device) still sees it.
+    const kj2 = (await t.jsonOf(await t.call('/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: 'kj', verifier: v('kj') }) }))).token;
+    assert.equal((await t.jsonOf(await t.call('/music/mine?user=kj', { headers: { 'X-GPA-Session': kj2 } }))).tracks.length, 1);
+    // Sam's list is separate, and asking for kj's with sam's session gives sam's.
+    assert.equal((await t.jsonOf(await t.call('/music/mine?user=kj', { headers: { 'X-GPA-Session': sam } }))).tracks.length, 0);
+    // It isn't in the shared library...
+    assert.equal((await t.jsonOf(await t.call('/music/library?user=sam'))).tracks.length, 0);
+    // ...but anyone it's shared with can stream it (with seeking).
+    const range = await t.call(d.track.stream + '?user=sam', { headers: { Range: 'bytes=0-99' } });
+    assert.equal(range.status, 206);
+    assert.equal((await range.arrayBuffer()).byteLength, 100);
+    // Not audio is refused; the per-person cap holds.
+    assert.equal((await up(kj, 'kj', new TextEncoder().encode('<html>'), 'x.mp3')).status, 400);
+    // Sam can't delete kj's song; kj can.
+    const del = (tok, user, id) => t.call('/music/mine/delete?user=' + user, { method: 'POST', headers: { 'X-GPA-Session': tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    assert.equal((await del(sam, 'sam', d.track.id)).status, 404);
+    assert.ok(t.env.donnajbe_eaglercraft_client.objs.has('music/' + d.track.id));
+    assert.equal((await del(kj, 'kj', d.track.id)).status, 200);
+    assert.ok(!t.env.donnajbe_eaglercraft_client.objs.has('music/' + d.track.id));
+    assert.equal((await t.jsonOf(await t.call('/music/mine?user=kj', { headers: { 'X-GPA-Session': kj } }))).tracks.length, 0);
+    assert.equal(t.env.TELEMETRY.store.get('mylib:total'), '0');
+    // The owner can remove anyone's upload.
+    const again = await t.jsonOf(await up(kj, 'kj'));
+    assert.equal((await t.call('/music/mine/delete?user=sam', { method: 'POST', headers: { 'X-GPA-Session': sam, 'X-GPA-Owner': 'owner-code-1', 'Content-Type': 'application/json' }, body: JSON.stringify({ id: again.track.id }) })).status, 200);
+    assert.equal((await t.jsonOf(await t.call('/music/mine?user=kj', { headers: { 'X-GPA-Session': kj } }))).tracks.length, 0);
+  } finally { t.restore(); }
+});

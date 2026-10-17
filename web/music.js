@@ -165,6 +165,76 @@ export async function removeFromLibrary(env, id) {
   return true;
 }
 
+// ---- My music: each person's own uploads ------------------------------------
+// Anyone signed in can upload their own songs from their computer. They're
+// saved to their account ("mylib:<name>"), so they're there on any device
+// after signing in, and stream through the same /music/file/<id> route as
+// the shared library, which is what lets them be shared to chat. Files sit
+// in the same R2 prefix; the shared library and everyone's uploads together
+// stay under MUSIC_MAX_BYTES (R2's free tier).
+export const MINE_MAX_SONGS = 50;
+export const MINE_MAX_BYTES = 300 * 1024 * 1024;
+export const MINE_DAILY_UPLOADS = 30;
+const mineKey = (user) => 'mylib:' + String(user || '').trim().toLowerCase().slice(0, 40);
+const MINE_TOTAL = 'mylib:total';
+export async function readMine(kv, user) {
+  try { return (await kv.get(mineKey(user), 'json')) || []; } catch (e) { return []; }
+}
+const publicMine = (t) => ({ source: 'mine', id: t.id, title: t.title, artist: t.artist, duration: t.duration || 0, size: t.size, type: t.type, owner: t.owner, ts: t.ts, stream: '/music/file/' + t.id });
+export async function listMine(kv, user) {
+  return (await readMine(kv, user)).sort((a, b) => b.ts - a.ts).map(publicMine);
+}
+export async function mineUsage(kv, user) {
+  const list = await readMine(kv, user);
+  return { songs: list.length, bytes: list.reduce((n, t) => n + (t.size || 0), 0), maxSongs: MINE_MAX_SONGS, maxBytes: MINE_MAX_BYTES };
+}
+export async function addToMine(env, form, owner) {
+  const bucket = env.donnajbe_eaglercraft_client, kv = env.TELEMETRY;
+  if (!bucket || !kv) throw Object.assign(new Error('Music storage is not configured'), { status: 503 });
+  const file = form.get('file');
+  if (!file || typeof file.arrayBuffer !== 'function' || !file.size) throw Object.assign(new Error('Choose an audio file'), { status: 400 });
+  if (file.size > MUSIC_MAX_FILE) throw Object.assign(new Error('Each song must be 25 MB or less'), { status: 413 });
+  const mine = await readMine(kv, owner);
+  if (mine.length >= MINE_MAX_SONGS) throw Object.assign(new Error(`You can keep up to ${MINE_MAX_SONGS} songs. Delete one to add another.`), { status: 409 });
+  const mineBytes = mine.reduce((n, t) => n + (t.size || 0), 0);
+  if (mineBytes + file.size > MINE_MAX_BYTES) throw Object.assign(new Error('Your music is full (300 MB). Delete a song to make room.'), { status: 409 });
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const type = audioKind(bytes);
+  if (!type) throw Object.assign(new Error('That file isn’t a supported audio file (MP3, M4A, AAC, OGG, WAV, FLAC, WebM)'), { status: 400 });
+  const shared = (await readLibrary(kv)).reduce((n, t) => n + (t.size || 0), 0);
+  const total = Number(await kv.get(MINE_TOTAL)) || 0;
+  if (shared + total + bytes.length > MUSIC_MAX_BYTES) throw Object.assign(new Error('Music storage is full right now. Ask the owner.'), { status: 409 });
+  const guess = nameFromFile(file.name);
+  const track = {
+    id: crypto.randomUUID(),
+    title: clean(form.get('title'), 140) || guess.title,
+    artist: clean(form.get('artist'), 80) || guess.artist || 'Unknown artist',
+    duration: Math.max(0, Math.min(24 * 3600, Math.round(Number(form.get('duration')) || 0))),
+    size: bytes.length, type, owner: clean(owner, 40), ts: Date.now()
+  };
+  await bucket.put('music/' + track.id, bytes, { httpMetadata: { contentType: type }, customMetadata: { title: track.title, artist: track.artist, owner: track.owner.toLowerCase() } });
+  const fresh = await readMine(kv, owner);
+  fresh.push(track);
+  await kv.put(mineKey(owner), JSON.stringify(fresh));
+  await kv.put(MINE_TOTAL, String(total + bytes.length));
+  return publicMine(track);
+}
+// Removes one of a person's songs (theirs; staff may pass anyone's id).
+export async function removeFromMine(env, owner, id) {
+  const kv = env.TELEMETRY, bucket = env.donnajbe_eaglercraft_client;
+  let who = owner;
+  if (!who && bucket) { try { const h = await bucket.head('music/' + id); who = h && h.customMetadata && h.customMetadata.owner; } catch (e) { who = ''; } }
+  if (!who) return false;
+  const list = await readMine(kv, who);
+  const t = list.find((x) => x.id === id);
+  if (!t) return false;
+  if (bucket) { try { await bucket.delete('music/' + id); } catch (e) { /* already gone */ } }
+  await kv.put(mineKey(who), JSON.stringify(list.filter((x) => x.id !== id)));
+  const total = Number(await kv.get(MINE_TOTAL)) || 0;
+  await kv.put(MINE_TOTAL, String(Math.max(0, total - (t.size || 0))));
+  return true;
+}
+
 // Serves a shared song from R2 with Range support (seeking, iOS playback).
 export async function serveLibraryFile(env, id, req) {
   if (!/^[0-9a-f-]{36}$/.test(id)) return new Response('Not found', { status: 404 });

@@ -10,7 +10,7 @@
 //   4  game leaderboards: maya plays Reaction Test; her best goes on the
 //      leaderboard and the new record is announced in chat
 //   5  now playing: maya shares a song from Music; kj taps ▶ Play and it plays
-//   6  streak: Welcome → Your activity shows the day streak
+//   6  streak: Welcome → Your activity shows the weekday streak
 //   node tests/browser/fun.mjs [outDir]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -168,7 +168,7 @@ try {
   // 6: streak on Welcome.
   await tab(kj.page, 'welcome');
   const streak = await waitFor(kj.page, (r) => !r.querySelector('#gpa-welcome-streak-box').hidden && /🔥 \d+/.test(r.querySelector('#gpa-welcome-streak').textContent), null, 15000);
-  check('Welcome → Your activity shows the day streak (🔥 1 on day one)', streak, await R(kj.page, (r) => r.querySelector('#gpa-welcome-streak').textContent));
+  check('Welcome → Your activity shows the weekday streak box', streak, await R(kj.page, (r) => r.querySelector('#gpa-welcome-streak').textContent));
 
   // Admin → Moderation → Fun features.
   await R(own.page, (r) => r.querySelector('.gps-tab[data-asec="moderation"]').click());

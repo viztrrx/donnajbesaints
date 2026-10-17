@@ -82,7 +82,15 @@ The Music tab needs no YouTube key and no sign-in:
   each); "Artist - Title.mp3" file names fill in the artist and title. Files
   go to the Worker's R2 bucket under `music/` (about 9.5 GB in total, inside
   R2's free tier). Only upload music you have the rights to share.
-- One **now-playing bar** plays either source with previous/next, seeking and
+- **My music** is each person's own songs. Anyone signed in taps **Upload
+  songs** and picks files from their computer (same formats, 25 MB each, up
+  to 50 songs / 300 MB per person, 30 uploads a day). They're saved to the
+  person's account, so they're there on any device after signing in. Play
+  one and tap 💬 on the now-playing bar to share it in chat: everyone in the
+  room gets a ▶ Play card that streams it from your Worker. Deleting a song
+  removes it for everyone it was shared with. Shared library and personal uploads together stay
+  under the same ~9.5 GB R2 limit.
+- One **now-playing bar** plays every source with previous/next, seeking and
   iPhone lock-screen controls, and keeps playing on other tabs. **SoundCloud**
   links and **This device** (your own offline files) work as before, and
   YouTube search is still there for anyone who saved a key.
@@ -395,13 +403,13 @@ Each room's messages live in their own Durable Object (`CHAT_ROOMS`, see `chat/r
 
 **Flair and badges.** In Admin → Users → a person → **Flair** you give someone a badge shown next to their name in chat (⭐ VIP, 🎮 Gamer, 💎 Supporter, 🎨 Artist, 📚 Scholar, 🔥 Legend, 🎵 Music, 👑 Royalty; **Remove flair** takes it off). Moderators and admins get a 🛡 automatically. In the "who's here" list people also show their 🔥 day streak (2+ days) and 🧠 trivia points.
 
-**Day streaks.** Opening the console on days in a row (your time zone) builds a streak, shown as 🔥 on Welcome → Your activity → **Day streak**. Missing a day starts over.
+**Weekday streaks.** Opening the console on weekdays in a row (Monday to Friday, your time zone) builds a streak, shown as 🔥 on Welcome → Your activity → **Weekday streak**. Using it every day Monday to Friday is a 5-day streak. Weekends don't count and don't break it: someone on 5 on Friday is still on 5 over the weekend and goes to 6 when they open it Monday. Missing a weekday starts over.
 
 **Daily trivia.** Every day at 12 PM (your time zone) a question appears in #public as a notice; the first person to type the right answer in chat wins a point ("🎉 kj got it! The answer was Paris. kj has 3 trivia points."). If nobody gets it, the next day's notice gives the answer. The questions come from a built-in list of 60 (no AI key needed, so the answers are always right). Admin → Moderation → **Fun features** turns trivia off or asks a question right now.
 
 **Game leaderboards.** Your personal bests in the scored games (Snake, Tetris, 2048, Reaction Test, Typing Test and 17 more) go to a top 10 per game, one entry per person; open **🏆 Leaderboard** under a game to see it (lower is better for Reaction Test and Guess the Number). A new #1 is announced in #public ("🏆 kj set a new record in Snake: 1,240"), at most once per game every 10 minutes; Fun features can turn those posts off. Scores that aren't humanly possible are refused.
 
-**Share a song.** In Music, the 💬 button on the now-playing bar shares the song to the chat room you're in. Everyone sees a card with the title and artist and a **▶ Play** button that plays it in their console (songs from the shared library or Audius).
+**Share a song.** In Music, the 💬 button on the now-playing bar shares the song to the chat room you're in. Everyone sees a card with the title and artist and a **▶ Play** button that plays it in their console (songs from the shared library, Audius, or someone's **My music** uploads).
 
 **Grouping.** Several messages in a row from the same person (within 5 minutes) show their picture and name once, with the rest as plain lines underneath, like iMessage. Someone else's message, a reply or a 5-minute gap starts a new group. On a computer, hovering a grouped line shows its time and the ↩ / ☺ buttons.
 

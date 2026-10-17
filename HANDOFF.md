@@ -12,12 +12,15 @@ list (rounds 1–3) was finished and pushed.
 
 ### Status right now
 - **Nothing is half-done.** All work from this session is on `main` and
-  deployed (pushing to `main` deploys; see below). The last commits:
-  round 3 "fun" features, then this HANDOFF rewrite.
-- **Nothing is pending from the owner.** Their last big request ("add all
-  of that…") was built in three rounds; see §4 for each piece. Good next
-  ideas are in §8, but **don't start new features unless the owner asks**;
-  offer them.
+  deployed (pushing to `main` deploys; see below). The last commit:
+  **weekday streaks + My music** (the owner's request: "make day streaks
+  last only thru out the weekdays… weekends dont count so the streak will
+  still be active when they log back in on monday, also… if a user uploads
+  their music via their computer… they can also share that to others and
+  have them be able to stream it as well and save in their account").
+- **Nothing is pending from the owner.** Earlier requests were built in
+  three rounds; see §4 for each piece. Good next ideas are in §8, but
+  **don't start new features unless the owner asks**; offer them.
 
 ### How the owner works (follow this exactly)
 - **The owner:** username `viztrrx` (the Worker's `OWNER`), Lehigh Acres,
@@ -147,7 +150,9 @@ firstSeen, lastSeen, streak) · `mod:<name>` · `usage:<day>:<name>`,
 `push:weekly:last`, `push:presence:*` · `heat:<week start>` · `streaks` ·
 `trivia:day`, `trivia:points` · `lb:<game>`, `lb:shout:<game>` ·
 `dismiss:<name>` · `key:openai:<name|*>` · `mem:u:<name>` · `fail:*`
-(lockouts) · `chat-photo-rate:*`, `chat-voice-rate:*`.
+(lockouts) · `chat-photo-rate:*`, `chat-voice-rate:*` · `mylib:<name>`
+(a person's My music list), `mylib:total` (bytes of everyone's uploads),
+`mylib-rate:<day>:<name>`.
 
 ### Inside the ChatRoom Durable Object (per room)
 Storage: `log` (newest 120 messages, a week), `reads` (read cursors),
@@ -286,14 +291,26 @@ on screen (1.5 s while someone types, 15 s in the background).
 in #public (owner switch). `GAME_RULES` refuses impossible scores.
 
 ### 4.5 Welcome
-Your activity: sessions opened, member since, and (round 3) **day streak**
-(`user:<name>.streak`, owner time zone).
+Your activity: sessions opened, member since, and the **weekday streak**
+(`user:<name>.streak` `{n, day}`, owner time zone). Mon–Fri only: weekends
+neither add nor break it (`nextStreak`, `streakAlive`, `prevWeekday` in
+worker.js; Friday → Monday continues). On a weekend the box says "safe this
+weekend" / "starts Monday" (`yourStats.weekend`). Same rule for the 🔥 in
+chat (`/chat/extras`). Tests: `fun.test.mjs`, `my-music.mjs`.
 
 ### 4.6 Music
 Keyless: Audius search + a shared library in R2 (owner/admins upload).
 One now-playing bar with lock-screen controls; 💬 shares the song to chat.
-**Not verified against real Audius** (blocked from the dev container).
-Test: `music.mjs`.
+**My music** (source button `data-src="mine"`): any signed-in person
+uploads their own songs (`POST /music/mine/upload`, list `GET /music/mine`,
+`POST /music/mine/delete`; a real session is required, a typed name isn't
+enough). Stored in R2 `music/<id>` (same prefix, streamed by the same
+`/music/file/<id>`) and listed in KV `mylib:<name>`, so they follow the
+account to any device. Caps in `web/music.js`: 50 songs / 300 MB each,
+30 uploads a day, all music ≤ `MUSIC_MAX_BYTES`. Chat track source
+`'mine'` is accepted by `/chat/send`. The owner/admins can delete anyone's
+upload by id (API only, no button). **Not verified against real Audius** (blocked from the dev
+container). Tests: `music.test.mjs`, `music.mjs`, `my-music.mjs`.
 
 ### 4.7 AI and memory limits
 Ask AI goes through `/v1/*` (assigned keys stay server-side). Photos are
@@ -313,7 +330,8 @@ real client build is separate, see `eaglercraft/README.md`), Saints Command.
 
 | Commit | What |
 |---|---|
-| (this) | HANDOFF rewrite |
+| (this) | Weekday streaks; My music (personal uploads, shareable) |
+| `d3fd527` | HANDOFF rewrite |
 | `5f2b5ac` | Fun: effects, flair, streaks, leaderboards, trivia, song sharing |
 | `31b2322` | Chat round 2: @mentions, polls, edit, pins, voice, quiet hours |
 | `3492b84` | HANDOFF: status, the owner's way of working, round plans |
@@ -340,7 +358,7 @@ real client build is separate, see `eaglercraft/README.md`), Saints Command.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (100 tests)
+npm test                                   # node --test tests/*.test.mjs (101 tests)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundle/config check, deploys nothing
 # Browser suites (Playwright vs local workerd), each takes an output dir for screenshots:
 node tests/browser/eaglercraft.e2e.mjs     # 83
@@ -362,6 +380,7 @@ node tests/browser/chat-replies.mjs        # 20
 node tests/browser/chat-round2.mjs         # 26 (fake microphone)
 node tests/browser/fun.mjs                 # 18
 node tests/browser/music.mjs               # 15
+node tests/browser/my-music.mjs            # 15
 node tests/browser/usage-meter.mjs         # 16
 node tests/browser/usage-meter-sizes.mjs   # 25
 node tests/browser/ask-photo-size.mjs      # 6
@@ -415,9 +434,15 @@ each, ~25 min total, so run the loop in the background and wait for a
 - When Allowed users is off, names aren't PIN-verified (anyone can type a
   name), so per-name protections (unsend, mention alerts) only really hold
   with the list on.
+- My music needs a real sign-in (session). With Allowed users off, a
+  profile only exists on the device that created it, so "my songs on any
+  device" only works with the list on (how the owner runs it). Deleting a
+  shared song makes its chat card stop playing. The Worker lets the
+  owner/admins delete anyone's upload by id, but there's no button or admin
+  list of everyone's uploads yet.
 - Ideas the owner may like (offer, don't build unasked): a colorful default
-  theme for new users; music upload approvals for non-admins; @everyone for
-  staff; weekly trivia leaderboard; per-room quiet hours.
+  theme for new users; an admin view of everyone's My music uploads;
+  @everyone for staff; weekly trivia leaderboard; per-room quiet hours.
 
 ---
 
