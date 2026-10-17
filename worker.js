@@ -1,6 +1,6 @@
 import { webApp } from './web/handler.js';
 import { consoleApp } from './web/console/handler.js';
-import { readPlaylist, readLists, writeLists, newList, listSummary, publicList, searchYouTube, LISTS_MAX, MATCH_BATCH } from './web/playlists.js';
+import { readPlaylist, readLists, writeLists, newList, listSummary, publicList, searchYouTube, matchCacheKey, LISTS_MAX, MATCH_BATCH, MATCH_SCAN } from './web/playlists.js';
 import { audiusSearch, audiusStream, listLibrary, addToLibrary, removeFromLibrary, serveLibraryFile, audioKind, listMine, mineUsage, addToMine, removeFromMine, MINE_DAILY_UPLOADS } from './web/music.js';
 import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime, cleanCategories, anySubscriberWants,
   ownerHour, addUserSubscription, findUserSubscription, removeUserSubscription, userHasAlerts, notifyUser } from './web/console/push.js';
@@ -109,7 +109,7 @@ export { ChatRoom };
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key, X-GPA-User, X-GPA-Owner, X-GPA-Session, X-GPA-Mobile, X-Operation-ID, X-GPA-YT-Key',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key, X-GPA-User, X-GPA-Owner, X-GPA-Session, X-GPA-Mobile, X-Operation-ID',
   'Access-Control-Max-Age': '86400'
 };
 // Applied to every response this worker generates itself. no-store keeps admin
@@ -3132,15 +3132,19 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           await logAudit(kv, { route: url.pathname, action: 'music_upload', target: track.title + ' — ' + track.artist });
           return json({ ok: true, track });
         }
-        // Playlists → YouTube links: the owner and admins (see web/playlists.js).
+        // Playlists → YouTube links (see web/playlists.js): the owner and
+        // admins, in the phone app only. The YouTube key is the Worker secret
+        // YOUTUBE_API_KEY: it never leaves the Worker and is only used to look
+        // up a song nobody has looked up before.
         if (url.pathname.startsWith('/music/lists')) {
+          if (!fromApp()) return json({ ok: false, appOnly: true, error: 'Playlists work in the Agent Console app on your phone.' }, 403);
           const who = await staff();
           if (!who) return json({ ok: false, error: 'Playlists are for the owner and admins.' }, 403);
           if (!kv) return json({ ok: false, error: 'storage not configured' }, 503);
           const lists = await readLists(kv, who);
-          const ytKey = (env && env.YOUTUBE_API_KEY) || String(req.headers.get('X-GPA-YT-Key') || '').trim().slice(0, 100);
+          const ytKey = String((env && env.YOUTUBE_API_KEY) || '').trim();
           if (url.pathname === '/music/lists' && req.method === 'GET') {
-            return json({ ok: true, lists: lists.map(listSummary), canFind: !!ytKey, workerKey: !!(env && env.YOUTUBE_API_KEY) });
+            return json({ ok: true, lists: lists.map(listSummary), canFind: !!ytKey });
           }
           if (url.pathname === '/music/lists/one' && req.method === 'GET') {
             const l = lists.find((x) => x.id === url.searchParams.get('id'));
@@ -3162,19 +3166,31 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           if (url.pathname === '/music/lists/find' && req.method === 'POST') {
             const l = lists.find((x) => x.id === body.id);
             if (!l) return json({ ok: false, error: 'not found' }, 404);
-            if (!ytKey) return json({ ok: false, needKey: true, error: 'Finding videos needs a YouTube API key.', list: publicList(l) }, 200);
-            // A few songs per request (the console keeps asking until done),
-            // saved once per batch to spare KV writes.
-            let error = '', quota = false, done = 0;
+            // Songs someone already looked up come from the shared cache
+            // (ytm:<song>) and cost no YouTube search; only new songs are
+            // searched, a few per request (the app keeps asking until done).
+            let error = '', quota = false, searched = 0, changed = 0, scanned = 0, needKey = false;
             for (const t of l.tracks) {
-              if (done >= MATCH_BATCH) break;
+              if (searched >= MATCH_BATCH || scanned >= MATCH_SCAN) break;
               if (t.m !== undefined) continue;
-              try { t.m = await searchYouTube(env, ytKey, t); done++; }
-              catch (e) { error = e.message; quota = !!e.quota || !!e.badKey; break; }
+              scanned++;
+              const ck = await matchCacheKey(t);
+              const hit = await kv.get(ck, 'json');
+              if (hit && 'm' in hit) { t.m = hit.m; changed++; continue; }
+              if (!ytKey) { needKey = true; continue; }
+              try {
+                t.m = await searchYouTube(env, ytKey, t);
+                searched++; changed++;
+                await kv.put(ck, JSON.stringify({ m: t.m }), { expirationTtl: (t.m ? 60 : 7) * 24 * 3600 });
+              } catch (e) { error = e.message; quota = !!e.quota || !!e.badKey; break; }
             }
-            if (done) await writeLists(kv, who, lists);
+            if (changed) await writeLists(kv, who, lists);
+            if (needKey && !error) {
+              const pub = publicList(l);
+              return json({ ok: false, needKey: true, error: 'Finding videos needs the YouTube key on the Worker (YOUTUBE_API_KEY).', list: pub, more: false, searched }, 200);
+            }
             const pub = publicList(l);
-            return json({ ok: !error, error: error || undefined, stop: quota, list: pub, more: !error && pub.pending > 0 });
+            return json({ ok: !error, error: error || undefined, stop: quota, list: pub, more: !error && pub.pending > 0, searched });
           }
           if (url.pathname === '/music/lists/retry' && req.method === 'POST') {
             // Look a song up again (e.g. it found the wrong video).
@@ -3182,6 +3198,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             const i = Number(body.i);
             if (!l || !Number.isInteger(i) || !l.tracks[i]) return json({ ok: false, error: 'not found' }, 404);
             delete l.tracks[i].m;
+            await kv.delete(await matchCacheKey(l.tracks[i]));   // search again, not the cached answer
             await writeLists(kv, who, lists);
             return json({ ok: true, list: publicList(l) });
           }

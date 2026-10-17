@@ -11,10 +11,14 @@
 //     set (every song), otherwise Spotify's public embed page (up to the
 //     first 100 songs it shows).
 //   * Apple Music: the public web page's embedded data.
-// Finding videos needs a YouTube Data API key: the Worker's YOUTUBE_API_KEY,
-// or the key the person saved in the console (sent per request, never
-// stored). A search costs 100 of the key's 10,000 daily units, so about 100
-// songs a day per key; without a key every song gets a YouTube search link.
+// Finding videos needs a YouTube Data API key, the Worker secret
+// YOUTUBE_API_KEY (set in Cloudflare, never in the code or the browser). It
+// is used only for a song nobody has looked up before: every answer is kept
+// in a shared cache (ytm:<song>), so the same song in another playlist, or
+// for another admin, costs nothing. A search costs 100 of the key's 10,000
+// daily units, so about 100 new songs a day; without a key every song gets a
+// YouTube search link. Playlists are for the owner and admins, in the phone
+// app only (checked by the Worker).
 //
 // Base URLs can be pointed elsewhere for tests: SPOTIFY_WEB, SPOTIFY_API,
 // SPOTIFY_ACCOUNTS, APPLE_MUSIC_WEB, YOUTUBE_API.
@@ -22,6 +26,7 @@
 export const LISTS_MAX = 20;          // playlists kept per person
 export const LIST_MAX_TRACKS = 200;   // songs kept per playlist
 export const MATCH_BATCH = 8;         // YouTube searches per request
+export const MATCH_SCAN = 40;         // songs checked per request (cache hits are cheap)
 const listsKey = (who) => 'ytlists:' + String(who || '').trim().toLowerCase().slice(0, 40);
 const clean = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 const err = (message, status) => Object.assign(new Error(message), { status });
@@ -266,6 +271,12 @@ export async function searchYouTube(env, key, song) {
   }
   const items = (d.items || []).map((it) => ({ id: it.id && it.id.videoId, title: it.snippet && it.snippet.title, channel: it.snippet && it.snippet.channelTitle }));
   return pickVideo(song, items);
+}
+// Shared cache key for one song's YouTube answer (artist + title).
+export async function matchCacheKey(song) {
+  const id = norm(primaryArtist(song.a)) + '|' + norm(song.t);
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(id)));
+  return 'ytm:' + [...h.slice(0, 16)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 export const youtubeSearchUrl = (song) => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(((song.a ? primaryArtist(song.a) + ' ' : '') + song.t).trim());
 

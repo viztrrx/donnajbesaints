@@ -767,7 +767,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       music: ['feature', 'My music: upload your own songs, saved to your account on every device, and share them in chat for others to stream'],
       welcome: ['fix', 'Streaks count weekdays only; weekends don’t break them'] } },
     { at: '2026-10-18T00:30:00-04:00', commit: '', title: 'Playlist → YouTube links (owner and admins)', parts: {
-      music: ['feature', 'Playlists: paste a Spotify or Apple Music playlist or album link and get each song’s official YouTube video, organized by playlist and saved to your account'] } }
+      music: ['feature', 'Playlists: paste a Spotify or Apple Music playlist or album link and get each song’s official YouTube video, organized by playlist and saved to your account'] } },
+    { at: '2026-10-18T01:30:00-04:00', commit: '', title: 'Playlists: app only, Worker YouTube key', parts: {
+      music: ['fix', 'Playlists use the YouTube key stored on the Worker (a Cloudflare secret) and work only in the app; each song is looked up once'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -3459,15 +3461,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           </section>
           <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="lists">
             <div class="gpx-card-head">${GPS_ICONS.link}<div class="gpa-card-title">Playlist → YouTube links</div></div>
-            <p class="gpa-sub">Paste a Spotify or Apple Music playlist or album link. You get each song's official YouTube video, organized by playlist and saved to your account, on your phone and your computer. Only you and admins see this.</p>
+            <p class="gpa-sub">Paste a Spotify or Apple Music playlist or album link. You get each song's official YouTube video, organized by playlist and saved to your account. Only the owner and admins see this, in the app.</p>
             <div class="gpa-row gpx-composer">
               <input id="gpa-lists-url" class="gpa-input" placeholder="open.spotify.com/playlist/… or music.apple.com/…" aria-label="Spotify or Apple Music playlist link" autocomplete="off" />
               <button id="gpa-lists-go" class="gpa-btn primary" type="button">Get links</button>
             </div>
             <div id="gpa-lists-status" class="gpa-sub" role="status" aria-live="polite"></div>
             <div id="gpa-lists-key" class="gpa-lists-key" hidden>
-              <span>To find each song's exact video, add a free YouTube API key. Until then every song has a YouTube search link.</span>
-              <button id="gpa-lists-addkey" class="gpa-btn" type="button">Add a YouTube key</button>
+              <span>Finding each song's exact video needs the YouTube key on the Worker. The owner adds it in Cloudflare: Workers &amp; Pages → donnajbe → Settings → Variables and Secrets → Add → Secret, named <code>YOUTUBE_API_KEY</code>. Until then every song has a YouTube search link.</span>
             </div>
             <div id="gpa-lists-view" class="gpa-lists-view"></div>
             <div id="gpa-lists-player" class="gpa-sc-wrap"></div>
@@ -10572,26 +10573,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   });
   panel.querySelectorAll('.gpx-src[data-src="mine"]').forEach((b) => b.addEventListener('click', loadMine));
 
-  // ---- Playlists → YouTube links (owner and admins; web/playlists.js) ----
+  // ---- Playlists → YouTube links (owner and admins, app only; web/playlists.js) ----
   // The Worker reads the playlist's songs and finds each one's official
-  // video; this shows the links, organized by playlist. A YouTube key is the
-  // Worker's (YOUTUBE_API_KEY) or the one saved in this console, sent along.
+  // video with its own YouTube key (the YOUTUBE_API_KEY secret, which never
+  // reaches the browser); this shows the links, organized by playlist.
   const lists = {
     btn: panel.querySelector('.gpx-src[data-src="lists"]'), url: panel.querySelector('#gpa-lists-url'), go: panel.querySelector('#gpa-lists-go'),
     status: panel.querySelector('#gpa-lists-status'), keyBox: panel.querySelector('#gpa-lists-key'), view: panel.querySelector('#gpa-lists-view'),
     saved: panel.querySelector('#gpa-lists-saved'), player: panel.querySelector('#gpa-lists-player'), open: null, finding: false
   };
   const SERVICE_NAME = { spotify: 'Spotify', apple: 'Apple Music' };
-  const listsStaff = () => !!admGet(ADMIN_KEYS.TELE_TOKEN) || !!admGet(ADMIN_KEYS.OWNER_CODE) || ['admin', 'owner'].includes(sessionRole());
-  function listsHeaders(json) {
-    const h = { ...musicStaffHeaders(), ...(json ? { 'Content-Type': 'application/json' } : {}) };
-    let yk = '';
-    try { yk = (localStorage.getItem(YT_STORAGE_KEY) || '').trim(); } catch (e) { yk = ''; }
-    if (yk) h['X-GPA-YT-Key'] = yk;
-    return h;
-  }
+  const listsStaff = () => APP_MODE && (!!admGet(ADMIN_KEYS.TELE_TOKEN) || !!admGet(ADMIN_KEYS.OWNER_CODE) || ['admin', 'owner'].includes(sessionRole()));
   async function listsCall(path, body) {
-    const r = await fetch(musicBase() + withUser(path), { method: body ? 'POST' : 'GET', cache: 'no-store', headers: listsHeaders(!!body), body: body ? JSON.stringify(body) : undefined });
+    const r = await fetch(musicBase() + withUser(path), { method: body ? 'POST' : 'GET', cache: 'no-store', headers: { ...musicStaffHeaders(), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
     const d = await r.json().catch(() => ({}));
     if (r.status === 403 && !d.needKey) { refreshListsAccess(false); }
     if (!r.ok && !d.list) throw new Error(d.error || ('Playlists are unavailable (' + r.status + ')'));
@@ -10709,7 +10703,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       for (let guard = 0; guard < 60; guard++) {
         const d = await listsCall('/music/lists/find', { id });
         if (d.list && lists.open && lists.open.id === id) renderList(d.list);
-        if (d.needKey) { lists.keyBox.hidden = false; lists.status.textContent = 'Got ' + d.list.count + ' songs. Each has a YouTube search link; add a YouTube key to find the exact videos.'; break; }
+        if (d.needKey) { lists.keyBox.hidden = false; lists.status.textContent = 'Got ' + d.list.count + ' songs. Each has a YouTube search link until the YouTube key is added on the Worker.'; break; }
         if (d.error) { lists.status.textContent = d.error; break; }
         lists.status.textContent = d.more ? 'Finding videos… ' + (d.list.count - d.list.pending) + ' of ' + d.list.count : 'Found ' + d.list.found + ' of ' + d.list.count + ' songs on YouTube.';
         if (!d.more) break;
@@ -10737,10 +10731,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   lists.go.addEventListener('click', importList);
   lists.url.addEventListener('keydown', (e) => { if (e.key === 'Enter') importList(); });
-  panel.querySelector('#gpa-lists-addkey').addEventListener('click', () => {
-    try { localStorage.removeItem(YT_STORAGE_KEY); } catch (e) { /* ignore */ }
-    if (getYoutubeApiKey()) { lists.keyBox.hidden = true; lists.status.textContent = 'YouTube key saved on this device.'; if (lists.open && lists.open.pending) findAll(lists.open.id); }
-  });
   if (lists.btn) lists.btn.addEventListener('click', loadLists);
   // After start-up: the sign-in state is declared further down this file.
   setTimeout(() => { refreshListsAccess(); onSessionChange(() => refreshListsAccess()); }, 0);

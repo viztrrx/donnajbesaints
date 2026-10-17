@@ -12,8 +12,11 @@ list (rounds 1–3) was finished and pushed.
 
 ### Status right now
 - **Nothing is half-done.** All work from this session is on `main` and
-  deployed (pushing to `main` deploys; see below). The last commit:
-  **Playlists → YouTube links** (owner: "a tool that identifies the songs
+  deployed (pushing to `main` deploys; see below). The last commit: Playlists made **app only with the Worker's own YouTube
+  key** (owner: "make it so i can add a server youtube api key so it
+  doesn't live in the code… only available thru the web app to me as the
+  owner and the admins… only be used when it has to be used").
+  Before that: **Playlists → YouTube links** (owner: "a tool that identifies the songs
   in the playlist links either from apple music or spotify and gives me all
   the youtube links to those original songs organized by the playlist").
   Before that: **admins in the phone app** (owner's words: "make it so admins i have
@@ -162,7 +165,7 @@ firstSeen, lastSeen, streak) · `mod:<name>` · `usage:<day>:<name>`,
 (lockouts) · `chat-photo-rate:*`, `chat-voice-rate:*` · `mylib:<name>`
 (a person's My music list), `mylib:total` (bytes of everyone's uploads),
 `mylib-rate:<day>:<name>` · `ytlists:<name>` (Playlists → YouTube links),
-`ytlists-rate:<day>:<name>`.
+`ytlists-rate:<day>:<name>`, `ytm:<hash>` (one song's YouTube answer, shared).
 
 ### Inside the ChatRoom Durable Object (per room)
 Storage: `log` (newest 120 messages, a week), `reads` (read cursors),
@@ -346,8 +349,12 @@ Apple Music playlist or album link → the Worker reads the song list
 (Spotify Web API if `SPOTIFY_CLIENT_ID/SECRET`, else the public embed page's
 `__NEXT_DATA__`, first 100 songs; Apple: the page's `serialized-server-data`
 and JSON-LD) → `/music/lists/find` looks up 8 songs per call with the
-YouTube Data API (`YOUTUBE_API_KEY` or the console's saved key in
-`X-GPA-YT-Key`, never stored) and `pickVideo` prefers the artist's Topic /
+YouTube Data API with **only** the Worker secret `YOUTUBE_API_KEY` (the
+owner's wish: key in Cloudflare, not the code or the browser; a key sent by
+a browser is ignored), caching every answer in KV `ytm:<sha256 artist|title>`
+(60 days, 7 for no match) so each song is searched once across everyone;
+**app only**: `/music/lists*` refuses anything not `fromApp()` (403
+`appOnly`) and the button shows only in `APP_MODE`; `pickVideo` prefers the artist's Topic /
 VEVO / official channel and rejects covers, sped-up, live etc. **Links only,
 nothing downloaded** — the owner first asked to rip the songs to MP3; that
 was declined (copyright) and this was the agreed alternative; don't add a
@@ -376,7 +383,8 @@ real client build is separate, see `eaglercraft/README.md`), Saints Command.
 
 | Commit | What |
 |---|---|
-| (this) | Playlists → YouTube links (owner + admins) |
+| (this) | Playlists: app only, Worker YouTube key, shared lookup cache |
+| `a11eeaa` | Playlists → YouTube links (owner + admins) |
 | `c073296` | Admins: phone app for owner + admins, no admin token, two devices |
 | `ef627f0` | Streaks: start on any weekday |
 | `ee82ee3` | Weekday streaks; My music (personal uploads, shareable) |
@@ -431,7 +439,7 @@ node tests/browser/fun.mjs                 # 18
 node tests/browser/music.mjs               # 15
 node tests/browser/my-music.mjs            # 15
 node tests/browser/admin-app.mjs           # 20
-node tests/browser/playlists.mjs           # 17
+node tests/browser/playlists.mjs           # 21
 node tests/browser/usage-meter.mjs         # 16
 node tests/browser/usage-meter-sizes.mjs   # 25
 node tests/browser/ask-photo-size.mjs      # 6

@@ -102,60 +102,86 @@ test('playlists: reads Spotify (embed) and Apple Music pages', async () => {
   } finally { f.restore(); }
 });
 
-test('playlists: owner and admins only; import, find videos, saved per account, copy-ready', async () => {
+test('playlists: owner and admins, app only; Worker key only; each song searched once', async () => {
   const f = stubFetch({ quotaAfter: 2 });
   try {
     const env = { TELEMETRY: makeKV(), ADMIN_TOKEN: ADMIN, OWNER: 'boss' };
-    const call = async (path, { method = 'GET', headers = {}, body } = {}) => {
-      const res = await worker.fetch(new Request('https://w.test' + path, { method, headers: { 'CF-Connecting-IP': '1.2.3.4', ...headers }, body: body == null ? undefined : JSON.stringify(body) }), env, { waitUntil() {} });
-      return { status: res.status, data: await res.json().catch(() => ({})) };
+    const APP = { Origin: 'https://w.test', Referer: 'https://w.test/console/' };
+    const call = async (path, { method = 'GET', headers = {}, body, app = true } = {}) => {
+      const res = await worker.fetch(new Request('https://w.test' + path, { method, headers: { 'CF-Connecting-IP': '1.2.3.4', ...(app ? APP : { Origin: 'https://school.example' }), ...headers }, body: body == null ? undefined : JSON.stringify(body) }), env, { waitUntil() {} });
+      return { status: res.status, data: await res.json().catch(() => ({})), text: '' };
     };
-    // A regular user can't.
+    const searches = () => f.seen.filter((u) => u.startsWith('https://www.googleapis.com/')).length;
+    const SP = 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=1';
+    // Not in the app (a website, or no origin at all): refused, even for the owner.
+    const web = await call('/music/lists?user=boss', { headers: owner, app: false });
+    assert.equal(web.status, 403);
+    assert.equal(web.data.appOnly, true);
+    assert.equal((await worker.fetch(new Request('https://w.test/music/lists?user=boss', { headers: owner }), env, { waitUntil() {} })).status, 403);
+    // A regular user, in the app: refused.
     assert.equal((await call('/music/lists?user=kj')).status, 403);
-    assert.equal((await call('/music/lists/import?user=kj', { method: 'POST', body: { url: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M' } })).status, 403);
-    // The owner imports a playlist.
-    const imp = await call('/music/lists/import?user=boss', { method: 'POST', headers: owner, body: { url: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=1' } });
+    // The owner, in the app: imports a playlist.
+    const imp = await call('/music/lists/import?user=boss', { method: 'POST', headers: owner, body: { url: SP } });
     assert.equal(imp.status, 200, JSON.stringify(imp.data));
     const id = imp.data.list.id;
     assert.equal(imp.data.list.count, 3);
     assert.equal(imp.data.list.pending, 3);
     assert.match(imp.data.list.tracks[0].search, /^https:\/\/www\.youtube\.com\/results\?search_query=The%20Weeknd%20Blinding%20Lights$/);
-    // No key: search links only.
+    // No key on the Worker: search links only, and nothing is searched.
     const nokey = await call('/music/lists/find?user=boss', { method: 'POST', headers: owner, body: { id } });
     assert.equal(nokey.data.needKey, true);
-    // With the console's saved key (sent per request): two found, then the key's quota runs out.
-    const yt = { ...owner, 'X-GPA-YT-Key': 'yt-key-1' };
-    const r1 = await call('/music/lists/find?user=boss', { method: 'POST', headers: yt, body: { id } });
+    assert.equal(searches(), 0);
+    // A key sent by the browser is ignored: only the Worker's own key is used.
+    await call('/music/lists/find?user=boss', { method: 'POST', headers: { ...owner, 'X-GPA-YT-Key': 'yt-key-1' }, body: { id } });
+    assert.equal(searches(), 0);
+    // The owner adds YOUTUBE_API_KEY in Cloudflare: two found, then the key's daily quota runs out.
+    env.YOUTUBE_API_KEY = 'yt-key-1';
+    assert.equal((await call('/music/lists?user=boss', { headers: owner })).data.canFind, true);
+    const r1 = await call('/music/lists/find?user=boss', { method: 'POST', headers: owner, body: { id } });
     assert.equal(r1.data.list.tracks[0].m.id, '4NRXx6U8ABQ');
     assert.equal(r1.data.list.tracks[1].m.id, 'TUVcZfQe-Kw');
     assert.equal(r1.data.list.tracks[2].m, undefined);
     assert.equal(r1.data.stop, true);
     assert.match(r1.data.error, /used up today/);
-    // Saved: the list (with what was found) is there on the next load, from any device.
+    assert.ok(!JSON.stringify(r1.data).includes('yt-key-1'), 'the key never leaves the Worker');
+    // Saved on the account.
     const all = await call('/music/lists?user=boss', { headers: owner });
     assert.deepEqual(all.data.lists.map((l) => [l.name, l.count, l.found, l.pending]), [['Late Night Drive', 3, 2, 1]]);
-    // Next day (quota back): the last song has no clear video → search link.
+    // Next day: the last song has no clear video → search link.
     f.restore();
     const g = stubFetch();
     try {
-      const r2 = await call('/music/lists/find?user=boss', { method: 'POST', headers: yt, body: { id } });
+      const r2 = await call('/music/lists/find?user=boss', { method: 'POST', headers: owner, body: { id } });
       assert.equal(r2.data.list.tracks[2].m, null);
       assert.equal(r2.data.more, false);
-      assert.equal(r2.data.list.found, 2);
-      // A wrong key is reported, not hidden.
+      assert.equal(r2.data.searched, 1);
+      const gSearches = () => g.seen.filter((u) => u.startsWith('https://www.googleapis.com/')).length;
+      // An admin imports the same playlist: every song comes from the shared
+      // cache, so the key isn't used at all.
+      const v = (u) => (u + '0'.repeat(64)).slice(0, 64).replace(/[^0-9a-f]/g, 'a');
+      await call('/auth/register', { method: 'POST', body: { user: 'ana', verifier: v('ana') }, app: false });
+      await call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'ana', action: 'setrole', role: 'admin' }, app: false });
+      const tok = (await call('/auth/login', { method: 'POST', body: { user: 'ana', verifier: v('ana') } })).data.token;
+      const anaH = { 'X-GPA-Session': tok };
+      const before = gSearches();
+      const aImp = await call('/music/lists/import?user=ana', { method: 'POST', headers: anaH, body: { url: SP } });
+      const aFind = await call('/music/lists/find?user=ana', { method: 'POST', headers: anaH, body: { id: aImp.data.list.id } });
+      assert.deepEqual(aFind.data.list.tracks.map((t) => t.m && t.m.id), ['4NRXx6U8ABQ', 'TUVcZfQe-Kw', null]);
+      assert.equal(aFind.data.searched, 0);
+      assert.equal(gSearches(), before, 'no YouTube searches for songs already looked up');
+      // Her lists are hers; the owner's aren't.
+      assert.deepEqual((await call('/music/lists?user=ana', { headers: anaH })).data.lists.map((l) => l.name), ['Late Night Drive']);
+      assert.equal((await call('/music/lists/one?user=ana&id=' + id, { headers: anaH })).status, 404);
+      // "Look it up again" really searches again (skips the cache).
       await call('/music/lists/retry?user=boss', { method: 'POST', headers: owner, body: { id, i: 0 } });
-      const bad = await call('/music/lists/find?user=boss', { method: 'POST', headers: { ...owner, 'X-GPA-YT-Key': 'wrong' }, body: { id } });
+      const r3 = await call('/music/lists/find?user=boss', { method: 'POST', headers: owner, body: { id } });
+      assert.equal(r3.data.searched, 1);
+      // A wrong key on the Worker is reported, not hidden.
+      env.YOUTUBE_API_KEY = 'wrong';
+      await call('/music/lists/retry?user=boss', { method: 'POST', headers: owner, body: { id, i: 0 } });
+      const bad = await call('/music/lists/find?user=boss', { method: 'POST', headers: owner, body: { id } });
       assert.match(bad.data.error, /refused the key/);
     } finally { g.restore(); }
-    // An admin has their own lists; the owner's aren't theirs.
-    const v = (u) => (u + '0'.repeat(64)).slice(0, 64).replace(/[^0-9a-f]/g, 'a');
-    await call('/auth/register', { method: 'POST', body: { user: 'ana', verifier: v('ana') } });
-    await call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'ana', action: 'setrole', role: 'admin' } });
-    const tok = (await call('/auth/login', { method: 'POST', body: { user: 'ana', verifier: v('ana') } })).data.token;
-    const ana = await call('/music/lists?user=ana', { headers: { 'X-GPA-Session': tok } });
-    assert.equal(ana.status, 200);
-    assert.deepEqual(ana.data.lists, []);
-    assert.equal((await call('/music/lists/one?user=ana&id=' + id, { headers: { 'X-GPA-Session': tok } })).status, 404);
     // Delete.
     assert.deepEqual((await call('/music/lists/delete?user=boss', { method: 'POST', headers: owner, body: { id } })).data.lists, []);
   } finally { f.restore(); }

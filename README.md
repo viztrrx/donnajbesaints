@@ -90,19 +90,25 @@ The Music tab needs no YouTube key and no sign-in:
   room gets a ▶ Play card that streams it from your Worker. Deleting a song
   removes it for everyone it was shared with. Shared library and personal uploads together stay
   under the same ~9.5 GB R2 limit.
-- **Playlists** (you and admins only): paste a Spotify or Apple Music
-  playlist or album link and get every song's official YouTube video, in
-  order, organized by playlist and saved to your account (phone and
-  computer). Each song has a **YouTube ↗** link and ▶ to play it in the
+- **Playlists** (you and admins only, in the web app at `/console/` only):
+  paste a Spotify or Apple Music playlist or album link and get every song's
+  official YouTube video, in order, organized by playlist and saved to your
+  account. Each song has a **YouTube ↗** link and ▶ to play it in the
   console; **Copy all links** copies the playlist as a numbered list, and
   **Play all on YouTube** opens the first 50 as a YouTube queue. Songs with
   no clear official video get a YouTube search link instead. Nothing is
   downloaded: these are links to YouTube.
-  - Finding the videos uses the YouTube Data API: set `YOUTUBE_API_KEY` on
-    the Worker (Settings → Variables and Secrets → Secret), or tap **Add a
-    YouTube key** in the console (kept on that device and sent with each
-    request, never stored by the Worker). A free key covers about 100 songs
-    a day; the rest are found the next day. Without a key every song gets a
+  - Finding the videos uses the YouTube Data API with **your key as a
+    Cloudflare secret** (never in the code or the browser): Cloudflare →
+    Workers & Pages → `donnajbe` → Settings → Variables and Secrets → **Add**
+    → Type **Secret**, name `YOUTUBE_API_KEY`, value your key → Deploy. Only
+    the Worker uses it, only for Playlists, only for you and admins, and only
+    for requests from the web app (it refuses the console on other websites).
+  - The key is used only when it has to be: a song is searched once, and the
+    answer is kept for everyone (60 days; 7 for "no clear video"), so the same
+    song in another playlist or for another admin costs nothing, and opening
+    saved playlists never searches. A free key covers about 100 new songs a
+    day; the rest are found the next day. Without the key every song gets a
     YouTube search link.
   - Spotify playlists are read from Spotify's public embed page, which shows
     the first 100 songs. For longer playlists, add `SPOTIFY_CLIENT_ID` and
