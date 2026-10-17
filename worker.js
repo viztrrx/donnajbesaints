@@ -1,5 +1,6 @@
 import { webApp } from './web/handler.js';
 import { consoleApp } from './web/console/handler.js';
+import { readPlaylist, readLists, writeLists, newList, listSummary, publicList, searchYouTube, LISTS_MAX, MATCH_BATCH } from './web/playlists.js';
 import { audiusSearch, audiusStream, listLibrary, addToLibrary, removeFromLibrary, serveLibraryFile, audioKind, listMine, mineUsage, addToMine, removeFromMine, MINE_DAILY_UPLOADS } from './web/music.js';
 import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime, cleanCategories, anySubscriberWants,
   ownerHour, addUserSubscription, findUserSubscription, removeUserSubscription, userHasAlerts, notifyUser } from './web/console/push.js';
@@ -108,7 +109,7 @@ export { ChatRoom };
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key, X-GPA-User, X-GPA-Owner, X-GPA-Session, X-GPA-Mobile, X-Operation-ID',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key, X-GPA-User, X-GPA-Owner, X-GPA-Session, X-GPA-Mobile, X-Operation-ID, X-GPA-YT-Key',
   'Access-Control-Max-Age': '86400'
 };
 // Applied to every response this worker generates itself. no-store keeps admin
@@ -3130,6 +3131,67 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           const track = await addToLibrary(env, form, who);
           await logAudit(kv, { route: url.pathname, action: 'music_upload', target: track.title + ' — ' + track.artist });
           return json({ ok: true, track });
+        }
+        // Playlists → YouTube links: the owner and admins (see web/playlists.js).
+        if (url.pathname.startsWith('/music/lists')) {
+          const who = await staff();
+          if (!who) return json({ ok: false, error: 'Playlists are for the owner and admins.' }, 403);
+          if (!kv) return json({ ok: false, error: 'storage not configured' }, 503);
+          const lists = await readLists(kv, who);
+          const ytKey = (env && env.YOUTUBE_API_KEY) || String(req.headers.get('X-GPA-YT-Key') || '').trim().slice(0, 100);
+          if (url.pathname === '/music/lists' && req.method === 'GET') {
+            return json({ ok: true, lists: lists.map(listSummary), canFind: !!ytKey, workerKey: !!(env && env.YOUTUBE_API_KEY) });
+          }
+          if (url.pathname === '/music/lists/one' && req.method === 'GET') {
+            const l = lists.find((x) => x.id === url.searchParams.get('id'));
+            return l ? json({ ok: true, list: publicList(l) }) : json({ ok: false, error: 'not found' }, 404);
+          }
+          let body = {};
+          if (req.method === 'POST') { try { const raw = await req.text(); if (raw.length > 4096) throw 0; body = JSON.parse(raw) || {}; } catch (e) { return json({ ok: false, error: 'invalid request' }, 400); } }
+          if (url.pathname === '/music/lists/import' && req.method === 'POST') {
+            const rk = 'ytlists-rate:' + dayKey() + ':' + String(who).toLowerCase();
+            const n = parseInt(await kv.get(rk), 10) || 0;
+            if (n >= 30) return json({ ok: false, error: 'That’s 30 playlists today. Try again tomorrow.' }, 429);
+            const read = await readPlaylist(env, body.url);
+            const l = newList(read);
+            const keep = [l, ...lists.filter((x) => x.url !== l.url)].slice(0, LISTS_MAX);
+            await writeLists(kv, who, keep);
+            await kv.put(rk, String(n + 1), { expirationTtl: 2 * 24 * 3600 });
+            return json({ ok: true, list: publicList(l), replaced: lists.some((x) => x.url === l.url) });
+          }
+          if (url.pathname === '/music/lists/find' && req.method === 'POST') {
+            const l = lists.find((x) => x.id === body.id);
+            if (!l) return json({ ok: false, error: 'not found' }, 404);
+            if (!ytKey) return json({ ok: false, needKey: true, error: 'Finding videos needs a YouTube API key.', list: publicList(l) }, 200);
+            // A few songs per request (the console keeps asking until done),
+            // saved once per batch to spare KV writes.
+            let error = '', quota = false, done = 0;
+            for (const t of l.tracks) {
+              if (done >= MATCH_BATCH) break;
+              if (t.m !== undefined) continue;
+              try { t.m = await searchYouTube(env, ytKey, t); done++; }
+              catch (e) { error = e.message; quota = !!e.quota || !!e.badKey; break; }
+            }
+            if (done) await writeLists(kv, who, lists);
+            const pub = publicList(l);
+            return json({ ok: !error, error: error || undefined, stop: quota, list: pub, more: !error && pub.pending > 0 });
+          }
+          if (url.pathname === '/music/lists/retry' && req.method === 'POST') {
+            // Look a song up again (e.g. it found the wrong video).
+            const l = lists.find((x) => x.id === body.id);
+            const i = Number(body.i);
+            if (!l || !Number.isInteger(i) || !l.tracks[i]) return json({ ok: false, error: 'not found' }, 404);
+            delete l.tracks[i].m;
+            await writeLists(kv, who, lists);
+            return json({ ok: true, list: publicList(l) });
+          }
+          if (url.pathname === '/music/lists/delete' && req.method === 'POST') {
+            const keep = lists.filter((x) => x.id !== body.id);
+            if (keep.length === lists.length) return json({ ok: false, error: 'not found' }, 404);
+            await writeLists(kv, who, keep);
+            return json({ ok: true, lists: keep.map(listSummary) });
+          }
+          return json({ ok: false, error: 'not found' }, 404);
         }
         // My music: the signed-in person's own uploads (see web/music.js).
         if (url.pathname.startsWith('/music/mine')) {

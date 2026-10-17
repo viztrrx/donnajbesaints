@@ -13,7 +13,10 @@ list (rounds 1–3) was finished and pushed.
 ### Status right now
 - **Nothing is half-done.** All work from this session is on `main` and
   deployed (pushing to `main` deploys; see below). The last commit:
-  **admins in the phone app** (owner's words: "make it so admins i have
+  **Playlists → YouTube links** (owner: "a tool that identifies the songs
+  in the playlist links either from apple music or spotify and gives me all
+  the youtube links to those original songs organized by the playlist").
+  Before that: **admins in the phone app** (owner's words: "make it so admins i have
   listed can also add the console agent to their phone with the same exact
   features as me just as admin… they dont have to put the ADMIN_TOKEN…
   only the admin no other user will have access to the app… their music
@@ -141,7 +144,8 @@ after Proxy, before Games.
 `OWNER_TZ` (default New York), `EAGLER_*`, `ALLOW_QUERY_TOKEN`, optional
 `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (else generated into
 KV `push:vapid`), `CONSOLE_SCRIPT_URL`, `AUDIUS_API`,
-`APNS_RELAY_URL`/`APNS_RELAY_SECRET`.
+`APNS_RELAY_URL`/`APNS_RELAY_SECRET`, optional `YOUTUBE_API_KEY`,
+`SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET` (Playlists).
 
 ### KV keys (TELEMETRY)
 `config` (allowlist, subscriptions, subLedger, chatQuiet, fun, flair,
@@ -157,7 +161,8 @@ firstSeen, lastSeen, streak) · `mod:<name>` · `usage:<day>:<name>`,
 `dismiss:<name>` · `key:openai:<name|*>` · `mem:u:<name>` · `fail:*`
 (lockouts) · `chat-photo-rate:*`, `chat-voice-rate:*` · `mylib:<name>`
 (a person's My music list), `mylib:total` (bytes of everyone's uploads),
-`mylib-rate:<day>:<name>`.
+`mylib-rate:<day>:<name>` · `ytlists:<name>` (Playlists → YouTube links),
+`ytlists-rate:<day>:<name>`.
 
 ### Inside the ChatRoom Durable Object (per room)
 Storage: `log` (newest 120 messages, a week), `reads` (read cursors),
@@ -335,6 +340,23 @@ account to any device. Caps in `web/music.js`: 50 songs / 300 MB each,
 `'mine'` is accepted by `/chat/send`. The owner/admins can delete anyone's
 upload by id (API only, no button). **Not verified against real Audius** (blocked from the dev
 container). Tests: `music.test.mjs`, `music.mjs`, `my-music.mjs`.
+**Playlists → YouTube links** (owner + admins; `web/playlists.js`, routes
+`/music/lists*` gated by `staff()`, KV `ytlists:<who>`): paste a Spotify /
+Apple Music playlist or album link → the Worker reads the song list
+(Spotify Web API if `SPOTIFY_CLIENT_ID/SECRET`, else the public embed page's
+`__NEXT_DATA__`, first 100 songs; Apple: the page's `serialized-server-data`
+and JSON-LD) → `/music/lists/find` looks up 8 songs per call with the
+YouTube Data API (`YOUTUBE_API_KEY` or the console's saved key in
+`X-GPA-YT-Key`, never stored) and `pickVideo` prefers the artist's Topic /
+VEVO / official channel and rejects covers, sped-up, live etc. **Links only,
+nothing downloaded** — the owner first asked to rip the songs to MP3; that
+was declined (copyright) and this was the agreed alternative; don't add a
+download/convert step. **Never verified against the real Spotify, Apple
+Music or YouTube** (all blocked from the dev container); tests use
+stand-ins via `SPOTIFY_WEB`/`APPLE_MUSIC_WEB`/`YOUTUBE_API`. If the owner
+says a link "found no songs", the page format probably changed: start in
+`readSpotifyEmbed` / `readApple`. Tests: `playlists.test.mjs`,
+`playlists.mjs`.
 
 ### 4.7 AI and memory limits
 Ask AI goes through `/v1/*` (assigned keys stay server-side). Photos are
@@ -354,7 +376,8 @@ real client build is separate, see `eaglercraft/README.md`), Saints Command.
 
 | Commit | What |
 |---|---|
-| (this) | Admins: phone app for owner + admins, no admin token, two devices |
+| (this) | Playlists → YouTube links (owner + admins) |
+| `c073296` | Admins: phone app for owner + admins, no admin token, two devices |
 | `ef627f0` | Streaks: start on any weekday |
 | `ee82ee3` | Weekday streaks; My music (personal uploads, shareable) |
 | `d3fd527` | HANDOFF rewrite |
@@ -384,7 +407,7 @@ real client build is separate, see `eaglercraft/README.md`), Saints Command.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (103 tests)
+npm test                                   # node --test tests/*.test.mjs (107 tests)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundle/config check, deploys nothing
 # Browser suites (Playwright vs local workerd), each takes an output dir for screenshots:
 node tests/browser/eaglercraft.e2e.mjs     # 83
@@ -408,6 +431,7 @@ node tests/browser/fun.mjs                 # 18
 node tests/browser/music.mjs               # 15
 node tests/browser/my-music.mjs            # 15
 node tests/browser/admin-app.mjs           # 20
+node tests/browser/playlists.mjs           # 17
 node tests/browser/usage-meter.mjs         # 16
 node tests/browser/usage-meter-sizes.mjs   # 25
 node tests/browser/ask-photo-size.mjs      # 6

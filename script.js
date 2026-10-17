@@ -765,7 +765,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       welcome: ['feature', 'Your day streak'] } },
     { at: '2026-10-17T23:30:00-04:00', commit: '', title: 'My music and weekday streaks', parts: {
       music: ['feature', 'My music: upload your own songs, saved to your account on every device, and share them in chat for others to stream'],
-      welcome: ['fix', 'Streaks count weekdays only; weekends don’t break them'] } }
+      welcome: ['fix', 'Streaks count weekdays only; weekends don’t break them'] } },
+    { at: '2026-10-18T00:30:00-04:00', commit: '', title: 'Playlist → YouTube links (owner and admins)', parts: {
+      music: ['feature', 'Playlists: paste a Spotify or Apple Music playlist or album link and get each song’s official YouTube video, organized by playlist and saved to your account'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1237,6 +1239,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       /* ---- Music ---- */
       .gpx-seg { flex-shrink: 0; }
       .gpx-seg .gps-seg-btn, .gpx-seg-inline .gps-seg-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+      .gpx-seg .gps-seg-btn[hidden] { display: none; }
       .gpx-seg svg, .gpx-seg-inline svg { width: 16px; height: 16px; }
       .gpx-seg-inline { display: inline-grid; }
       .gpx-src-panel { display: none; }
@@ -2031,6 +2034,32 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-track-main:hover .gpa-track-play, .gpa-track.is-playing .gpa-track-play { color: var(--gpa-accent-fg); background: var(--gpa-accent); }
       .gpa-panel.gpa-narrow .gpa-track-src { display: none; }
       @media (pointer: coarse) { .gpa-track-main { min-height: 56px; } }
+      /* Playlist → YouTube links */
+      .gpa-lists-key { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 8px 0; padding: 10px 12px; border-radius: var(--gps-r2); border: 1px dashed var(--gpa-border); font-size: 12.5px; color: var(--gpa-sub); }
+      .gpa-lists-key[hidden] { display: none; }
+      .gpa-lists-view:empty, .gpa-lists-saved:empty, #gpa-lists-player:empty { display: none; }
+      .gpa-yl-head { display: flex; gap: 12px; align-items: center; margin: 10px 0 8px; }
+      .gpa-yl-art { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; flex-shrink: 0; background: var(--gpa-field); }
+      .gpa-yl-name { font-size: 15px; font-weight: 650; }
+      .gpa-yl-meta { font-size: 12px; color: var(--gpa-sub); }
+      .gpa-yl-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+      .gpa-yl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; counter-reset: yl; }
+      .gpa-yl-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--gps-r2); }
+      .gpa-yl-row:hover { background: var(--gpa-field); }
+      .gpa-yl-n { width: 24px; flex-shrink: 0; text-align: right; font-size: 12px; color: var(--gpa-sub); font-variant-numeric: tabular-nums; }
+      .gpa-yl-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .gpa-yl-t { font-size: 13.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gpa-yl-a { font-size: 12px; color: var(--gpa-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gpa-yl-link { flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--gpa-accent); text-decoration: none; padding: 4px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--gpa-accent) 40%, var(--gpa-border)); white-space: nowrap; }
+      .gpa-yl-link.search { color: var(--gpa-sub); border-color: var(--gpa-border); font-weight: 500; }
+      .gpa-yl-link.wait { color: var(--gpa-sub); border-style: dashed; border-color: var(--gpa-border); font-weight: 500; }
+      .gpa-yl-play { flex-shrink: 0; }
+      .gpa-lists-saved .gpa-tracks-head { margin-top: 18px; }
+      .gpa-yl-saved { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+      .gpa-yl-saved button.gpa-yl-open { flex: 1; min-width: 0; text-align: left; background: transparent; border: 1px solid transparent; color: var(--gpa-text); font: inherit; padding: 8px 10px; border-radius: var(--gps-r2); cursor: pointer; display: flex; flex-direction: column; }
+      .gpa-yl-saved button.gpa-yl-open:hover { background: var(--gpa-field); border-color: var(--gpa-border); }
+      .gpa-yl-saved li { display: flex; align-items: center; gap: 4px; }
+      .gpa-yl-saved li.is-open button.gpa-yl-open { border-color: color-mix(in srgb, var(--gpa-accent) 40%, var(--gpa-border)); }
 
       /* ---- Sign-in: request access ---- */
       .gpa-login-request[hidden] { display: none; }
@@ -3392,6 +3421,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <button class="gps-seg-btn gpx-src" data-src="search">${gpxLbl('search', 'Search')}</button>
             <button class="gps-seg-btn gpx-src" data-src="shared">${gpxLbl('users', 'Shared')}</button>
             <button class="gps-seg-btn gpx-src" data-src="mine">${gpxLbl('upload', 'My music')}</button>
+            <button class="gps-seg-btn gpx-src" data-src="lists" hidden>${gpxLbl('link', 'Playlists')}</button>
             <button class="gps-seg-btn gpx-src" data-src="soundcloud">${gpxLbl('link', 'SoundCloud')}</button>
             <button class="gps-seg-btn gpx-src" data-src="library">${gpxLbl('music', 'This device')}</button>
           </div>
@@ -3426,6 +3456,22 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <div id="gpa-mine-usage" class="gpa-sub"></div>
             <div id="gpa-mine-status" class="gpa-sub" role="status" aria-live="polite"></div>
             <div id="gpa-mine-list" class="gpa-tracks-wrap"></div>
+          </section>
+          <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="lists">
+            <div class="gpx-card-head">${GPS_ICONS.link}<div class="gpa-card-title">Playlist → YouTube links</div></div>
+            <p class="gpa-sub">Paste a Spotify or Apple Music playlist or album link. You get each song's official YouTube video, organized by playlist and saved to your account, on your phone and your computer. Only you and admins see this.</p>
+            <div class="gpa-row gpx-composer">
+              <input id="gpa-lists-url" class="gpa-input" placeholder="open.spotify.com/playlist/… or music.apple.com/…" aria-label="Spotify or Apple Music playlist link" autocomplete="off" />
+              <button id="gpa-lists-go" class="gpa-btn primary" type="button">Get links</button>
+            </div>
+            <div id="gpa-lists-status" class="gpa-sub" role="status" aria-live="polite"></div>
+            <div id="gpa-lists-key" class="gpa-lists-key" hidden>
+              <span>To find each song's exact video, add a free YouTube API key. Until then every song has a YouTube search link.</span>
+              <button id="gpa-lists-addkey" class="gpa-btn" type="button">Add a YouTube key</button>
+            </div>
+            <div id="gpa-lists-view" class="gpa-lists-view"></div>
+            <div id="gpa-lists-player" class="gpa-sc-wrap"></div>
+            <div id="gpa-lists-saved" class="gpa-lists-saved"></div>
           </section>
           <section class="gpa-card gpx-card gpx-src-panel" data-src-panel="soundcloud">
             <div class="gpx-card-head">${GPS_ICONS.link}<div class="gpa-card-title">SoundCloud link</div></div>
@@ -10525,10 +10571,185 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     mineStatus.textContent = [ok ? `Added ${ok} ${ok === 1 ? 'song' : 'songs'}.` : '', failed].filter(Boolean).join(' ') || mineStatus.textContent;
   });
   panel.querySelectorAll('.gpx-src[data-src="mine"]').forEach((b) => b.addEventListener('click', loadMine));
+
+  // ---- Playlists → YouTube links (owner and admins; web/playlists.js) ----
+  // The Worker reads the playlist's songs and finds each one's official
+  // video; this shows the links, organized by playlist. A YouTube key is the
+  // Worker's (YOUTUBE_API_KEY) or the one saved in this console, sent along.
+  const lists = {
+    btn: panel.querySelector('.gpx-src[data-src="lists"]'), url: panel.querySelector('#gpa-lists-url'), go: panel.querySelector('#gpa-lists-go'),
+    status: panel.querySelector('#gpa-lists-status'), keyBox: panel.querySelector('#gpa-lists-key'), view: panel.querySelector('#gpa-lists-view'),
+    saved: panel.querySelector('#gpa-lists-saved'), player: panel.querySelector('#gpa-lists-player'), open: null, finding: false
+  };
+  const SERVICE_NAME = { spotify: 'Spotify', apple: 'Apple Music' };
+  const listsStaff = () => !!admGet(ADMIN_KEYS.TELE_TOKEN) || !!admGet(ADMIN_KEYS.OWNER_CODE) || ['admin', 'owner'].includes(sessionRole());
+  function listsHeaders(json) {
+    const h = { ...musicStaffHeaders(), ...(json ? { 'Content-Type': 'application/json' } : {}) };
+    let yk = '';
+    try { yk = (localStorage.getItem(YT_STORAGE_KEY) || '').trim(); } catch (e) { yk = ''; }
+    if (yk) h['X-GPA-YT-Key'] = yk;
+    return h;
+  }
+  async function listsCall(path, body) {
+    const r = await fetch(musicBase() + withUser(path), { method: body ? 'POST' : 'GET', cache: 'no-store', headers: listsHeaders(!!body), body: body ? JSON.stringify(body) : undefined });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 403 && !d.needKey) { refreshListsAccess(false); }
+    if (!r.ok && !d.list) throw new Error(d.error || ('Playlists are unavailable (' + r.status + ')'));
+    return d;
+  }
+  function refreshListsAccess(force) {
+    const on = force === undefined ? listsStaff() : force;
+    if (lists.btn) lists.btn.hidden = !on;
+    if (!on && lists.btn && lists.btn.classList.contains('primary')) { const s = panel.querySelector('.gpx-src[data-src="search"]'); if (s) s.click(); }
+  }
+  const ytUrl = (m) => 'https://youtu.be/' + m.id;
+  function listText(l) {
+    const head = l.name + ' (' + (SERVICE_NAME[l.service] || '') + ' ' + l.kind + (l.by ? ', ' + l.by : '') + ')';
+    return head + '\n' + l.tracks.map((t, i) => (i + 1) + '. ' + t.t + (t.a ? ' — ' + t.a : '') + ': ' + (t.m ? ytUrl(t.m) : t.search + ' (search)')).join('\n');
+  }
+  function renderList(l) {
+    lists.open = l;
+    lists.view.innerHTML = '';
+    if (!l) return;
+    const head = document.createElement('div');
+    head.className = 'gpa-yl-head';
+    if (l.image) { const img = document.createElement('img'); img.className = 'gpa-yl-art'; img.alt = ''; img.src = l.image; img.onerror = () => img.remove(); head.appendChild(img); }
+    const txt = document.createElement('div');
+    const nm = document.createElement('div'); nm.className = 'gpa-yl-name'; nm.textContent = l.name;
+    const meta = document.createElement('div'); meta.className = 'gpa-yl-meta';
+    meta.textContent = [SERVICE_NAME[l.service] + ' ' + l.kind, l.by, l.count + (l.count === 1 ? ' song' : ' songs'), l.found + ' on YouTube' + (l.pending ? ' · ' + l.pending + ' to look up' : '')].filter(Boolean).join(' · ')
+      + (l.partial ? ' · Spotify shows the first 100 songs without app keys' : '');
+    txt.appendChild(nm); txt.appendChild(meta); head.appendChild(txt);
+    lists.view.appendChild(head);
+    const actions = document.createElement('div');
+    actions.className = 'gpa-yl-actions';
+    const mk = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'gpa-btn ' + (cls || ''); b.textContent = label; b.addEventListener('click', fn); actions.appendChild(b); return b; };
+    mk('Copy all links', async () => {
+      try { await navigator.clipboard.writeText(listText(l)); showToast('Copied ' + l.count + ' links for “' + l.name + '”.'); }
+      catch (e) { showToast('Couldn’t copy. Select the links instead.', { type: 'danger' }); }
+    }, 'primary');
+    const ids = l.tracks.filter((t) => t.m).map((t) => t.m.id).slice(0, 50);
+    if (ids.length) mk('Play all on YouTube', () => window.open('https://www.youtube.com/watch_videos?video_ids=' + ids.join(','), '_blank', 'noopener'));
+    mk('Open in ' + (SERVICE_NAME[l.service] || 'app'), () => window.open(l.url, '_blank', 'noopener'), 'gpx-btn-ghost');
+    if (l.pending && !lists.finding) mk('Find the rest', () => findAll(l.id));
+    mk('Delete', async () => {
+      if (!confirm('Delete “' + l.name + '” and its links?')) return;
+      try { const d = await listsCall('/music/lists/delete', { id: l.id }); renderList(null); renderSaved(d.lists); lists.status.textContent = 'Deleted.'; }
+      catch (e) { lists.status.textContent = e.message; }
+    }, 'gpx-btn-ghost');
+    lists.view.appendChild(actions);
+    const ol = document.createElement('ol');
+    ol.className = 'gpa-yl';
+    l.tracks.forEach((t, i) => {
+      const li = document.createElement('li');
+      li.className = 'gpa-yl-row';
+      const n = document.createElement('span'); n.className = 'gpa-yl-n'; n.textContent = String(i + 1);
+      const tx = document.createElement('span'); tx.className = 'gpa-yl-text';
+      const tt = document.createElement('span'); tt.className = 'gpa-yl-t'; tt.textContent = t.t;
+      const ta = document.createElement('span'); ta.className = 'gpa-yl-a'; ta.textContent = [t.a, t.d ? fmtDur(t.d) : ''].filter(Boolean).join(' · ');
+      tx.appendChild(tt); tx.appendChild(ta);
+      li.appendChild(n); li.appendChild(tx);
+      const a = document.createElement('a');
+      a.target = '_blank'; a.rel = 'noopener';
+      if (t.m) {
+        a.className = 'gpa-yl-link'; a.href = ytUrl(t.m); a.textContent = 'YouTube ↗';
+        a.title = t.m.title + ' · ' + t.m.channel;
+        const play = document.createElement('button');
+        play.type = 'button'; play.className = 'gpa-btn gpx-icon-btn gpa-yl-play'; play.innerHTML = GPS_ICONS.play;
+        play.setAttribute('aria-label', 'Play ' + t.t + ' here');
+        play.addEventListener('click', () => {
+          try { np.audio.pause(); } catch (e) { /* ignore */ }
+          lists.player.innerHTML = `<iframe class="gpa-sc-frame" allow="autoplay; encrypted-media" src="https://www.youtube.com/embed/${t.m.id}?autoplay=1"></iframe>`;
+          lists.player.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        });
+        li.appendChild(play);
+      } else if (t.m === null) {
+        a.className = 'gpa-yl-link search'; a.href = t.search; a.textContent = 'Search YouTube ↗'; a.title = 'No clear official video; search YouTube';
+      } else {
+        a.className = 'gpa-yl-link ' + (lists.finding ? 'wait' : 'search'); a.href = t.search; a.textContent = lists.finding ? 'Looking…' : 'Search YouTube ↗';
+      }
+      li.appendChild(a);
+      ol.appendChild(li);
+    });
+    lists.view.appendChild(ol);
+  }
+  function renderSaved(all) {
+    lists.saved.innerHTML = '';
+    if (!all || !all.length) return;
+    const h = document.createElement('div'); h.className = 'gpa-tracks-head'; h.textContent = 'Your playlists';
+    const ul = document.createElement('ul'); ul.className = 'gpa-yl-saved';
+    all.forEach((x) => {
+      const li = document.createElement('li');
+      li.classList.toggle('is-open', !!lists.open && lists.open.id === x.id);
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'gpa-yl-open';
+      const t = document.createElement('span'); t.className = 'gpa-yl-t'; t.textContent = x.name;
+      const m = document.createElement('span'); m.className = 'gpa-yl-a'; m.textContent = [SERVICE_NAME[x.service] + ' ' + x.kind, x.count + ' songs', x.found + ' on YouTube'].join(' · ');
+      b.appendChild(t); b.appendChild(m);
+      b.addEventListener('click', async () => {
+        try { const d = await listsCall('/music/lists/one?id=' + encodeURIComponent(x.id)); renderList(d.list); renderSaved(all); if (d.list.pending) findAll(x.id); }
+        catch (e) { lists.status.textContent = e.message; }
+      });
+      li.appendChild(b); ul.appendChild(li);
+    });
+    lists.saved.appendChild(h); lists.saved.appendChild(ul);
+  }
+  async function loadLists() {
+    if (!listsStaff()) { refreshListsAccess(false); return; }
+    try {
+      const d = await listsCall('/music/lists');
+      lists.keyBox.hidden = !!d.canFind || !d.lists.some((l) => l.pending);
+      renderSaved(d.lists);
+      if (!lists.open && !d.lists.length) lists.status.textContent = 'Paste a link to get started.';
+    } catch (e) { lists.status.textContent = e.message; }
+  }
+  async function findAll(id) {
+    if (lists.finding) return;
+    lists.finding = true;
+    try {
+      for (let guard = 0; guard < 60; guard++) {
+        const d = await listsCall('/music/lists/find', { id });
+        if (d.list && lists.open && lists.open.id === id) renderList(d.list);
+        if (d.needKey) { lists.keyBox.hidden = false; lists.status.textContent = 'Got ' + d.list.count + ' songs. Each has a YouTube search link; add a YouTube key to find the exact videos.'; break; }
+        if (d.error) { lists.status.textContent = d.error; break; }
+        lists.status.textContent = d.more ? 'Finding videos… ' + (d.list.count - d.list.pending) + ' of ' + d.list.count : 'Found ' + d.list.found + ' of ' + d.list.count + ' songs on YouTube.';
+        if (!d.more) break;
+      }
+    } catch (e) { lists.status.textContent = e.message; }
+    finally {
+      lists.finding = false;
+      if (lists.open && lists.open.id === id) renderList(lists.open);
+      try { const d = await listsCall('/music/lists'); renderSaved(d.lists); } catch (e) { /* the list on screen is current */ }
+    }
+  }
+  async function importList() {
+    const link = lists.url.value.trim();
+    if (!link) return;
+    lists.go.disabled = true;
+    lists.status.textContent = 'Reading the playlist…';
+    try {
+      const d = await listsCall('/music/lists/import', { url: link });
+      lists.url.value = '';
+      renderList(d.list);
+      lists.status.textContent = 'Got ' + d.list.count + ' songs from “' + d.list.name + '”. Finding them on YouTube…';
+      await findAll(d.list.id);
+    } catch (e) { lists.status.textContent = e.message; }
+    finally { lists.go.disabled = false; }
+  }
+  lists.go.addEventListener('click', importList);
+  lists.url.addEventListener('keydown', (e) => { if (e.key === 'Enter') importList(); });
+  panel.querySelector('#gpa-lists-addkey').addEventListener('click', () => {
+    try { localStorage.removeItem(YT_STORAGE_KEY); } catch (e) { /* ignore */ }
+    if (getYoutubeApiKey()) { lists.keyBox.hidden = true; lists.status.textContent = 'YouTube key saved on this device.'; if (lists.open && lists.open.pending) findAll(lists.open.id); }
+  });
+  if (lists.btn) lists.btn.addEventListener('click', loadLists);
+  // After start-up: the sign-in state is declared further down this file.
+  setTimeout(() => { refreshListsAccess(); onSessionChange(() => refreshListsAccess()); }, 0);
   panel.querySelectorAll('.gpa-dropdown-item[data-tab="music"]').forEach((b) => b.addEventListener('click', () => {
     const active = panel.querySelector('.gpx-src.primary');
     if (active && active.dataset.src === 'shared') loadShared();
     if (active && active.dataset.src === 'mine') loadMine();
+    refreshListsAccess();
+    if (active && active.dataset.src === 'lists') loadLists();
   }));
 
   // ---- Local file player (fully offline — no network, no website involved) --
@@ -23915,7 +24136,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     panel.querySelectorAll('.gpx-src').forEach((b) => b.addEventListener('click', () => showSource(b.dataset.src)));
     let savedSrc = null;
     try { savedSrc = localStorage.getItem(SRC_KEY); } catch (e) { savedSrc = null; }
-    showSource(['search', 'shared', 'mine', 'soundcloud', 'library'].includes(savedSrc) ? savedSrc : 'search');
+    showSource(['search', 'shared', 'mine', 'lists', 'soundcloud', 'library'].includes(savedSrc) ? savedSrc : 'search');
 
     // ---- Proxy: mirror the frame's own status ----
     const proxyRoom = q('.gpa-pane[data-pane="browser"] .gpx-room');
