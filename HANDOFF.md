@@ -295,7 +295,8 @@ Your activity: sessions opened, member since, and the **weekday streak**
 (`user:<name>.streak` `{n, day}`, owner time zone). Mon–Fri only: weekends
 neither add nor break it (`nextStreak`, `streakAlive`, `prevWeekday` in
 worker.js; Friday → Monday continues). On a weekend the box says "safe this
-weekend" / "starts Monday" (`yourStats.weekend`). Same rule for the 🔥 in
+weekend" / "start it any weekday" (`yourStats.weekend`). A streak starts
+on whichever weekday someone first opens the console (not only Monday). Same rule for the 🔥 in
 chat (`/chat/extras`). Tests: `fun.test.mjs`, `my-music.mjs`.
 
 ### 4.6 Music

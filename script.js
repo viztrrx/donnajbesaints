@@ -6949,7 +6949,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       streakBox.hidden = stats.streak < 1 && !stats.weekend;
       panel.querySelector('#gpa-welcome-streak').textContent = '🔥 ' + stats.streak;
       const lbl = streakBox.querySelector('.gpa-snapshot-label');
-      if (lbl) lbl.textContent = stats.weekend ? (stats.streak ? 'Weekday streak · safe this weekend' : 'Weekday streak · starts Monday') : 'Weekday streak';
+      if (lbl) lbl.textContent = stats.weekend ? (stats.streak ? 'Weekday streak · safe this weekend' : 'Weekday streak · start it any weekday') : 'Weekday streak';
     }
   }
   function fetchYourStats() {

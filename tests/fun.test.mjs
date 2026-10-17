@@ -147,11 +147,22 @@ test('streaks: weekdays in a row; weekends neither count nor break it (owner tim
     // Skipping a weekday starts over (Mon 26 -> Wed 28).
     Date.now = () => Date.parse('2026-10-28T14:00:00Z');
     assert.equal((await open('kj')).data.yourStats.streak, 1, 'a missed weekday starts over');
-    // First ever open on a weekend: no streak yet, starts Monday.
+    // First ever open on a weekend: no streak yet; the next weekday starts it.
     Date.now = () => Date.parse('2026-10-31T15:00:00Z');
     assert.equal((await open('new')).data.yourStats.streak, 0);
     Date.now = () => Date.parse('2026-11-02T15:00:00Z');
     assert.equal((await open('new')).data.yourStats.streak, 1);
+    // A streak can start on any weekday: Wednesday -> Thu -> Fri -> (weekend) -> Mon.
+    for (const [iso, want] of [['2026-11-04T15:00:00Z', 1], ['2026-11-05T15:00:00Z', 2], ['2026-11-06T15:00:00Z', 3],
+      ['2026-11-07T15:00:00Z', 3], ['2026-11-08T15:00:00Z', 3], ['2026-11-09T15:00:00Z', 4]]) {
+      Date.now = () => Date.parse(iso);
+      assert.equal((await open('wed')).data.yourStats.streak, want, 'started Wednesday: ' + iso);
+    }
+    // ...even on a Friday: Fri 1, still 1 over the weekend, Monday 2.
+    for (const [iso, want] of [['2026-11-13T15:00:00Z', 1], ['2026-11-14T15:00:00Z', 1], ['2026-11-15T15:00:00Z', 1], ['2026-11-16T15:00:00Z', 2]]) {
+      Date.now = () => Date.parse(iso);
+      assert.equal((await open('fri')).data.yourStats.streak, want, 'started Friday: ' + iso);
+    }
   } finally { Date.now = realNow; }
 });
 

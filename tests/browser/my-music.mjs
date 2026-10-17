@@ -111,7 +111,7 @@ try {
   const streak = await waitFor(kj.page, (r, we) => {
     const box = r.querySelector('#gpa-welcome-streak-box');
     const lbl = box.querySelector('.gpa-snapshot-label').textContent;
-    return !box.hidden && (we ? /Weekday streak · (starts Monday|safe this weekend)/.test(lbl) : lbl === 'Weekday streak' && /🔥 1/.test(r.querySelector('#gpa-welcome-streak').textContent));
+    return !box.hidden && (we ? /Weekday streak · (start it any weekday|safe this weekend)/.test(lbl) : lbl === 'Weekday streak' && /🔥 1/.test(r.querySelector('#gpa-welcome-streak').textContent));
   }, weekend, 15000);
   check(`Welcome shows the weekday streak (${weekend ? 'weekend: paused' : 'weekday: 🔥 1'})`, streak, await R(kj.page, (r) => r.querySelector('#gpa-welcome-streak-box').textContent.replace(/\s+/g, ' ').trim()));
   await R(kj.page, (r) => r.querySelector('#gpa-welcome-streak-box').scrollIntoView({ block: 'center' }));
