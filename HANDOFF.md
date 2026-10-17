@@ -1,528 +1,440 @@
 # Handoff: Agent Console (donnajbesaints)
 
-Context for the next Claude session working on this repository. Read this
-first, then `README.md` for user-facing docs. Last updated 2026-10-17
-(rounds 1-3 of the feature list done; the full HANDOFF rewrite is next).
+Everything the next Claude session needs: who the owner is and how they
+work, what the project is, how it's built, every feature and where it lives,
+how to test, and what's open. Read this first, then `README.md` (the
+user-facing docs). Last updated 2026-10-17 after the three-round feature
+list (rounds 1–3) was finished and pushed.
 
 ---
 
-## 0. Current status, next tasks and the plan (read this first)
+## 0. Read this first
 
-**How the owner wants work done (in their words, condensed):**
-- "Add all of that but make sure it doesn't affect the current users
-  approved right now." New features must be **off or opt-in by default**;
-  nothing may change for people already on Allowed users (e.g. invite codes
-  only for names added *after* the feature shipped).
-- **After every round: update this HANDOFF.md** with the next task, the
-  context and the plan; when a round is complete and tested, **push to
-  `main`**, then start the next round. One round = one tested push.
-- **Pushing to `main` deploys** (Cloudflare Workers Builds runs
-  `npx wrangler deploy` on every push). Never push untested or half-done
-  code; keep work-in-progress uncommitted until its round passes.
-- Reports in plain language: what changed (tables), how it works, what was
-  and wasn't tested, screenshots of the real app (label sample data / mock-ups).
-- The owner uses the iPhone home-screen app (`/console/`), gets phone
-  notifications (including "Worker error" alerts), and often replies just
-  "push to main".
+### Status right now
+- **Nothing is half-done.** All work from this session is on `main` and
+  deployed (pushing to `main` deploys; see below). The last commits:
+  round 3 "fun" features, then this HANDOFF rewrite.
+- **Nothing is pending from the owner.** Their last big request ("add all
+  of that…") was built in three rounds; see §4 for each piece. Good next
+  ideas are in §8, but **don't start new features unless the owner asks**;
+  offer them.
 
-**The feature list the owner approved ("add all of that")** — built in rounds:
+### How the owner works (follow this exactly)
+- **The owner:** username `viztrrx` (the Worker's `OWNER`), Lehigh Acres,
+  FL; time zone `America/New_York`. They're non-technical-ish, run the
+  console as the **iPhone home-screen app** (`/console/`), get phone
+  notifications from it (including "Worker error" alerts, which they
+  sometimes paste in as screenshots), and often reply just "push to main".
+- **Plain-language reports.** Every report: what changed (a table helps),
+  how it works, what was **and wasn't** tested, and **screenshots of the
+  real app** (Playwright + headless Chromium against local workerd).
+  Label anything that isn't real (sample data, mock-ups) as such. Use
+  step-by-step instructions for anything they have to do (iPhone steps).
+- **Don't affect people already approved.** Their words: "make sure it
+  doesn't affect the current users approved right now". New features are
+  **off or opt-in by default**, or only apply to things created after the
+  feature shipped (e.g. invite codes only for names added later). Anything
+  that posts into chat for everyone gets an owner on/off switch.
+- **Work in rounds, one tested push each.** For a list of features: build a
+  round, run the whole test routine (§6), **update this HANDOFF.md** with
+  what was built, the context and what's next, **then push to `main`**, then
+  start the next round. Their words: "after every round update the
+  handoff.md file every time with your next task and your context and
+  planning and when a task is completed push to main branch then start on
+  the other task".
+- **Pushing to `main` deploys.** Cloudflare Workers Builds runs
+  `npx wrangler deploy` on every push. Never push untested or half-done
+  code; keep work in progress uncommitted until its round passes. (Earlier
+  replies wrongly said "it needs the usual deploy"; it doesn't.)
+- **Honesty over polish.** Say what couldn't be verified (the live Worker,
+  real iPhones, real Audius, real push delivery can't be reached from the
+  dev container). Never claim Eaglercraft works without the real build.
 
-| Round | Features | Status |
-|---|---|---|
-| 1 | Invite codes · weekly report · subscriber "ending" reminders · activity heatmap | **Done, pushed `04ed68b`** (details in §4) |
-| 2 | @mentions with autocomplete + phone alerts for everyone · pinned messages · polls · edit within 2 min · voice messages · chat quiet hours | **Done, pushed `31b2322`** |
-| 3 | Chat effects (confetti/balloons) · profile flair · daily streaks · game leaderboards · daily trivia · "now playing" in chat | **Done** (notes below; pushed right after this update) |
-| 4 | Rewrite this HANDOFF.md end to end with all context, goals and the owner's way of working | **Next** |
+### Git rules
+- **Push to `main` only, fast-forward only:**
+  `git fetch origin main && git merge-base --is-ancestor origin/main HEAD && git push origin HEAD:main`.
+  Work on a local `main`. Don't push to, rebase or touch any `claude/*`
+  branch (the session's assigned branch included); if a stop hook complains
+  about unpushed commits on a `claude/*` branch, keep the checkout on
+  `main`. Don't open PRs unless asked.
+- Commit messages: clear subject, plain body; end with the attribution
+  lines the session's system prompt gives. Never put a model name in a
+  commit, PR or code comment.
+- **No secrets in Git**: `ADMIN_TOKEN`, `COADMIN_TOKEN`, `OWNER_CODE`, VAPID
+  private keys, APNs keys, API keys live in Cloudflare (secrets or KV). The
+  KV namespace id in `wrangler.jsonc` isn't a secret.
+- **Extend, don't replace**: don't remove or replace the `TELEMETRY` KV
+  binding (`cebe1a618cba45278f6784bd53f0d59f`), don't create new KV
+  namespaces or Workers, don't replace `worker.js` or build a "second
+  implementation" of anything. (Durable Object classes inside the same
+  Worker, like `ChatRoom`, were fine.)
+- **No Mojang/Minecraft files** in the repo (no real `classes.js`,
+  `assets.epk`, client jars).
 
-**Round 2 as built** (it follows the plan below; differences: the admin
-token also proves the owner for chat actions (`mayActInChatAs`), pin
-requests always carry the staff proof (`staffProofHeaders('staff')`),
-the quiet-hours setting rides on `/admin/reports` for the Moderation card,
-`/chat/media/:id` answers Range for every file, and voice uploads have
-their own 40/day counter). Tests: `tests/chat-round2.test.mjs` (6),
-`tests/browser/chat-round2.mjs` (26 checks, fake microphone; the recording
-came out as `audio/mp4` in Chromium). Known gaps: phone mention alerts
-couldn't be tried on a real iPhone from here (the subscribe/notify path is
-unit-tested with real encryption); the 2-minute Edit/Unsend window is
-checked server-side, the button's disappearance after 2 minutes isn't
-browser-tested.
+---
 
-**Round 2 plan (kept for reference):**
-- *Room DO (`chat/room.js`)*: actions `edit` (own message, within
-  `EDIT_MS` = 2 min, not polls; quotes and pins follow the new text),
-  `pin` (`{ts, by, pin}`; up to 3 pins, stored in `pins`; unsend/clear drop
-  them), `vote` (`{ts, user, option}`; one vote per person in `m.pv`, same
-  option again = take back). `read` also returns `edits` (`ts → {t, at}`),
-  `votes` (`ts → pv`) and `pins`.
-- *Worker routes*: `/chat/edit`, `/chat/vote` (same identity rules as
-  `/chat/react`: `effectiveUser`, `mayActInChatAs`, `allowedUser`,
-  `checkRoomAccess`, `mayPostInChat`), `/chat/pin` (staff only:
-  `isStaffCaller()`). `/chat/send` accepts `poll: {q, options[2-6]}`
-  (q ≤ 140, options ≤ 60 chars) and stores `msg.poll`.
-- *Quiet hours*: `cfg.chatQuiet = {on, start, end}` (owner hours, set in
-  Admin → Moderation; default off). While active, non-staff can't send,
-  upload, react, vote or show typing (`mayPostInChat` + `/chat/send` +
-  upload); the poll response carries `quiet` so the console shows "🌙 Quiet
-  hours: chat is read-only until 6 AM" and disables the box. Staff exempt.
-- *Mention alerts for everyone*: in `web/console/push.js` add per-person
-  subscriptions (`push:user:<name>`, up to 3 devices, own manage key),
-  `notifyUser()`; routes `/push/me/subscribe|unsubscribe|status|test`
-  (subscribe needs the person's verified session). `/chat/send` parses
-  `@name` (max 5 per message) in **#public and staff chat only** (private
-  rooms skipped: the Worker can't tell who joined them and the alert shows
-  the text); staff room only alerts staff; throttle per sender→target. A
-  "Mention alerts" toggle in Settings → Account for signed-in non-owners
-  (home-screen app on iPhone). Console: `@` autocomplete under the box
-  (names from who's here + recent authors; arrows/Enter/Tab/tap), messages
-  that mention you highlighted, a toast when mentioned while Chat is hidden.
-- *Voice messages*: mic button → record (MediaRecorder; `audio/mp4` on
-  Safari, `audio/webm` elsewhere), up to 30 s, Send/Cancel bar; upload
-  through `/chat/media/upload` (form field `voice`, checked with
-  `audioKind()` from `web/music.js`, its own daily limit), message media
-  `{id, type, dur}`, `<audio controls>` in chat. `/chat/media/:id` must
-  answer **Range** requests (Safari won't play audio otherwise; copy the
-  pattern of `serveLibraryFile` in `web/music.js`).
-- *Pins / polls / edit UI*: pinned bar above the log (tap jumps, staff ✕);
-  message bar gets Pin/Unpin (staff), Edit (own, 2 min; banner "Editing
-  message ✕" above the box); polls via `/poll Question? | A | B` (and
-  "X or Y?" auto-split) or a 📊 button that inserts the template; poll card
-  with bars, counts and your vote; "(edited)" next to the time.
-- Tests to write: unit (`tests/chat-rooms.test.mjs` style) for edit window,
-  pins staff-only, votes, quiet hours, user push subscribe/notify, voice
-  upload signature + Range; browser `tests/browser/chat-round2.mjs` (fake
-  mic: launch Chromium with `--use-fake-device-for-media-stream
-  --use-fake-ui-for-media-stream`) with screenshots.
+## 1. What this project is
 
-**Round 3 as built:** `chat/trivia.js` (60 questions; it is its own module
-because **`worker.js` may only export handlers/classes — exporting a plain
-value makes workerd refuse to start the Worker**; `npm test` can't catch
-that, the browser suites do). Trivia state lives in #public's room DO
-(`trivia_open`, checked on `append`; `triviaMatches()` normalizes answers)
-so the first right answer wins; points in KV `trivia:points`; cron at 12 PM
-owner time (`maybePostTrivia`); owner "Ask a trivia question now"
-(`/admin/trivia`). System notices are messages with `m.sys` (not counted
-in weekly stats, not grouped, no message bar). Leaderboards: `/games/score`
-(only new personal bests, sent by `setBestIfHigher()` + reaction/guess),
-`/games/leaderboard`, `lb:<game>` top 10, `GAME_RULES` ranges, record posts
-throttled 10 min per game. Fun toggles `cfg.fun {trivia, shoutouts}`
-(default on) in Admin → Moderation → Fun features (`/admin/reports`
-carries them). Flair: `/admin/user/action {action:'flair', emoji, label}`
-→ `cfg.flair`; staff shield = `m.staff` stamped at send from a verified
-moderator/admin session. `/chat/extras` (flair, streaks ≥2, trivia points)
-fetched by the console every 5 min, not per poll. Streaks are kept in the
-`user:<name>` rollup on the "open" event plus one `streaks` key (one write
-per person per day). Song sharing: `body.track` validated, stream path
-rebuilt server-side. Effects: client-only canvas (`playChatEffect`),
-`gpa_chat_effects` = off in Settings. Tests: `tests/fun.test.mjs` (5),
-`tests/browser/fun.mjs` (18 checks; it caught a flair bug: flair was
-applied before the name line existed).
+**Agent Console**: one injectable web interface (`script.js`, ~24k lines)
+that runs inside a Shadow DOM on any page (bookmarklet / DevTools snippet
+`fetch(raw script.js).then(r=>r.text()).then(eval)`), plus its backend, a
+Cloudflare Worker (`worker.js`, ~5k lines).
 
-**Round 3 plan (kept for reference):**
-- *Chat effects*: "happy birthday"/"hbd" → balloons, "congrats" →
-  confetti, "gg" → confetti; played on everyone's screen when the message
-  arrives (not when history loads); canvas overlay; off with
-  prefers-reduced-motion.
-- *Profile flair*: owner picks a badge per person (⭐ VIP, 🎮 Gamer, …) in
-  the user inspector (`/admin/flair`, `cfg.flair`); staff get 🛡 automatically
-  (stamp `staff: true` on messages at send). Client fetches `{flair,
-  streaks, trivia}` from one cached endpoint (`/chat/flair`, KV
-  `cacheTtl` 60) every few minutes — not on every poll (KV read budget).
-- *Streaks*: days in a row the person opened the console (owner time zone),
-  updated once a day on `/track` "open" into one `streaks` KV key; shown as
-  🔥 n in their profile and in "who's here".
-- *Game leaderboards*: `setBestIfHigher()` (and reaction ms / guess tries,
-  lower is better) submits only new personal bests to `/games/score`;
-  `lb:<game>` top 10 with sane per-game caps; a new #1 posts a system
-  message in #public ("🏆 kj set a new record in Snake: 1,240"), throttled.
-  Leaderboard panel in each game.
-- *Daily trivia*: at 12 PM owner time the cron posts a question in #public
-  as a system message (built-in question bank; AI only if an
-  assign-to-everyone key exists); the first correct answer in chat wins a
-  point (KV `trivia:points`), announced by a system message.
-- *Now playing*: "Share to chat" in Music sends a track card (`track:
-  {source, id, title, artist}`); tapping ▶ plays it in the console's player.
+- Worker **`donnajbe`** at `https://donnajbe.viztrrx.workers.dev`.
+- **Home-screen app** at `/console/` (iPhone: Safari → Share → Add to Home
+  Screen → "Open as Web App"); it loads the same `script.js` (proxied from
+  GitHub `main`, or `CONSOLE_SCRIPT_URL`) in *app mode*
+  (`window.__agentConsoleApp`).
+- **Saints Command** at `/app/`: a separate owner admin web app (another
+  contributor's; `web/handler.js`, `mobile/backend/*`).
+- Deploys: Cloudflare **Workers Builds** on every push to `main`
+  (`wrangler.jsonc`, `keep_vars: true`).
 
-**Testing routine used every round:** `npm test` (unit), then every browser
-suite one at a time from a clean state (`rm -rf .wrangler/state`; a 5-min
-timeout each; ~20 min in total, so run it in the background and wait on a
-"done" marker), `npx wrangler deploy --dry-run --outdir <tmp>`, screenshots
-reviewed by eye, then commit + fast-forward push to `main`. Don't edit
-`script.js`/`worker.js` while browser suites run (they load the live files).
+**Tabs** (sidebar, grouped): Welcome · *Assistant:* Page Insights, Ask AI,
+Chat (+ Staff chat for staff) · *Play:* Music, Proxy, Eaglercraft, Games ·
+*Study & write:* Study, Notes, Humanize, Grammar · *Library:* Saved,
+Settings (+ hidden Admin "Command Center"). Eaglercraft must stay right
+after Proxy, before Games.
 
-## 1. Ground rules from the owner (follow these)
+---
 
-- **Push new commits to `main` only.** Do not push to, rebase or otherwise
-  touch the `claude/ecstatic-gates-h0viik` branch (or any `claude/*` branch).
-  Don't open PRs unless asked. Fast-forward pushes only
-  (`git fetch origin main && git merge-base --is-ancestor origin/main HEAD && git push origin HEAD:main`).
-  If a stop hook complains about unpushed commits on a `claude/*` branch, keep
-  the local checkout on `main` instead of pushing there.
-- **No secrets in Git.** `ADMIN_TOKEN`, `COADMIN_TOKEN`, `OWNER_CODE`, VAPID
-  private keys, APNs keys, etc. live in Cloudflare (dashboard secrets or KV),
-  never in the repo. The KV namespace id in `wrangler.jsonc` is not a secret.
-- **Don't remove or replace the `TELEMETRY` KV binding**
-  (`cebe1a618cba45278f6784bd53f0d59f`), don't create new KV namespaces or
-  Workers, don't replace `worker.js` or make a "second implementation" of
-  anything. Extend what exists.
-- **No Mojang/Minecraft game files in the repo** (no real `classes.js`,
-  `assets.epk`, client jars). Never fake a client or claim Eaglercraft works
-  without the real build.
-- **Be honest about what was and wasn't tested.** The owner values
-  screenshots: when building UI, show screenshots of the real app (Playwright
-  + headless Chromium are available). Label mock-ups as mock-ups.
-- The owner is non-technical-ish and prefers plain-language summaries,
-  tables of what changed, and step-by-step instructions (e.g. iPhone steps).
-- The owner's username in the console is `viztrrx` (Worker `OWNER` default).
-  Time zone for notifications: `America/New_York` (owner is in Lehigh Acres, FL).
-
-## 2. What this project is
-
-A single injectable web interface, **"Agent Console"** (`script.js`, ~21.9k
-lines), that runs inside a Shadow DOM on any page (bookmarklet / DevTools
-snippet: `fetch(raw script.js).then(r=>r.text()).then(eval)`), plus a
-Cloudflare Worker (`worker.js`) that is its backend.
-
-- Worker: **`donnajbe`** at `https://donnajbe.viztrrx.workers.dev`.
-- Deploys: Cloudflare **Workers Builds** runs `npx wrangler deploy` on every
-  push to `main` (config in `wrangler.jsonc`, `keep_vars: true`).
-- The console is also a **home-screen web app** at `/console/` (iPhone
-  "Add to Home Screen → Open as Web App"), and there is a separate owner
-  admin web app "Saints Command" at `/app/` (added by another contributor).
-
-### Tabs (sidebar, grouped)
-Welcome · **Assistant:** Page Insights, Ask AI, Chat · **Play:** Music, Proxy,
-Eaglercraft, Games · **Study & write:** Study, Notes, Humanize, Grammar ·
-**Library:** Saved, Settings (+ hidden Admin "Command Center").
-Order matters: Eaglercraft must stay right after Proxy, before Games.
-
-## 3. Architecture map
+## 2. Architecture
 
 | Area | Files |
 |---|---|
-| Console UI (everything client-side) | `script.js` |
-| Worker (all server routes) | `worker.js` |
-| Wrangler config (bindings, crons) | `wrangler.jsonc` |
-| Home-screen app shell (`/console/`) | `web/console/public/*` (index.html, app.js, app.css, sw.js, manifest, icons), `web/console/handler.js`, bundled into `web/console/assets.generated.js` |
-| App icons generator | `web/console/make-icons.py` (pure Python PNG renderer) |
-| Web Push (owner notifications) | `web/console/push.js` |
-| Music (Audius + shared library) | `web/music.js` |
-| Saints Command admin web app (`/app/`) | `web/handler.js`, `web/public/*`, `web/assets.generated.js`, `mobile/backend/*` (ADMIN_MOBILE Durable Object), `mobile/apns-relay/*` |
-| Eaglercraft loader | `eaglercraft/loader/*` (frame.html, bridge.js, resource-packs.js, performance.js, pack-config.js, chromebox-lite.json), `eaglercraft/README.md`, `resource-packs/chromebox-lite/*` |
-| Real Eaglercraft build script | `scripts/build-eaglercraft.sh` (needs Mojang inputs + mcp918.zip; output goes to git-ignored `build/`) |
-| Tests | `tests/*.test.mjs` (node --test), `tests/browser/*.mjs` (Playwright vs workerd) |
+| Console UI (all client code, styles, markup) | `script.js` |
+| Worker: every server route | `worker.js` |
+| Chat rooms (one Durable Object per room) | `chat/room.js` (`ChatRoom`, `chatRoomCall`, `triviaMatches`) |
+| Daily trivia questions (60) | `chat/trivia.js` |
+| Web Push (owner alerts + everyone's mention alerts) | `web/console/push.js` |
+| Music (Audius + shared library, `audioKind`) | `web/music.js` |
+| Home-screen app shell (`/console/`) | `web/console/public/*`, `web/console/handler.js` → `web/console/assets.generated.js` (`npm run build:web`) |
+| Saints Command (`/app/`) | `web/handler.js`, `web/public/*`, `mobile/backend/*`, `mobile/apns-relay/*` |
+| Eaglercraft loader | `eaglercraft/loader/*`, `resource-packs/chromebox-lite/*`, `scripts/build-eaglercraft.sh` |
+| Wrangler config | `wrangler.jsonc` |
+| Tests | `tests/*.test.mjs` (node --test), `tests/browser/*.mjs` (Playwright vs local workerd) |
 
 ### Bindings (`wrangler.jsonc`)
-- `TELEMETRY` (KV): accounts, sessions, chat, config, moderation, audit,
-  push subscriptions, dismissals, access requests, music metadata…
-- `donnajbe_eaglercraft_client` (R2, bucket `donnajbe-eaglercraft-client`):
-  Eaglercraft client files, chat photos under `chat-media/`, shared music
-  under `music/`.
-- `ADMIN_MOBILE` (Durable Object `AdminMobileState`, migration
-  `admin-mobile-v1`): Saints Command pairing/push state.
-- `previews.kv_namespaces` points at the same KV (preview builds share
-  production data; known risk, owner said fine).
-- **Crons:** `"0 5 * * *"` (daily jobs) and `"*/5 * * * *"` (who's-online
-  presence check, no-op unless enabled; also sends the owner's daily summary
-  once at 12 PM `OWNER_TZ` via `maybeSendDailyDigest`, KV `push:digest:last`).
-  Listing crons in wrangler replaces dashboard crons.
+- `TELEMETRY` (KV): accounts, sessions, config, moderation, audit, push
+  subscriptions, dismissals, access requests, invites, usage, leaderboards…
+- `donnajbe_eaglercraft_client` (R2): Eaglercraft files, chat photos and
+  voice messages under `chat-media/`, shared music under `music/`.
+- `CHAT_ROOMS` (Durable Object `ChatRoom`, migration `chat-rooms-v1`, SQLite):
+  every chat room's log and live state. `ADMIN_MOBILE` (`AdminMobileState`):
+  Saints Command.
+- `previews.kv_namespaces` points at the same KV (known, accepted).
+- **Crons:** `"0 5 * * *"` (daily jobs: chat cleanup, memory maintenance)
+  and `"*/5 * * * *"`: presence check, daily summary at 12 PM, weekly report
+  Sun 6 PM, subscription sweep, hourly activity sample, daily trivia at
+  12 PM (all owner time). Listing crons in wrangler replaces dashboard ones.
 
-### Worker vars/secrets (set in Cloudflare, never in Git)
+### Worker vars/secrets (Cloudflare only)
 `ADMIN_TOKEN`, `COADMIN_TOKEN`, `OWNER_CODE`, `OWNER` (default `viztrrx`),
-`EAGLER_CLIENT`, `EAGLER_*`, `ALLOW_QUERY_TOKEN`, optional:
-`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (else auto-generated
-into KV `push:vapid`), `OWNER_TZ`, `CONSOLE_SCRIPT_URL`, `AUDIUS_API`,
-`APNS_RELAY_URL`/`APNS_RELAY_SECRET` (Saints Command).
+`OWNER_TZ` (default New York), `EAGLER_*`, `ALLOW_QUERY_TOKEN`, optional
+`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (else generated into
+KV `push:vapid`), `CONSOLE_SCRIPT_URL`, `AUDIUS_API`,
+`APNS_RELAY_URL`/`APNS_RELAY_SECRET`.
 
-## 4. Features built in this session (newest first)
+### KV keys (TELEMETRY)
+`config` (allowlist, subscriptions, subLedger, chatQuiet, fun, flair,
+quotas, maintenance…) · `acct:<name>` (PIN verifier, role, sessions) ·
+`session:<sid>` (presence, expires) · `user:<name>` (rollup: opens,
+firstSeen, lastSeen, streak) · `mod:<name>` · `usage:<day>:<name>`,
+`usagem:<month>:<name>` · `sec:<day>` · `audit` · `invite:<name>` ·
+`accessreq:u:<name>` · `room:<id>` (private room code hash) · `push:subs`
+(owner devices), `push:user:<name>` (mention alerts), `push:vapid`,
+`push:rl:*`, `push:mrl:*` (throttles), `push:digest:last`,
+`push:weekly:last`, `push:presence:*` · `heat:<week start>` · `streaks` ·
+`trivia:day`, `trivia:points` · `lb:<game>`, `lb:shout:<game>` ·
+`dismiss:<name>` · `key:openai:<name|*>` · `mem:u:<name>` · `fail:*`
+(lockouts) · `chat-photo-rate:*`, `chat-voice-rate:*`.
 
-All on `main`. Each has tests; see section 6.
+### Inside the ChatRoom Durable Object (per room)
+Storage: `log` (newest 120 messages, a week), `reads` (read cursors),
+`seen` (last-seen times), `pins` (≤3), `counts` (messages per person per
+day, 14 days; not system notices), `trivia` (#public only). Memory only:
+`live` (who's here / typing). Actions: `read`, `append`, `react`, `edit`,
+`pin`, `vote`, `unsend`, `delete`, `clear`, `stats`, `trivia_open`.
 
-0. **Staff chat**: built-in room `staff`; `checkRoomAccess` lets it through
-   only when `isStaffCaller()` (session role ≥ moderator, X-GPA-Owner code,
-   or an admin/co-admin bearer token), else "no such room". Client: nav item
-   `data-tab="staffchat" data-pane="chat"` (the tab handler honors
-   `data-pane`), `chatNavPicked`/`syncChatNav`, `isStaffClient()` (guarded:
-   it runs during start-up before `currentUser` exists), background poll for
-   `#gpa-staff-badge`. Tests: chat-rooms.test.mjs, `tests/browser/staff-chat.mjs`.
-0. **Subscribers**: `config.subscriptions[name] = { user, startedAt,
-   expiresAt, period, note, ended, reminded, history }`. `allowedUser()`:
-   with the list on, a name that has a subscription is allowed exactly while
-   `expiresAt > now` (list membership ignored for them). Owner route
-   `POST /admin/subscriptions` (list/add/renew/end/delete); calendar months
-   via `addSubPeriod`. `sweepSubscriptions()` on the 5-minute cron removes
-   ended names from the list and pushes `subs` alerts (3 days before, at
-   the end). `startedAt` (owner-chosen, ≤ now) starts the period; action
-   `setstart` moves it; `amount` goes in `config.subLedger` (kept after a
-   record is removed) for the card's totals. `/status` and `/track` carry the
-   caller's own `subscription` for the `#gpa-substrip` countdown. UI: Admin → Security → Subscribers (`#gac-subs`, rows
-   `.gac-subscr`). Tests: worker.test.mjs (simulated clock), push.test.mjs,
-   `tests/browser/subscribers.mjs`.
-0. **Chat rooms in Durable Objects + AI usage meter**: the lost-message bug
-   was the KV read-modify-write room log (`roomlog:<id>`) racing across
-   locations; rooms now live in `ChatRoom` (`chat/room.js`, binding
-   `CHAT_ROOMS`, migration `chat-rooms-v1`, SQLite class) which appends one
-   message at a time and assigns strictly increasing `ts`. Unit tests fall
-   back to the KV path (no binding). Proof: `tests/chat-rooms.test.mjs`,
-   `tests/browser/chat-burst.mjs` (old code kept 1/50). Usage meter:
-   `usageMeter()` in worker.js adds `usage` to `/status` and `/track` for
-   people with a daily/monthly quota or rpm; `renderUsageMeter()` draws
-   `#gpa-usage` under the header. Test: `tests/browser/usage-meter.mjs`.
-   Read receipts: `/chat/poll?read=<ts>` (sent only while Chat is visible)
-   moves the caller's cursor in the room DO (`reads`), every poll returns
-   `reads`; `renderChatReceipt()` draws "Delivered"/"Read by …" under your
-   newest message when it is the last in the room. Test:
-   `tests/browser/read-receipts.mjs`.
-   **Typing, who's here, reactions** (all in the room DO, `chat/room.js`):
-   polls while Chat is visible add `here=1&typing=1|0`; the DO keeps that
-   in memory (`this.live`; typing lasts 6 s after the last report, "here"
-   10 s, "online" 45 s) plus a saved last-seen per person (written at most
-   once a minute, `seen`), and every poll returns `typing` (names) and
-   `people` (`{u, state: here|online|away, ago}`). `mayPostInChat()` keeps
-   blocked/shadow-muted/banned people (and read-only chat) from showing as
-   typing; `mayActInChatAs()` makes the owner's name need proof. Reactions:
-   `POST /chat/react {room, code, user, ts, emoji}` (6 tapbacks, one per
-   person per message, same again = off), stored as `m.r`, and every poll
-   returns `reactions` (`ts → {emoji: [names]}`) for the whole room log.
-   Client: `#gpa-chat-people`, `#gpa-chat-typing`, `renderTapbacks()`, the
-   picker opens on double-click/double-tap/long-press or the ☺ button; a
-   250 ms guard stops the tap that opened it from picking. Opening Chat
-   now polls at once (`startChatPolling` restarts the loop). Tests:
-   `tests/chat-rooms.test.mjs`, `tests/browser/chat-live.mjs`.
-   **Replies, unsend, grouping:** `/chat/send` takes `replyTo` (a ts); the
-   room DO attaches `m.re = {ts, u, t (140 chars), photo?}` itself (a
-   client can't supply the quote). `POST /chat/unsend {room, code, user,
-   ts}`: own message only, within `UNSEND_MS` (2 min, enforced in the DO);
-   the message becomes `{u, ts, unsent: true}`, quotes of it lose their
-   text, its reactions go, a photo in it is deleted from R2, and every
-   poll returns `unsent` (ts list) so open screens swap it out
-   (`markChatUnsent`). A reply to one of the owner's messages sends a
-   "mentions" alert. Client: `#gpa-chat-replying` banner, `chatQuoteEl`
-   (tap to jump + flash), Reply/Copy/Unsend row in the message bar, ↩ on
-   hover; `regroupChat()` marks `.cont` on a run from one person within 5
-   min (no picture/name; replies and unsent lines break a run). Tests:
-   `tests/chat-rooms.test.mjs`, `tests/browser/chat-replies.mjs`.
-0. **Invite codes / weekly report / heatmap / subscriber reminder** (round 1
-   of the owner's "add all of that" list). `invite:<name>` KV records,
-   `/admin/invites` (list/create/revoke); `/auth/register` requires
-   `body.invite` only when that name has one (wrong code → `noteFailure`
-   login lockout + `invite_wrong`); used up on success; dropped when the name
-   leaves the list. The console's Save list makes codes only for names that
-   weren't listed before — existing approved names are untouched (the
-   owner's explicit requirement). Sign-up shows `#gpa-login-invite-wrap`
-   only after the Worker answers `inviteRequired`. Weekly report:
-   `weeklyReport()`/`maybeSendWeeklyReport()` (Sun 6 PM owner time, push
-   category `weekly`, `/admin/weekly` preview/send); chat counts come from
-   each room DO (`stats` action, `counts` kept 14 days). Heatmap:
-   `sampleActivity()` once an hour from the 5-minute cron into
-   `heat:<week start>` (1 KV write/hour), `/admin/heatmap` averages 4 weeks.
-   Subscriber reminder: `remindSubscriber()` once a day per device in the
-   last 3 days. Tests: `tests/owner-tools.test.mjs`,
-   `tests/browser/owner-tools.mjs` (the heatmap screenshot uses sample data
-   the test supplies; the math is unit-tested).
-0. **Memory (128 MB per Worker instance, shared by every request on it).**
-   A "Worker exceeded memory limit" alert on `GET /chat/poll` means the
-   instance ran out and everything on it failed, the chat poll included
-   (polls are the most frequent request, so they usually take the blame).
-   Chat itself stays ~10 MB under heavy load (measured). The big consumer
-   was Ask AI with full-size photos: `/v1/*` held ~3 copies of the body
-   (6 phone photos ≈ 36 MB body ≈ 115 MB). Now: the console shrinks pasted
-   and attached photos to 1600 px JPEG (`shrinkImageDataUrl`, ~0.8 MB
-   each); `/v1/*` refuses bodies over `V1_MAX_BODY` (24 MB, 413
-   `request_too_large`), re-writes the body only when it strips
-   `_gpa_key`/`_gpa_mem`, and drops its copies before awaiting OpenAI;
-   `/read` reads at most 3 MB (`readCapped`) instead of the whole page; chat
-   photo uploads need a Content-Length (411). Tests:
-   `tests/memory-limits.test.mjs`, `tests/browser/ask-photo-size.mjs`.
-0. **Notification deep links**: every `notify()` carries a link built by
-   `appLink(tab, params)` / `adminLink(sec, params)` in `worker.js`, e.g.
-   `/console/#tab=admin&sec=users&user=renzo&focus=key`. In `script.js`,
-   `openTabFromUrl` parses it; Admin links go to `adminDeepLink` → `goToLink`
-   (opens the profile/section, waits for the target with `whenEl`, outlines
-   it with `flashEl`; if Admin isn't connected it opens the connect screen
-   and continues after `connect()`). The user inspector has an **API key**
-   card (`#gac-insp-key`, uses `/admin/assignkey`). Test:
-   `tests/browser/notification-links.mjs`.
-0. **One sign-in per name** (Allowed users on): listed non-owner names are
-   only usable through a PIN-checked server session (`effectiveUser` refuses
-   bare names with `sessionRequired`), only the newest session is honored
-   (`acct.sessions[0]`, else `sessionProblem = 'signed_in_elsewhere'`), and
-   `/auth/login` answers 409 `inUse` while that session was used in the last
-   15 min (`ONE_SESSION_IDLE_MS`; `lastSeen` rewritten at most every 5 min).
-   GET routes accept the session as `?s=` (music `<audio>`, chat poll). The
-   console does the server sign-in *before* `enterApp` when `/access` says
-   `sessionRequired` (`serverFirstSignIn`), and session calls go to
-   `AUTH_BASE()` (the telemetry Worker). Admin → Security → Allowed users
-   lists each name's status with Sign out / Reset PIN. Owner exempt.
-   Known gap: the first person to register a listed name sets its PIN.
-   **Same computer, another website:** each session stores `ipH`/`uaH`
-   (hashes of the caller's IP and User-Agent, `deviceHashes()`) and `site`
-   (the host the console runs on, sent as `site` in the login body,
-   `cleanSite`). When the live session matches the caller's hashes,
-   `/auth/login` answers 409 `{ inUse, sameComputer, site }`; the console
-   shows `#gpa-login-move` ("Sign in here" / "Cancel") and on Yes repeats
-   the login with `takeover: true`, which issues a new session (logged as
-   `signin_moved`). The old site gets `signed_in_elsewhere` plus
-   `elsewhereSite` from /status or /track and shows where. A different
-   device is still refused with no takeover. "Same computer" is a best
-   guess (same network + same browser): two identical browsers behind one
-   home router look the same. Test: `tests/browser/same-computer.mjs`.
-1. **Music without keys** (`bf4b7f5`): Music tab searches **Audius** (free,
-   keyless public API, streamed through the Worker) + a **shared library**
-   in R2 that owner/admins upload to. Routes: `GET /music/search`,
-   `/music/library`, `/music/file/:id` (Range), `/music/audius/stream/:id`
-   (Range passthrough), `POST /music/upload`, `/music/delete` (rank ≥ admin
-   or OWNER_CODE). Segments: Search · Shared · SoundCloud · This device.
-   One now-playing bar (`#gpa-np`, Media Session lock-screen controls).
-   YouTube search kept only for users with a saved key.
-   **Not verified against real Audius** (blocked from the dev container);
-   first real search happens on the owner's device. Copyright caveat for
-   the shared library was explained to the owner.
-2. **Access requests** (`2446815`): unlisted users see "Unable to create
-   account" + a Request access form (`POST /access/request`, 5/hour per
-   network, denied → wait a day). Owner reviews in Admin → Security →
-   Access requests (Approve adds to allowlist / Deny / Clear;
-   `/admin/access-requests`, `/admin/access-requests/decide`), push alert
-   category `access`, notification deep-links `/console/#tab=admin&sec=security`.
-3. **Allowed users** (`fbf6ed7`): Admin → Security → Allowed users (switch +
-   list, case-insensitive, owner always allowed). Enforced server-side in
-   `resolveState` (status, chat send, AI, uploads), `/auth/register`,
-   `/auth/login`, `/track` (records nothing), `/chat/poll`, `/read`,
-   `/music/*`. `GET /access?user=` for the sign-in screen. Signed-in users
-   removed from the list are signed out with the message.
-4. **Owner push notifications** (`451d288`, `1ee77cb`): standard Web Push
-   (RFC 8291 aes128gcm + RFC 8292 VAPID, implemented with WebCrypto, no
-   npm deps). Owner-only subscribe (`/push/subscribe` needs owner token,
-   owner session or OWNER_CODE), per-device manage key (`/push/update`,
-   `/push/status`, `/push/test`, `/push/unsubscribe`). 17 categories in
-   `PUSH_CATEGORIES` (chat, chatrooms, mentions, reports, signin, newuser,
-   approval, access, subs, presence, aierror, limits, error, security, admin, jobs,
-   digest), quiet hours (urgent ones bypass), "Who's online" live alert with
-   app-icon badge (closest thing to iOS Live Activities, which web apps
-   can't use). UI: Settings → Account → Phone notifications (app mode).
-5. **Dismissals stick** (`8a3ca48`): owner banner/popup dismissals stored per
-   account (`POST /status/dismiss`, KV `dismiss:<user>`), returned by
-   `/status` and `/track`; banner moved below the header (was under the iOS
-   status bar, untappable).
-6. **iPhone home-screen app** (`6e6d961`): `/console/` shell loads the same
-   `script.js` (proxied from GitHub main, or `CONSOLE_SCRIPT_URL`) in **app
-   mode** (`window.__agentConsoleApp`): edge-to-edge, safe areas, no
-   close/collapse, 16px inputs (no iOS zoom), offline shell via service
-   worker, install instructions on first Safari visit.
-7. **UI/UX passes** (`842ff75`, `e410849`): sidebar sections, SVG icons
-   instead of emoji, refinement CSS layer `GPR_CSS`, drawer sidebar on narrow
-   panels, 44px touch targets, labels, min text sizes. Audited with the
-   ui-ux-pro-max plugin's rules (installed in the container only).
-8. Earlier (before this session's later work): Eaglercraft tab + Worker
-   `/eagler/*` routes + loader, Wrangler/Workers Builds setup, binary
-   WebSocket fix. Other contributors added the Chromebox Lite resource pack,
-   performance preset, Saints Command, chat photos.
+---
 
-## 5. Conventions and gotchas in the code
+## 3. Gotchas (each of these bit once)
 
-- **`script.js` is huge; edit carefully.** Prefer exact-anchor replacements
-  (assert the anchor appears exactly once) and refuse to write if the result
-  is shorter than the original. A bad slice once truncated the file to 721
-  lines (recovered via `git checkout -- script.js`). Always run
-  `node --check script.js` after edits.
-- Styling layers concatenate at the end of the base stylesheet:
-  `... + GPS_CSS + GPX_CSS + GPR_CSS`. Put new styles in `GPR_CSS` using theme
-  tokens (`--gpa-accent`, `--gpa-text`, `--gpa-sub`, `--gpa-field`,
-  `--gpa-border`, `--gpa-card-bg`, `--gpa-shade`, …) so every theme works.
-- Icons: `GPS_ICONS.<name>` (SVG). Buttons with icon + label use
-  `gpxLbl(icon, text)` in markup and `gpxSetLbl(btn, icon, text)` at runtime.
-  Don't add emoji as UI icons (game content/status text can keep them).
-- **Changelog:** `const CHANGELOG = [...]` near the top of `script.js` drives
-  per-tab version chips. Add an entry per feature (`parts: { tab: [kind, note] }`,
-  kinds `fix|feature|added|redesign`).
-- Translations: `I18N.es` + `NAV_LABELS_EN` (nav, login only).
-- Admin "Command Center" sections render via `RENDER.<section>()`;
-  `api(path, {method, body})`, `card(title, html, icon)`, `isOwner()`.
-- Worker: big `handleRequest`; helpers like `json`, `getConfig`, `resolve`,
-  `allowedUser`, `effectiveUser`, `resolvePrincipal`, `noteSec`, `logAudit`,
-  `notify(ev)` (owner push) are closures inside it. Admin routes must be
-  listed in `ADMIN_ROUTES` (path → method + perm) or they 404.
-- After editing anything in `web/console/public/` or `web/public/`, run
-  `npm run build:web` (regenerates `assets.generated.js`; a test checks this).
-- Owner proof options server-side: `Authorization: Bearer ADMIN_TOKEN`,
-  owner session (`X-GPA-Session`), or `X-GPA-Owner: OWNER_CODE`.
-  Client-side the admin token lives only in memory
-  (`admGet(ADMIN_KEYS.TELE_TOKEN)` after connecting Admin).
+- **`worker.js` may export only handlers and classes.** Exporting a plain
+  value (e.g. a number) makes workerd refuse to start the Worker with
+  "Incorrect type for map entry". `npm test` (Node) can't see this; the
+  browser suites (real workerd) do. Put shared data in its own module
+  (that's why `chat/trivia.js` exists).
+- **Start-up order in `script.js`:** it's one big IIFE; `let`/`const`
+  declared further down (e.g. `currentUser`, `serverSession`) can't be read
+  while earlier code runs at start-up (TDZ crash = blank console). Anything
+  that reads the user/session during init must be deferred
+  (`setTimeout(…, 0)`) or guarded with try/catch.
+- **Edit `script.js` with exact anchors**, assert each anchor appears once,
+  never write a shorter file by accident (a bad slice once truncated it to
+  721 lines), and run `node --check script.js` after every edit.
+- **Don't edit `script.js`/`worker.js` while browser suites run**: the
+  tests load the live files on each run.
+- **KV is eventually consistent and the free plan has small write limits**
+  (~1,000 writes/day). Keep writes rare (per day, per hour, or only on
+  change). Anything that must be exact or ordered (chat, votes, trivia
+  winner) goes in the room Durable Object.
+- **128 MB per Worker instance, shared by all its requests.** One heavy
+  request breaks everyone's on that instance (that's what "Worker exceeded
+  memory limit" on `/chat/poll` was). Cap bodies, stream big responses,
+  shrink images client-side (§4.7).
+- Admin routes must be listed in `ADMIN_ROUTES` (path → method + perm) or
+  they 404; the gate runs before the handler.
+- Owner proof server-side: `Authorization: Bearer ADMIN_TOKEN`, an owner
+  session (`X-GPA-Session`), or `X-GPA-Owner: OWNER_CODE`. Client-side the
+  admin token lives only in memory (`admGet(ADMIN_KEYS.TELE_TOKEN)`).
+- Styles go in the `GPR_CSS` layer with theme tokens (`--gpa-accent`,
+  `--gpa-text`, `--gpa-sub`, `--gpa-panel`, `--gpa-field`, `--gpa-border`,
+  `--gpa-success`, `--gpa-warning`, `--gpa-danger`…). Icons:
+  `GPS_ICONS.<name>`; `gpxLbl(icon, text)`.
+- **Changelog:** add an entry to `const CHANGELOG = [...]` near the top of
+  `script.js` for every feature (`parts: { tab: [kind, note] }`, kinds
+  `fix|feature|added|redesign`); it drives the per-tab version chips.
+- After editing `web/console/public/` or `web/public/`, run
+  `npm run build:web` (a test checks the generated file is current).
+- Shell: `pkill -f "<pattern>"` can match its own command line and kill the
+  shell you're in; prefer killing by PID.
+
+---
+
+## 4. Features (by area): what, where, tests
+
+### 4.1 Access, accounts and sign-in
+- **Allowed users** (Admin → Security): switch + list; enforced server-side
+  (`allowedUser`, `resolveState`) on register/login/track/poll/AI/music/read.
+  Signed-in people taken off the list are signed out with a message.
+  Test: `allowlist.mjs`.
+- **Access requests**: unlisted people can ask (`/access/request`, 5/h per
+  network); owner approves/denies in Security. Test: `access-requests.mjs`.
+- **One sign-in per name** (list on): listed names need a PIN-checked
+  server session (`effectiveUser` → `sessionRequired`); only the newest
+  session counts; a second device is refused while the first was used in
+  the last 15 min. **Same computer, another website**: warns and offers
+  "Sign in here" (takeover) via `ipH`/`uaH`/`site` on the session. Owner
+  exempt. Tests: `one-session.mjs`, `same-computer.mjs`.
+- **Invite codes** (round 1): names added to the list *after* this shipped
+  get a one-time code (`invite:<name>`, `/admin/invites`); registering that
+  name needs it (`body.invite`; wrong code counts toward the lockout).
+  Already-approved names and access-request approvals are untouched. UI:
+  Allowed users rows (Copy code / Remove code / Make invite code); sign-up
+  shows the code box only when the Worker asks. Tests:
+  `owner-tools.test.mjs`, `owner-tools.mjs`.
+- **Subscribers** (paid access for a set time): `config.subscriptions`,
+  `/admin/subscriptions` (add/renew/setstart/end/delete, amounts in
+  `subLedger`), `sweepSubscriptions()` every 5 min, owner alerts 3 days
+  before/at the end, subscriber countdown strip `#gpa-substrip`, and (round
+  1) a once-a-day "your access ends in N days" pop-up in the last 3 days
+  (`remindSubscriber`, removed on sign-out). Tests: `subscribers.mjs`.
+
+### 4.2 Chat
+All rooms live in `ChatRoom` DOs. The console polls every 3 s while Chat is
+on screen (1.5 s while someone types, 15 s in the background).
+- **Rooms**: #public, private rooms by code (`/admin/rooms`), **staff chat**
+  (`staff`, moderators/admins/owner only; `isStaffCaller()`).
+  Tests: `chat-rooms.test.mjs`, `staff-chat.mjs`, `chat-burst.mjs` (50
+  simultaneous messages, none lost; the old KV log lost 49).
+- **Read receipts** (iMessage style "Delivered / Read by"), **typing**,
+  **who's here** (here / online / last seen), **reactions** (6 tapbacks).
+  Tests: `read-receipts.mjs`, `chat-live.mjs`.
+- **Replies** (quote built by the DO from `replyTo`), **unsend** within
+  2 min (placeholder, photo/voice deleted), **grouping** of runs from one
+  person. Test: `chat-replies.mjs`.
+- **Round 2**: **@mentions** (autocomplete, highlight, phone alerts for
+  everyone via Settings → Account → Mention alerts; #public and staff only;
+  `/push/me/*`, `notifyUser`), **polls** (`/poll Q | A | B` or "X or Y?",
+  `/chat/vote`), **edit** within 2 min (`/chat/edit`), **pins** (staff, ≤3,
+  `/chat/pin`), **voice messages** (≤30 s, `audioKind`, Range streaming,
+  40/day), **quiet hours** (`cfg.chatQuiet`, Admin → Moderation, off by
+  default; staff exempt). Tests: `chat-round2.test.mjs`, `chat-round2.mjs`.
+- **Round 3**: **chat effects** (confetti/balloons, client-only, Settings
+  switch, never with reduced motion), **flair** (owner picks in Admin →
+  Users; 🛡 for staff from `m.staff`), **daily trivia** (12 PM, first right
+  answer wins, `trivia:points`, owner switch + "Ask a question now"),
+  **system notices** (`m.sys`), **song sharing** from Music (track cards with
+  ▶ Play). `/chat/extras` (flair, streaks, trivia points) every 5 min.
+  Tests: `fun.test.mjs`, `fun.mjs`.
+- **Moderation** stays as before: block, mute, shadow-mute (invisible to
+  the person: their reactions "work" but aren't stored), bans, slow mode,
+  read-only, reports → delete.
+
+### 4.3 Owner notifications and tools
+- **Phone notifications** (owner): Web Push implemented with WebCrypto
+  (RFC 8291/8292), 18 categories in `PUSH_CATEGORIES` (incl. `subs`,
+  `digest` daily at 12 PM, `weekly` Sundays 6 PM), quiet hours, live "who's
+  online". Every alert deep-links to its exact spot (`appLink`/`adminLink`
+  → `openTabFromUrl`/`goToLink`). Tests: `push.test.mjs`,
+  `notifications.mjs`, `notification-links.mjs`.
+- **Weekly report** (round 1): people active/new, chat messages + top three
+  chatters (from room DO counts), AI requests, subscription money;
+  Admin → Overview card with "Send it to my phone now"; `/admin/weekly`.
+- **Activity heatmap** (round 1): hourly sample of who's online into
+  `heat:<week>`, averaged over 4 weeks, 7×24 grid in Admin → Overview.
+- **Admin Command Center**: Overview, Users (inspector with API key, flair,
+  quotas, role), AI & Usage, Security (policy, allowed users, invites,
+  access requests, subscribers), Moderation (reports, quiet hours, fun
+  features), and more. Sections render via `RENDER.<section>()`.
+
+### 4.4 Games
+30+ built-in games. **Leaderboards** (round 3): new personal bests go to
+`/games/score` (`setBestIfHigher` + reaction/guess), top 10 per game in
+`lb:<game>`, shown under the game (🏆 Leaderboard); a new #1 is announced
+in #public (owner switch). `GAME_RULES` refuses impossible scores.
+
+### 4.5 Welcome
+Your activity: sessions opened, member since, and (round 3) **day streak**
+(`user:<name>.streak`, owner time zone).
+
+### 4.6 Music
+Keyless: Audius search + a shared library in R2 (owner/admins upload).
+One now-playing bar with lock-screen controls; 💬 shares the song to chat.
+**Not verified against real Audius** (blocked from the dev container).
+Test: `music.mjs`.
+
+### 4.7 AI and memory limits
+Ask AI goes through `/v1/*` (assigned keys stay server-side). Photos are
+shrunk to 1600 px JPEG in the console; the Worker refuses bodies over 24 MB
+and drops its copies before awaiting OpenAI; `/read` stops at 3 MB. AI
+usage meter for people with quotas (`#gpa-usage`). Tests:
+`memory-limits.test.mjs`, `ask-photo-size.mjs`, `usage-meter*.mjs`.
+
+### 4.8 Other
+Home-screen app (`console-app.mjs`), banners/announcements with sticky
+dismissals (`announcements.mjs`), Eaglercraft (`eaglercraft.e2e.mjs`; the
+real client build is separate, see `eaglercraft/README.md`), Saints Command.
+
+---
+
+## 5. Session history (newest first)
+
+| Commit | What |
+|---|---|
+| (this) | HANDOFF rewrite |
+| `5f2b5ac` | Fun: effects, flair, streaks, leaderboards, trivia, song sharing |
+| `31b2322` | Chat round 2: @mentions, polls, edit, pins, voice, quiet hours |
+| `3492b84` | HANDOFF: status, the owner's way of working, round plans |
+| `04ed68b` | Invite codes, weekly report, activity heatmap, subscriber reminders |
+| `8428005` | Fix "Worker exceeded memory limit" |
+| `e61778e` | Chat: replies, unsend, grouping |
+| `8b76f60` | Chat: typing, who's here, reactions |
+| `3195143` | One sign-in: move between websites on the same computer |
+| `8d814ca` | Staff chat |
+| `5f83c4b`, `ad74109` | Subscribers (+ start dates, amounts, countdown) |
+| `60b4d62` | Read receipts |
+| `3321fb5`, `83a5896` | Header on one line; usage meter at every size |
+| `a899452` | Fix lost chat messages (rooms → Durable Objects); AI usage meter |
+| `e8aa4d5` | Daily summary at 12 PM |
+| `2a460ce` | Notifications open their exact spot |
+| `b62f2e0` | One sign-in per name |
+| `bf4b7f5` | Music without keys |
+| `2446815`, `fbf6ed7` | Access requests; Allowed users |
+| `1ee77cb`, `451d288` | Owner push notifications |
+| `6e6d961` | iPhone home-screen app |
+
+---
 
 ## 6. Testing
 
 ```bash
 npm test                                   # node --test tests/*.test.mjs (100 tests)
-node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
-node tests/browser/console-app.mjs         # 20 (iPhone app)
+npx wrangler deploy --dry-run --outdir /tmp/x   # bundle/config check, deploys nothing
+# Browser suites (Playwright vs local workerd), each takes an output dir for screenshots:
+node tests/browser/eaglercraft.e2e.mjs     # 83
+node tests/browser/console-app.mjs         # 20
 node tests/browser/announcements.mjs       # 15
 node tests/browser/notifications.mjs       # 15
+node tests/browser/notification-links.mjs  # 15
 node tests/browser/allowlist.mjs           # 6
-node tests/browser/access-requests.mjs     # 12 (+ screenshots of every step)
-node tests/browser/music.mjs               # 15 (+ screenshots)
-node tests/browser/one-session.mjs         # 15 (impostor scenarios + screenshots)
-node tests/browser/notification-links.mjs  # 15 (every notification tap lands on its spot)
-node tests/browser/usage-meter.mjs         # 16 (meter states, Ask AI refresh, screenshots)
-node tests/browser/usage-meter-sizes.mjs   # 25 (meter + one-line header at every panel size preset)
-node tests/browser/chat-burst.mjs          # 4 (50 simultaneous messages, none lost)
-node tests/browser/read-receipts.mjs       # 13 (three phones: Delivered → Read by …)
-node tests/browser/subscribers.mjs         # 16 (add, start date, countdown, ended, renew)
-node tests/browser/staff-chat.mjs          # 19 (moderator, owner, regular user can't see it)
-node tests/browser/same-computer.mjs       # 12 (two websites, one computer: warn, move, cancel)
-node tests/browser/chat-live.mjs           # 23 (typing, who's here, reactions; 3 phones + laptop)
-node tests/browser/chat-replies.mjs        # 20 (replies, unsend, grouping; 2 phones + laptop)
-node tests/browser/ask-photo-size.mjs      # 6 (a 9 MB phone photo leaves the console as 0.8 MB)
-node tests/browser/owner-tools.mjs         # 15 (invite codes, weekly report, heatmap, subscriber reminder)
-node tests/browser/chat-round2.mjs         # 26 (mentions, polls, edit, pins, voice, quiet hours; fake mic)
-node tests/browser/fun.mjs                 # 18 (effects, flair, trivia, leaderboard, song sharing, streak)
-npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
+node tests/browser/access-requests.mjs     # 12
+node tests/browser/one-session.mjs         # 15
+node tests/browser/same-computer.mjs       # 12
+node tests/browser/subscribers.mjs         # 16
+node tests/browser/owner-tools.mjs         # 15
+node tests/browser/staff-chat.mjs          # 19
+node tests/browser/chat-burst.mjs          # 4
+node tests/browser/read-receipts.mjs       # 13
+node tests/browser/chat-live.mjs           # 23
+node tests/browser/chat-replies.mjs        # 20
+node tests/browser/chat-round2.mjs         # 26 (fake microphone)
+node tests/browser/fun.mjs                 # 18
+node tests/browser/music.mjs               # 15
+node tests/browser/usage-meter.mjs         # 16
+node tests/browser/usage-meter-sizes.mjs   # 25
+node tests/browser/ask-photo-size.mjs      # 6
 ```
 
-- Browser tests take an output dir argument (screenshots); default dirs are
-  git-ignored. They use `tests/browser/env.mjs` (`startEnv({ extraEnv })`)
-  and `harness.mjs`.
-- **The local workerd KV/R2 persist between runs** (`.wrangler/`). Tests use
-  unique usernames per run and clean up what they create (banners, requests,
-  music) so suites don't leak into each other.
-- Headless Chromium has no push service: the notifications browser test fakes
-  `PushManager`; real encryption/VAPID is proven in `tests/push.test.mjs` by
-  decrypting payloads like a phone.
-- Audius is mocked (unit: stubbed fetch; browser: local stand-in server via
-  `AUDIUS_API`); test songs are synthesized tones in
+**The routine before every push:** `npm test`; then every browser suite one
+at a time from a clean state (`rm -rf .wrangler/state`, ~5 min timeout
+each, ~25 min total, so run the loop in the background and wait for a
+"done" marker); the dry run; look at the screenshots; then commit and push.
+
+- The local workerd keeps KV/R2/DO state in `.wrangler/` between runs
+  (git-ignored), and suites in one loop share it: tests use unique names
+  per run, must not assume they're alone in #public (people from the
+  previous suite count as "online" for 45 s; trivia/record notices
+  (`.gpa-chat-msg.sys`, no avatar) and other users' messages may be in the
+  log), and should type enough of a name to be unique.
+- Headless Chromium has no push service: browser tests fake `PushManager`;
+  real encryption/VAPID is proven in `push.test.mjs`.
+- Audius is mocked; test songs are synthesized tones in
   `tests/browser/fixtures/music/`.
+- The heatmap screenshot in `owner-tools.mjs` uses sample data the test
+  supplies (weeks of hourly samples can't be faked in workerd); the math is
+  unit-tested.
 
-## 7. Environment notes (the cloud dev container)
+---
 
-- Outbound network is restricted: `*.workers.dev`, `api.audius.co`, Mojang
-  hosts are **blocked** from the container. You can't hit the live Worker or
-  Cloudflare; verify with local workerd + dry runs, and tell the owner what
-  couldn't be verified live.
+## 7. Environment (the cloud dev container)
+
+- Outbound network is restricted: `*.workers.dev`, `api.audius.co`,
+  OpenAI and Mojang hosts are blocked. You can't reach the live Worker or
+  Cloudflare; verify with local workerd + dry runs and tell the owner
+  what couldn't be checked live.
 - Playwright Chromium at `/opt/pw-browsers` (don't run `playwright install`).
-- `ffmpeg` and Python 3 (no PIL) are available.
-- The ui-ux-pro-max plugin was installed into this container only; its rules
-  were applied by hand.
+- Python 3 (with PIL) and `ffmpeg` are available (handy for contact sheets
+  of screenshots and test media).
 
-## 8. Known limits and open ideas
+---
 
-- Real Audius search/stream never exercised from here; if the owner reports
-  problems, check the response shape and whether `app_name` alone is still
-  accepted, or set `AUDIUS_API` to a specific discovery node.
-- Eaglercraft can't launch on iPhone (requires fullscreen API + keyboard).
+## 8. Known limits and ideas
+
+- Never verified live from here: real Audius, real push delivery to an
+  iPhone (mention alerts included), the live Cloudflare deploy. If the
+  owner reports a problem with one, start there.
+- "Same computer" detection is a best guess (same network + same browser).
+- Eaglercraft can't launch on iPhone (fullscreen + keyboard needed).
 - The allowlist sign-in check fails open if the Worker is unreachable
   (server features still refuse unlisted names).
-- Saints Command (`/app/`) approve flow requires reconnecting Admin each app
-  launch (token kept in memory only).
-- `previews` KV shares production data.
-- Ideas the owner may like next: a colorful default theme for new users
-  (offered, not done); more Admin views for music (upload approvals from
-  non-admins); presence check frequency tuning if iOS shows each update as a
-  separate notification.
+- Saints Command needs Admin reconnected each launch (token in memory).
+- Push notifications already sent can't be unsent; an unsent photo may stay
+  in a browser cache for up to 5 minutes.
+- When Allowed users is off, names aren't PIN-verified (anyone can type a
+  name), so per-name protections (unsend, mention alerts) only really hold
+  with the list on.
+- Ideas the owner may like (offer, don't build unasked): a colorful default
+  theme for new users; music upload approvals for non-admins; @everyone for
+  staff; weekly trivia leaderboard; per-room quiet hours.
 
-## 9. Owner-facing how-tos (already given)
+---
 
-- Install the app: Safari → `https://donnajbe.viztrrx.workers.dev/console/`
+## 9. Owner how-tos (already explained to them)
+
+- **Install the app:** Safari → `https://donnajbe.viztrrx.workers.dev/console/`
   → Share → Add to Home Screen → keep "Open as Web App" on → Add.
-- Notifications: app → Settings → Account → Phone notifications → Turn on
-  (admin token asked once if not proven owner) → Send a test.
-- Allowed users / access requests: Admin → Security.
-- Shared music: Music → Shared → Add songs (owner/admins; Admin connected or
-  owner code set).
+- **Phone notifications:** app → Settings → Account → Phone notifications →
+  Turn on (admin token asked once) → Send a test. Weekly report and daily
+  summary are categories there.
+- **Allowed users, invite codes, access requests, subscribers:** Admin →
+  Security. A newly added name shows its invite code with Copy code.
+- **Quiet hours, fun features (trivia, record posts), "Ask a trivia
+  question now":** Admin → Moderation.
+- **Flair:** Admin → Users → the person → Flair.
+- **Heatmap and weekly report:** Admin → Overview.
+- **Mention alerts (anyone), chat effects on/off:** Settings → Account.
+- **Shared music:** Music → Shared → Add songs (owner/admins).
+- **Check a deploy:** Cloudflare dashboard → Workers & Pages → `donnajbe`
+  → Deployments; errors: Logs.
