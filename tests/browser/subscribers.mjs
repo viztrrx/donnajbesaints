@@ -90,7 +90,8 @@ try {
   // 2: add renzo for a month with a note. (The local Worker keeps data between
   // test runs, and the money ledger keeps past payments on purpose.)
   const ledgerBefore = ((await admin('/admin/subscriptions', { action: 'list' })).ledger || []).reduce((n, x) => n + x.amount, 0);
-  const money = (n) => '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  // Same as the card: cents only when there are any ($23.80, $10).
+  const money = (n) => '$' + (Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
   await R(owner.page, (r) => r.querySelector('#gac-subs-card').scrollIntoView({ block: 'start' }));
   await owner.page.fill(sr('#gac-subs-name'), RENZO);
   await owner.page.selectOption(sr('#gac-subs-period'), '1m');

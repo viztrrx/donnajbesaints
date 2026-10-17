@@ -97,7 +97,7 @@ try {
   // 2: sam on a phone.
   const S = await open('phone');
   let s = await create(S.page, SAM, null);
-  check('sam presses Create: asked for an invite code', !s.inside && s.invite && /needs an invite code/.test(s.msg), JSON.stringify(s));
+  check('sam presses Create: asked for an invite code', !s.inside && s.invite && /needs its sign-up code/.test(s.msg), JSON.stringify(s));
   await S.page.screenshot({ path: path.join(OUT, '02-invite-asked.png') });
   s = await create(S.page, SAM, 'AAAA-BBBB');
   check('Wrong code: refused', !s.inside && /isn’t right/.test(s.msg), s.msg);

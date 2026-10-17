@@ -1,5 +1,6 @@
 import { webApp } from './web/handler.js';
 import { consoleApp } from './web/console/handler.js';
+import { subscribePage, subscribeReady, priceCents, stripe, checkoutParams, periodEndMs, invoiceSubscription, stripeSignatureOk, SUB_NAME_RE, SESSION_RE } from './web/subscribe.js';
 import { readPlaylist, readLists, writeLists, newList, listSummary, publicList, searchYouTube, matchCacheKey, LISTS_MAX, MATCH_BATCH, MATCH_SCAN } from './web/playlists.js';
 import { audiusSearch, audiusStream, listLibrary, addToLibrary, removeFromLibrary, serveLibraryFile, audioKind, listMine, mineUsage, addToMine, removeFromMine, MINE_DAILY_UPLOADS } from './web/music.js';
 import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime, cleanCategories, anySubscriberWants,
@@ -470,7 +471,7 @@ async function sweepSubscriptions(env, now = Date.now()) {
       s.ended = true; s.endedAt = now;
       if (cfg.allowlist && Array.isArray(cfg.allowlist.users)) cfg.allowlist.users = cfg.allowlist.users.filter((u) => u !== key);
       ended.push(s.user);
-    } else if (!s.reminded && s.expiresAt - now <= SUB_REMIND_MS) {
+    } else if (!s.reminded && !s.autoRenew && s.expiresAt - now <= SUB_REMIND_MS) {
       s.reminded = true;
       reminded.push(s);
     }
@@ -1307,7 +1308,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     const mySubscription = (cfg, user) => {
       const s = subscriptionOf(cfg, user);
       if (!s || s.expiresAt <= Date.now() || String(user).toLowerCase() === OWNER) return null;
-      return { startedAt: s.startedAt, expiresAt: s.expiresAt, period: s.period };
+      return { startedAt: s.startedAt, expiresAt: s.expiresAt, period: s.period, ...(s.autoRenew ? { autoRenew: true } : {}) };
     };
     // Why a name is refused, in words for that person.
     const deniedReason = (cfg, user) => (subscriptionOf(cfg, user) ? SUB_ENDED : ACCESS_DENIED);
@@ -3082,6 +3083,172 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (!(await timingSafeEqualStr(h, room.codeHash))) return { ok: false, error: 'wrong room code' };
       return { ok: true, id, room };
     };
+
+    // ---- Subscribe app (/subscribe/): pay with Stripe, get approved ----------
+    // A payment-only page the owner hands out (web/subscribe.js). Stripe
+    // confirms each payment to /subscribe/webhook (signed with
+    // STRIPE_WEBHOOK_SECRET); only then is the name added to Allowed users as
+    // a monthly subscriber. The buyer's page also asks Stripe directly, so a
+    // late webhook doesn't keep them waiting. New names get a one-time
+    // sign-up code (shown only to the buyer) so nobody else can register the
+    // name first.
+    if (url.pathname === '/subscribe') return new Response(null, { status: 308, headers: { Location: '/subscribe/' } });
+    if (url.pathname.startsWith('/subscribe/')) {
+      const kv = env && env.TELEMETRY;
+      const ready = subscribeReady(env) && !!kv;
+      const GRACE_MS = 864e5;   // a day's slack after each paid period
+      const nameStatus = async (raw, session) => {
+        const name = String(raw || '').trim().replace(/^@/, '');
+        if (!SUB_NAME_RE.test(name)) return { error: 'Use 1–40 letters, numbers, dot, dash or underscore.' };
+        const key = name.toLowerCase();
+        if (key === OWNER) return { error: 'That name is taken. Pick another.' };
+        const cfg = await getConfig(kv);
+        const cur = cfg.subscriptions && cfg.subscriptions[key];
+        if (cur && !cur.ended && cur.expiresAt > Date.now()) return { error: '“' + name + '” is already subscribed.' };
+        if (cfg.allowlist && cfg.allowlist.on && (cfg.allowlist.users || []).includes(key)) return { error: '“' + name + '” already has access. No need to subscribe.' };
+        const hold = await kv.get('subhold:' + key, 'json');
+        if (hold && hold.session !== session && hold.until > Date.now()) return { error: 'Someone is paying for “' + name + '” right now. Pick another name or try again in 30 minutes.' };
+        const acct = await getAcct(kv, key);
+        return { ok: true, user: name, key, note: acct ? '“' + name + '” already has an account. Only use it if it’s yours: you’ll sign in with its PIN.' : '' };
+      };
+      // Adds (or extends) a paid subscription; idempotent per payment (ref).
+      const approveSub = async (user, info) => {
+        const key = user.toLowerCase(), now = Date.now();
+        const cfg = await getConfig(kv);
+        cfg.subscriptions = cfg.subscriptions && typeof cfg.subscriptions === 'object' ? cfg.subscriptions : {};
+        const ledger = Array.isArray(cfg.subLedger) ? cfg.subLedger : [];
+        const dup = !!info.ref && ledger.some((x) => x && x.ref === info.ref);
+        const cur = cfg.subscriptions[key];
+        const active = !!cur && !cur.ended && cur.expiresAt > now;
+        const amount = Math.round(Math.max(0, Number(info.amount) || 0) * 100) / 100;
+        if (!dup) {
+          const expiresAt = Math.max((info.periodEnd || addSubPeriod(now, '1m')) + GRACE_MS, active ? cur.expiresAt : 0);
+          const action = info.renew ? 'renew' : 'add';
+          cfg.subscriptions[key] = {
+            user: active ? cur.user : user, startedAt: active ? cur.startedAt : now, expiresAt, period: '1m', note: 'Stripe · renews monthly', autoRenew: true,
+            stripe: { customer: info.customer || (cur && cur.stripe && cur.stripe.customer) || '', subscription: info.subscription || (cur && cur.stripe && cur.stripe.subscription) || '' },
+            history: [...((cur && cur.history) || []), { at: now, action, period: '1m', note: 'Stripe', amount, from: now }].slice(-24)
+          };
+          if (amount > 0) cfg.subLedger = [...ledger, { user: cfg.subscriptions[key].user, at: now, amount, action, via: 'stripe', ref: info.ref || '' }].slice(-1000);
+          const users = new Set(((cfg.allowlist && cfg.allowlist.users) || []).map((u) => String(u).toLowerCase()));
+          users.add(key);
+          cfg.allowlist = { on: !!(cfg.allowlist && cfg.allowlist.on), users: [...users].slice(0, 500) };
+          await kv.put('config', JSON.stringify(cfg));
+          try { const rq = await kv.get(accessReqKey(key), 'json'); if (rq && rq.status === 'pending') { rq.status = 'approved'; rq.decidedAt = now; await kv.put(accessReqKey(key), JSON.stringify(rq), { expirationTtl: 60 * 60 * 24 * 30 }); } } catch (e) { /* best-effort */ }
+          await logAudit(kv, { route: url.pathname, action: 'subscription_stripe_' + action, target: key, meta: { amount } });
+          await notifyOwner(env, { cat: 'subs', title: info.renew ? user + ' renewed ($' + amount.toFixed(2) + ')' : 'New subscriber: ' + user, body: info.renew ? 'Paid through Stripe. Access extended a month.' : 'Paid $' + amount.toFixed(2) + ' through Stripe and was added to your allowed users.', url: adminLink('security', { focus: 'subs', user }) }, url.origin).catch(() => {});
+        }
+        // A sign-up code for a name nobody has registered yet.
+        let code = '';
+        if (!info.renew && !(await getAcct(kv, key))) {
+          const inv = await kv.get(inviteKey(key), 'json');
+          code = inv ? inv.code : makeInviteCode();
+          if (!inv) await kv.put(inviteKey(key), JSON.stringify({ user: key, code, createdAt: now, via: 'stripe' }));
+        }
+        return { code };
+      };
+      const fromSession = async (sess) => {
+        const done = await kv.get('subpay:' + sess.id, 'json');
+        if (done) return done;
+        const user = String(sess.client_reference_id || (sess.metadata && sess.metadata.user) || '');
+        if (!SUB_NAME_RE.test(user)) throw Object.assign(new Error('That payment has no username.'), { status: 422 });
+        let sub = sess.subscription;
+        if (typeof sub === 'string' && sub) { try { sub = await stripe(env, 'GET', 'subscriptions/' + encodeURIComponent(sub)); } catch (e) { sub = { id: sess.subscription }; } }
+        const subId = (sub && sub.id) || '';
+        const r = await approveSub(user, { periodEnd: periodEndMs(sub), amount: (Number(sess.amount_total) || priceCents(env)) / 100, customer: typeof sess.customer === 'string' ? sess.customer : '', subscription: subId, ref: sess.id });
+        const rec = { user, code: r.code, approved: true };
+        await kv.put('subpay:' + sess.id, JSON.stringify(rec), { expirationTtl: 30 * 24 * 3600 });
+        if (subId) await kv.put('substripe:' + subId, user.toLowerCase());
+        await kv.delete('subhold:' + user.toLowerCase());
+        return rec;
+      };
+      const userForSub = async (subId, metaUser) => {
+        const u = String(metaUser || '') || (subId ? (await kv.get('substripe:' + subId)) || '' : '');
+        return SUB_NAME_RE.test(u) ? u : '';
+      };
+      try {
+        if (url.pathname === '/subscribe/' && (req.method === 'GET' || req.method === 'HEAD')) {
+          return new Response(req.method === 'HEAD' ? null : subscribePage(env, { ready }), { headers: {
+            'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+            'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+          } });
+        }
+        if (!ready) return json({ ok: false, error: 'Subscriptions aren’t open yet.' }, 503);
+        if (url.pathname === '/subscribe/check' && req.method === 'GET') {
+          const st = await nameStatus(url.searchParams.get('user'));
+          return json(st.ok ? { ok: true, note: st.note } : { ok: false, error: st.error });
+        }
+        if (url.pathname === '/subscribe/checkout' && req.method === 'POST') {
+          let body = {};
+          try { const raw = await req.text(); if (raw.length > 1024) throw 0; body = JSON.parse(raw) || {}; } catch (e) { return json({ ok: false, error: 'invalid request' }, 400); }
+          // At most 10 checkouts an hour from one network.
+          const rk = 'subco:' + (await sha256hex('ip|' + clientIp(req))).slice(0, 24) + ':' + Math.floor(Date.now() / 3600e3);
+          const n = parseInt(await kv.get(rk), 10) || 0;
+          if (n >= 10) return json({ ok: false, error: 'Too many tries. Wait a bit and try again.' }, 429);
+          await kv.put(rk, String(n + 1), { expirationTtl: 2 * 3600 });
+          const st = await nameStatus(body.user);
+          if (!st.ok) return json({ ok: false, error: st.error }, 409);
+          const sess = await stripe(env, 'POST', 'checkout/sessions', checkoutParams(env, url.origin, st.user));
+          await kv.put('subhold:' + st.key, JSON.stringify({ session: sess.id, until: Date.now() + 30 * 60e3 }), { expirationTtl: 3600 });
+          return json({ ok: true, url: sess.url });
+        }
+        if (url.pathname === '/subscribe/status' && req.method === 'GET') {
+          const id = url.searchParams.get('session') || '';
+          if (!SESSION_RE.test(id)) return json({ ok: false, error: 'Unknown payment.' }, 400);
+          const done = await kv.get('subpay:' + id, 'json');
+          if (done) return json({ ok: true, ...done });
+          // Not confirmed by the webhook yet: ask Stripe.
+          let sess;
+          try { sess = await stripe(env, 'GET', 'checkout/sessions/' + encodeURIComponent(id)); } catch (e) { return json({ ok: false, pending: true }); }
+          if (sess.status === 'complete' && sess.payment_status === 'paid') return json({ ok: true, ...(await fromSession(sess)) });
+          if (sess.status === 'expired') return json({ ok: false, error: 'This checkout expired and nothing was charged. Start again.' });
+          return json({ ok: false, pending: true });
+        }
+        if (url.pathname === '/subscribe/webhook' && req.method === 'POST') {
+          const raw = await req.text();
+          if (raw.length > 512 * 1024) return json({ error: 'too large' }, 413);
+          if (!(await stripeSignatureOk(env.STRIPE_WEBHOOK_SECRET, req.headers.get('Stripe-Signature'), raw))) {
+            await noteSec('stripe_webhook_bad_signature');
+            return json({ error: 'bad signature' }, 400);
+          }
+          let ev;
+          try { ev = JSON.parse(raw); } catch (e) { return json({ error: 'invalid' }, 400); }
+          if (!ev || !/^evt_\w+$/.test(String(ev.id || '')) || !ev.data || !ev.data.object) return json({ error: 'invalid' }, 400);
+          if (await kv.get('stripe:evt:' + ev.id)) return json({ received: true, duplicate: true });
+          const o = ev.data.object;
+          if (ev.type === 'checkout.session.completed' || ev.type === 'checkout.session.async_payment_succeeded') {
+            if (o.mode === 'subscription' && o.payment_status === 'paid') await fromSession(o);
+          } else if (ev.type === 'invoice.paid' || ev.type === 'invoice.payment_succeeded') {
+            // Monthly renewals. The first invoice is the checkout payment itself.
+            if (o.billing_reason !== 'subscription_create') {
+              const s = invoiceSubscription(o);
+              const user = await userForSub(s.id, s.user);
+              if (user) await approveSub(user, { renew: true, periodEnd: periodEndMs(o), amount: (Number(o.amount_paid) || 0) / 100, customer: typeof o.customer === 'string' ? o.customer : '', subscription: s.id, ref: o.id });
+            }
+          } else if (ev.type === 'customer.subscription.updated' || ev.type === 'customer.subscription.deleted') {
+            const user = await userForSub(o.id, o.metadata && o.metadata.user);
+            if (user) {
+              const cfg = await getConfig(kv);
+              const cur = cfg.subscriptions && cfg.subscriptions[user.toLowerCase()];
+              if (cur) {
+                if (ev.type === 'customer.subscription.deleted') {
+                  // Ended (canceled, or payments failed): the 5-minute sweep
+                  // takes them off Allowed users and tells the owner.
+                  cur.autoRenew = false; cur.expiresAt = Math.min(cur.expiresAt, Date.now());
+                  cur.history = [...(cur.history || []), { at: Date.now(), action: 'end', note: 'Stripe' }].slice(-24);
+                } else cur.autoRenew = !o.cancel_at_period_end && !o.cancel_at;
+                await kv.put('config', JSON.stringify(cfg));
+              }
+            }
+          }
+          await kv.put('stripe:evt:' + ev.id, '1', { expirationTtl: 30 * 24 * 3600 });
+          return json({ received: true });
+        }
+        return json({ error: 'not found' }, 404);
+      } catch (e) {
+        return json({ ok: false, error: e.status ? e.message : 'Something went wrong. Try again.' }, e.status || 500);
+      }
+    }
 
     // ---- Music (Music tab): Audius search/streams and the shared library ----
     // No keys or sign-ins for listeners. The allowed-users list applies (the

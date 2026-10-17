@@ -769,7 +769,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-18T00:30:00-04:00', commit: '', title: 'Playlist → YouTube links (owner and admins)', parts: {
       music: ['feature', 'Playlists: paste a Spotify or Apple Music playlist or album link and get each song’s official YouTube video, organized by playlist and saved to your account'] } },
     { at: '2026-10-18T01:30:00-04:00', commit: '', title: 'Playlists: app only, Worker YouTube key', parts: {
-      music: ['fix', 'Playlists use the YouTube key stored on the Worker (a Cloudflare secret) and work only in the app; each song is looked up once'] } }
+      music: ['fix', 'Playlists use the YouTube key stored on the Worker (a Cloudflare secret) and work only in the app; each song is looked up once'] } },
+    { at: '2026-10-18T02:30:00-04:00', commit: '', title: 'Subscribe page: pay monthly with Stripe, approved automatically', parts: {
+      console: ['feature', 'A payment page (/subscribe/) where someone picks their username and pays monthly; the name is approved as a subscriber when Stripe confirms the payment'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -15672,7 +15674,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           : r.status === 409 && r.data.inUse && r.data.sameComputer ? '“' + user + '” is already signed in on this computer' + (r.data.site ? ' on ' + r.data.site : '') + '.'
           : r.status === 409 && r.data.inUse ? '“' + user + '” is already signed in on another device. Sign out there first, or try again in about ' + (r.data.waitMin || 15) + ' min. The owner can also sign it out.'
             : r.status === 409 && r.data.exists ? 'That name is already taken.'
-              : r.status === 403 && r.data.inviteRequired ? (r.data.wrongInvite ? 'That invite code isn’t right. Check it with the owner.' : '“' + user + '” needs an invite code from the owner. Enter it below, then tap ＋ (create account) again.')
+              : r.status === 403 && r.data.inviteRequired ? (r.data.wrongInvite ? 'That invite code isn’t right. Check it with the owner.' : '“' + user + '” needs its sign-up code (from your payment page, or the owner). Enter it below, then tap ＋ (create account) again.')
               : r.status === 403 && /reserved/.test(r.data.error || '') ? "This name is reserved for the console's owner."
                 : r.status === 403 && r.data.notAllowed ? ACCESS_DENIED_MSG
                   : r.status === 429 ? 'Too many attempts. Try again in a few minutes.'
@@ -19858,6 +19860,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const endTime = end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     const sameDay = end.toDateString() === new Date().toDateString();
     const pct = Math.max(0, Math.min(100, Math.round(((now - sub.startedAt) / Math.max(1, sub.expiresAt - sub.startedAt)) * 100)));
+    // Paid monthly through the subscribe page (Stripe): it renews by itself.
+    if (sub.autoRenew) {
+      subStripEl.classList.remove('is-low');
+      subStripEl.querySelector('#gpa-substrip-left').textContent = 'Subscribed';
+      const b = subStripEl.querySelector('#gpa-substrip-bar');
+      b.querySelector('i').style.width = Math.max(0, Math.min(100, Math.round(((now - sub.startedAt) / Math.max(1, sub.expiresAt - sub.startedAt)) * 100))) + '%';
+      b.setAttribute('aria-valuetext', 'Renews ' + endDay);
+      subStripEl.querySelector('#gpa-substrip-note').textContent = 'Active since ' + new Date(sub.startedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' · renews monthly (next by ' + endDay + ')';
+      subStripEl.hidden = false;
+      const remind = panel.querySelector('.gpa-sub-remind');
+      if (remind) remind.remove();
+      return;
+    }
     subStripEl.classList.toggle('is-low', left <= 3 * 864e5);
     subStripEl.querySelector('#gpa-substrip-left').textContent = sameDay ? 'Ends today' : days + (days === 1 ? ' day left' : ' days left');
     const bar = subStripEl.querySelector('#gpa-substrip-bar');

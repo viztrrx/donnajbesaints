@@ -150,6 +150,57 @@ Owners can point at a different Audius gateway with the Worker variable
 - Owner phone alerts (Settings → Account → Phone notifications) stay
   owner-only; admins can turn on @mention alerts in the app.
 
+## Subscribe page (Stripe) {#subscribe}
+
+A payment-only page you give to people who want access:
+**`https://donnajbe.viztrrx.workers.dev/subscribe/`** (it can be added to a
+phone's home screen too).
+
+1. They type the username they'll sign in with (names that are taken,
+   already approved or already subscribed are refused) and tap **Continue
+   to payment**.
+2. Stripe's secure checkout opens; they pay with a card, Apple Pay, Google
+   Pay, Cash App Pay or Link (whatever you turn on in Stripe).
+3. When Stripe confirms the payment, your Worker adds the name to **Allowed
+   users** as a subscriber (Admin → Security → Subscribers, with the payment
+   in the ledger) and you get a "New subscriber" notification. Their page
+   shows a one-time **sign-up code**: they create their account in the
+   console with that name, a PIN and the code (so nobody else can register
+   the name they paid for).
+4. It renews every month by itself (each payment extends their access; the
+   console shows "Subscribed · renews monthly"). If they cancel or a payment
+   fails for good, Stripe tells the Worker and their access ends; you're
+   notified.
+
+**Price:** $13.80/month by default, so you keep $13.00 after Stripe's fees
+(2.9% + 30¢ per US card payment plus 0.7% for subscriptions; check
+stripe.com/pricing, they can change). It's shown as one plain price. Cards
+from outside the US cost an extra 1.5%. To change it, set the Worker
+variable `SUB_PRICE_CENTS` (e.g. `1500` for $15.00).
+
+**Setup (once):**
+1. Make a Stripe account at stripe.com and finish activating it.
+2. Stripe → Developers → **API keys** → copy the **Secret key** (`sk_live_…`).
+   Cloudflare → Workers & Pages → `donnajbe` → Settings → Variables and
+   Secrets → **Add** → Secret, name `STRIPE_SECRET_KEY`.
+3. Stripe → Developers → **Webhooks** → Add endpoint:
+   `https://donnajbe.viztrrx.workers.dev/subscribe/webhook`, events
+   `checkout.session.completed`, `invoice.paid`,
+   `customer.subscription.updated`, `customer.subscription.deleted`. Copy its
+   **Signing secret** (`whsec_…`) into a Cloudflare secret named
+   `STRIPE_WEBHOOK_SECRET`.
+4. Stripe → Settings → **Payment methods**: turn on Apple Pay, Google Pay,
+   Cash App Pay and Link if you want them.
+5. Optional: Stripe → Settings → Billing → **Customer portal** → turn on
+   the link and put it in a Worker variable `STRIPE_PORTAL_URL`; the page then
+   shows "Manage or cancel".
+
+Until `STRIPE_SECRET_KEY` is set the page says "Subscriptions aren't open
+yet". Try it first with Stripe's test mode keys (`sk_test_…`, test card
+4242 4242 4242 4242), then switch to the live keys. Secrets live only in
+Cloudflare, never in the code. Checks: `node --test tests/subscribe.test.mjs`
+and `node tests/browser/subscribe.mjs`.
+
 ## Allowed users {#allowed-users}
 
 **Admin → Security → Allowed users** (owner only) limits the console to the

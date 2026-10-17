@@ -12,7 +12,11 @@ list (rounds 1–3) was finished and pushed.
 
 ### Status right now
 - **Nothing is half-done.** All work from this session is on `main` and
-  deployed (pushing to `main` deploys; see below). The last commit: Playlists made **app only with the Worker's own YouTube
+  deployed (pushing to `main` deploys; see below). The last commit: the **Subscribe page** (owner: "a payment only app…
+  they select their payment method and… put the username… approved once the
+  payment of $13 is received… automatically approved on the allowed users";
+  Stripe, monthly, fees passed on so the owner nets $13). Before that:
+  Playlists made **app only with the Worker's own YouTube
   key** (owner: "make it so i can add a server youtube api key so it
   doesn't live in the code… only available thru the web app to me as the
   owner and the admins… only be used when it has to be used").
@@ -148,7 +152,9 @@ after Proxy, before Games.
 `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (else generated into
 KV `push:vapid`), `CONSOLE_SCRIPT_URL`, `AUDIUS_API`,
 `APNS_RELAY_URL`/`APNS_RELAY_SECRET`, optional `YOUTUBE_API_KEY`,
-`SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET` (Playlists).
+`SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET` (Playlists), `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET`, optional `STRIPE_PORTAL_URL`, `SUB_PRICE_CENTS`
+(Subscribe page).
 
 ### KV keys (TELEMETRY)
 `config` (allowlist, subscriptions, subLedger, chatQuiet, fun, flair,
@@ -165,7 +171,7 @@ firstSeen, lastSeen, streak) · `mod:<name>` · `usage:<day>:<name>`,
 (lockouts) · `chat-photo-rate:*`, `chat-voice-rate:*` · `mylib:<name>`
 (a person's My music list), `mylib:total` (bytes of everyone's uploads),
 `mylib-rate:<day>:<name>` · `ytlists:<name>` (Playlists → YouTube links),
-`ytlists-rate:<day>:<name>`, `ytm:<hash>` (one song's YouTube answer, shared).
+`ytlists-rate:<day>:<name>`, `ytm:<hash>` (one song's YouTube answer, shared) · `subhold:<name>`, `subpay:<session>`, `substripe:<sub id>`, `stripe:evt:<id>`, `subco:*` (Subscribe page).
 
 ### Inside the ChatRoom Durable Object (per room)
 Storage: `log` (newest 120 messages, a week), `reads` (read cursors),
@@ -253,6 +259,28 @@ day, 14 days; not system notices), `trivia` (#public only). Memory only:
   suites use `startEnv({ appGate: true })` to keep the gate; it's off by
   default in `tests/browser/env.mjs` because most suites sign regular users
   into the app).
+- **Subscribe page** (`/subscribe/`, `web/subscribe.js` + the
+  `/subscribe/*` block in worker.js): payment-only page; Stripe Checkout in
+  subscription mode, $13.80/month by default (`SUB_PRICE_CENTS`; the owner
+  wanted to net $13 after fees: 2.9% + 30¢ + 0.7% Billing). Secrets
+  `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (optional `STRIPE_PORTAL_URL`,
+  `STRIPE_API` for tests). Flow: `/subscribe/check` (name rules: not the
+  owner, not already listed/subscribed, not held by another checkout:
+  `subhold:<name>` 30 min) → `/subscribe/checkout` (10/h per network) →
+  Stripe → `/subscribe/webhook` (signature checked, events deduped
+  `stripe:evt:<id>`) or `/subscribe/status` asking Stripe directly →
+  `approveSub()`: `config.subscriptions[name]` with `autoRenew: true`,
+  `stripe: {customer, subscription}`, ledger entry (`via: 'stripe'`, `ref`
+  = session/invoice id, deduped), name on Allowed users, owner notified, and
+  a sign-up code (`invite:<name>`, only if no account) shown only on the
+  buyer's page (`subpay:<session>`). Renewals: `invoice.paid`
+  (`subscription_cycle`; `substripe:<sub id>` → name) extend to the period
+  end + 1 day. `customer.subscription.updated` (cancel at period end) →
+  `autoRenew: false`; `.deleted` → expires now, the 5-minute sweep ends it.
+  Auto-renewing subscribers get no "ending soon" reminders; their console
+  strip says "Subscribed · renews monthly". **Never tested against real
+  Stripe** (blocked from the dev container): tests use a stand-in that signs
+  webhooks like Stripe. Tests: `subscribe.test.mjs`, `subscribe.mjs`.
 - **Invite codes** (round 1): names added to the list *after* this shipped
   get a one-time code (`invite:<name>`, `/admin/invites`); registering that
   name needs it (`body.invite`; wrong code counts toward the lockout).
@@ -383,7 +411,8 @@ real client build is separate, see `eaglercraft/README.md`), Saints Command.
 
 | Commit | What |
 |---|---|
-| (this) | Playlists: app only, Worker YouTube key, shared lookup cache |
+| (this) | Subscribe page: pay monthly with Stripe, approved automatically |
+| `b7a3eba` | Playlists: app only, Worker YouTube key, shared lookup cache |
 | `a11eeaa` | Playlists → YouTube links (owner + admins) |
 | `c073296` | Admins: phone app for owner + admins, no admin token, two devices |
 | `ef627f0` | Streaks: start on any weekday |
@@ -415,7 +444,7 @@ real client build is separate, see `eaglercraft/README.md`), Saints Command.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (107 tests)
+npm test                                   # node --test tests/*.test.mjs (110 tests)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundle/config check, deploys nothing
 # Browser suites (Playwright vs local workerd), each takes an output dir for screenshots:
 node tests/browser/eaglercraft.e2e.mjs     # 83
@@ -440,6 +469,7 @@ node tests/browser/music.mjs               # 15
 node tests/browser/my-music.mjs            # 15
 node tests/browser/admin-app.mjs           # 20
 node tests/browser/playlists.mjs           # 21
+node tests/browser/subscribe.mjs           # 15
 node tests/browser/usage-meter.mjs         # 16
 node tests/browser/usage-meter-sizes.mjs   # 25
 node tests/browser/ask-photo-size.mjs      # 6
