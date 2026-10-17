@@ -7,6 +7,7 @@ import { validateMutation } from './mobile/backend/validation.js';
 import { AdminMobileState, stateCall, digest, randomToken, validSource, relayCall, queueEvent } from './mobile/backend/state.js';
 export { AdminMobileState };
 import { ChatRoom, chatRoomCall } from './chat/room.js';
+import { TRIVIA } from './chat/trivia.js';
 export { ChatRoom };
 // Agent Console — Cloudflare Worker proxy
 // Deploy through the repository Wrangler build: npx wrangler deploy.
@@ -693,6 +694,43 @@ async function maybeSendWeeklyReport(env, ts) {
   return notifyOwner(env, { cat: 'weekly', title: 'Weekly report', body: r.text, url: adminLink('overview') });
 }
 
+// ---- Round 3: daily trivia, game leaderboards, system messages -------------
+// A system message: posted by the Worker into a room (trivia, game records),
+// marked sys so the console draws it as a notice and it isn't counted as chat.
+async function postSystem(env, room, kind, name, text) {
+  if (!env || !env.CHAT_ROOMS) return null;
+  try { return await chatRoomCall(env, room, 'append', { msg: { u: name, t: String(text).slice(0, 500), sys: kind } }); } catch (e) { return null; }
+}
+const funOn = (cfg, key) => !(cfg && cfg.fun && cfg.fun[key] === false);   // fun features default on
+async function maybePostTrivia(env, ts) {
+  const kv = env && env.TELEMETRY;
+  if (!kv || !env.CHAT_ROOMS) return null;
+  const t = ts == null ? Date.now() : ts;
+  const clock = ownerClock(env, t);
+  if (clock.hour !== 12) return null;
+  const cfg = (await kv.get('config', 'json')) || {};
+  if (!funOn(cfg, 'trivia')) return null;
+  if ((await kv.get('trivia:day')) === clock.date) return null;
+  await kv.put('trivia:day', clock.date, { expirationTtl: 3 * 24 * 3600 });   // marked first: one a day
+  const n = Math.floor(Date.parse(clock.date + 'T12:00:00Z') / 864e5);
+  const [q, ...a] = TRIVIA[n % TRIVIA.length];
+  let prev = null;
+  try { prev = (await chatRoomCall(env, 'public', 'trivia_open', { q, a, day: clock.date })).prev; } catch (e) { return null; }
+  const reveal = prev && prev.q && !prev.solved && prev.a && prev.a[0] ? `Yesterday’s answer: ${prev.a[0]}. ` : '';
+  return postSystem(env, 'public', 'trivia', 'Trivia', `${reveal}🧠 Daily trivia: ${q} First correct answer in chat wins a point!`);
+}
+// Game leaderboards: higher is better unless "low" (reaction time, guesses).
+// Scores outside the range are refused (a quick sanity check, not anti-cheat).
+const GAME_RULES = {
+  reaction: { low: true, min: 80, max: 5000, unit: 'ms' }, guess: { low: true, min: 1, max: 100, unit: 'tries' },
+  typing: { min: 1, max: 300, unit: 'WPM' }
+};
+const LB_GAMES = ['2048', 'blackjack', 'breakout', 'crusade', 'fifteen', 'flappy', 'hanoi', 'invaders', 'lightsout', 'mastermind', 'mathsprint', 'maze', 'platformer', 'pong', 'racer', 'simon', 'snake', 'tetris', 'typing', 'whack', 'reaction', 'guess'];
+const LB_NAMES = { '2048': '2048', blackjack: 'Blackjack', breakout: 'Breakout', crusade: 'Crusade', fifteen: '15-Puzzle', flappy: 'Flappy', hanoi: 'Tower of Hanoi', invaders: 'Space Invaders',
+  lightsout: 'Lights Out', mastermind: 'Mastermind', mathsprint: 'Math Sprint', maze: 'Maze', platformer: 'Platformer', pong: 'Pong', racer: 'Racer', simon: 'Simon', snake: 'Snake',
+  tetris: 'Tetris', typing: 'Typing Test', whack: 'Whack-a-Mole', reaction: 'Reaction Test', guess: 'Guess the Number' };
+const lbFormat = (game, s) => Number(s).toLocaleString('en-US') + (GAME_RULES[game] && GAME_RULES[game].unit ? ' ' + GAME_RULES[game].unit : '');
+
 // Who made each /v1 (AI) request, so the fetch wrapper can tell the owner
 // when one fails without threading the name through every early return.
 const aiCallers = new WeakMap();
@@ -771,6 +809,7 @@ export default {
       ctx.waitUntil(maybeSendDailyDigest(env).catch(() => {}));
       ctx.waitUntil(maybeSendWeeklyReport(env).catch(() => {}));
       ctx.waitUntil(sampleActivity(env).catch(() => {}));
+      ctx.waitUntil(maybePostTrivia(env).catch(() => {}));
       ctx.waitUntil(sweepSubscriptions(env).catch(() => {}));
       return;
     }
@@ -1495,6 +1534,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       '/admin/invites':                { method: 'POST', perm: 'system.manage' },
       '/admin/heatmap':                { method: 'GET',  perm: 'users.view' },
       '/admin/weekly':                 { method: 'POST', perm: 'system.manage' },
+      '/admin/trivia':                 { method: 'POST', perm: 'system.manage' },
       '/admin/assignkey':      { method: 'POST', perm: 'keys.manage' },
       '/admin/clear':          { method: 'POST', perm: 'danger.execute' },
       '/admin/audit':          { method: 'GET',  perm: 'audit.view' },
@@ -1612,6 +1652,19 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const rank = { pending: 0, denied: 1, approved: 2 };
       items.sort((a, b) => (rank[a.status] - rank[b.status]) || (b.ts - a.ts));
       return json({ ok: true, requests: items.map(({ ip, ...r }) => r), pending: items.filter((r) => r.status === 'pending').length });
+    }
+    // Daily trivia: "Ask a question now" (Admin → Moderation → Fun features).
+    // Replaces any open question; answers come back to the owner only.
+    if (url.pathname === '/admin/trivia') {
+      if (!env.CHAT_ROOMS) return json({ error: 'chat rooms are not available' }, 503);
+      const day = ownerClock(env).date;
+      const i = (Math.floor(Date.now() / 3600e3) + 7) % TRIVIA.length;   // a different one than the noon pick, usually
+      const [q, ...a] = TRIVIA[i];
+      const { prev } = await chatRoomCall(env, 'public', 'trivia_open', { q, a, day });
+      const reveal = prev && prev.q && !prev.solved && prev.a && prev.a[0] ? `Last question’s answer: ${prev.a[0]}. ` : '';
+      await postSystem(env, 'public', 'trivia', 'Trivia', `${reveal}🧠 Trivia: ${q} First correct answer in chat wins a point!`);
+      await logAudit(env.TELEMETRY, { route: url.pathname, action: 'trivia_now', target: 'public' });
+      return json({ ok: true, q, a });
     }
     // Activity heatmap (Admin → Overview): average people online per hour of
     // the week, last 4 weeks, owner time.
@@ -2432,7 +2485,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         memoryEnabled: cfg.memoryEnabled !== false,
         routes: [
           '/v1/*', '/read', '/track', '/status', '/active-count', '/health',
-          '/chat/poll', '/chat/send', '/chat/react', '/chat/unsend', '/chat/report', '/unlock',
+          '/chat/poll', '/chat/send', '/chat/react', '/chat/unsend', '/chat/report', '/chat/extras', '/games/score', '/games/leaderboard', '/unlock',
           '/auth/register', '/auth/login', '/auth/me', '/auth/logout', '/auth/revoke',
           '/memory/*', '/eagler/*', ...Object.keys(ADMIN_ROUTES)
         ]
@@ -2494,6 +2547,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         if (body.event === 'open') {
           const uKey = 'user:' + userLower;
           const prev = await kv.get(uKey, 'json');
+          // Daily streak: days in a row the console was opened (owner time zone).
+          const today = ownerClock(env, now).date, yesterday = ownerClock(env, now - 864e5).date;
+          const ps = (prev && prev.streak) || null;
+          const streak = ps && ps.day === today ? ps : { n: ps && ps.day === yesterday ? ps.n + 1 : 1, day: today };
           await kv.put(uKey, JSON.stringify({
             user,
             host: rec.host,
@@ -2501,8 +2558,15 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             region: rec.region,
             firstSeen: (prev && prev.firstSeen) || now,
             lastSeen: now,
-            opens: ((prev && prev.opens) || 0) + 1
+            opens: ((prev && prev.opens) || 0) + 1,
+            streak
           }));
+          if (!ps || ps.day !== today) {
+            // Everyone's current streaks in one key, for chat (once a day per person).
+            const all = (await kv.get('streaks', 'json')) || {};
+            all[userLower] = { u: user, n: streak.n, day: today };
+            await kv.put('streaks', JSON.stringify(all));
+          }
           // Approval queue: a genuinely new username (no prior rollup) starts
           // pending when the owner has approvalMode on — /v1/* then refuses
           // them until /admin/moderate action "approve" is used.
@@ -2548,7 +2612,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         memoryEnabled: cfg.memoryEnabled !== false, session: trackId.verified ? 'ok' : (sessionProblem || 'none'),
         usage: r.state === 'active' ? await usageMeter(kv, user, mod, cfg) : null,
         subscription: mySubscription(cfg, user),
-        yourStats: { opens: (uRec && uRec.opens) || 0, firstSeen: (uRec && uRec.firstSeen) || now },
+        yourStats: { opens: (uRec && uRec.opens) || 0, firstSeen: (uRec && uRec.firstSeen) || now,
+          streak: uRec && uRec.streak && [ownerClock(env, now).date, ownerClock(env, now - 864e5).date].includes(uRec.streak.day) ? uRec.streak.n : 0 },
         dismissed: dismissed ? { broadcast: dismissed.broadcast || null, announcement: dismissed.announcement || null } : null
       });
     }
@@ -2812,6 +2877,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if ('privateMode' in body) cfg.privateMode = !!body.privateMode;
       // Chat quiet hours: read-only for everyone but staff between two hours
       // (owner time zone). Off unless the owner turns it on.
+      // Fun features (round 3): daily trivia and game-record posts in #public.
+      if ('fun' in body && body.fun && typeof body.fun === 'object') {
+        cfg.fun = { trivia: body.fun.trivia !== false, shoutouts: body.fun.shoutouts !== false };
+      }
       if ('chatQuiet' in body) {
         const q = body.chatQuiet && typeof body.chatQuiet === 'object' ? body.chatQuiet : {};
         const h = (x, d) => (Number.isInteger(Number(x)) && Number(x) >= 0 && Number(x) <= 23 ? Number(x) : d);
@@ -3159,7 +3228,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const user = String(sendId.user || 'anonymous').slice(0, 40);
       const userLower = user.toLowerCase();
       const text = String(body.text || '').trim().slice(0, 500);
-      if (!text && !body.mediaId && !body.poll) return json({ ok: false, error: 'empty message' }, 200);
+      if (!text && !body.mediaId && !body.poll && !body.track) return json({ ok: false, error: 'empty message' }, 200);
       // Nobody may claim the owner's username without proving it (OWNER_CODE,
       // sent as X-GPA-Owner) — otherwise any visitor could sign in as the
       // owner's name and inherit the 👑 badge and moderation immunity in
@@ -3216,6 +3285,22 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       }
       let ts = Date.now();
       let replied = null;
+      // Staff get a 🛡 next to their name (a verified moderator/admin session).
+      const sendP = await resolvePrincipal();
+      const senderStaff = !!(sendP && sendP.kind === 'session' && (ROLE_RANK_V2[sendP.role] || 0) >= ROLE_RANK_V2.moderator && userLower !== OWNER);
+      // "Now playing" shared from Music: only the library or Audius, and the
+      // stream path is rebuilt here (never taken from the client).
+      let track = null;
+      if (body.track && typeof body.track === 'object') {
+        const tk = body.track;
+        const tid = String(tk.id || '');
+        if ((tk.source === 'shared' && /^[0-9a-f-]{36}$/.test(tid)) || (tk.source === 'audius' && /^[A-Za-z0-9]{1,32}$/.test(tid))) {
+          const art = /^https:\/\/[^\s"'<>]{1,300}$/.test(String(tk.art || '')) ? String(tk.art) : '';
+          track = { source: tk.source, id: tid, title: String(tk.title || 'Untitled').slice(0, 120), artist: String(tk.artist || '').slice(0, 80),
+            duration: Math.max(0, Math.min(36000, Math.round(Number(tk.duration) || 0))), ...(art ? { art } : {}),
+            stream: tk.source === 'shared' ? '/music/file/' + tid : '/music/audius/stream/' + tid };
+        } else return json({ ok: false, error: 'That song can’t be shared.' }, 200);
+      }
       // Shadow mute: report success so the sender is none the wiser, but
       // store nothing — /chat/poll (for anyone, including the sender's other
       // devices) never has it to return.
@@ -3226,7 +3311,16 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           // The room appends it and assigns its timestamp (in log order).
           // A reply names the message it answers (replyTo = its ts); the room
           // attaches a short quote of it.
-          const added = await chatRoomCall(env, access.id, 'append', { msg: { u: user, t: text || (poll ? poll.q : ''), owner: userLower === OWNER, ...(media ? { media } : {}), ...(poll ? { poll } : {}) }, replyTo: Number(body.replyTo) || 0 });
+          const added = await chatRoomCall(env, access.id, 'append', { msg: { u: user, t: text || (poll ? poll.q : ''), owner: userLower === OWNER, ...(senderStaff ? { staff: true } : {}), ...(media ? { media } : {}), ...(poll ? { poll } : {}), ...(track ? { track } : {}) }, replyTo: Number(body.replyTo) || 0 });
+          if (added.trivia && added.trivia.won && access.id === 'public') {
+            // Daily trivia: first correct answer wins a point.
+            const pts = (await kv.get('trivia:points', 'json')) || {};
+            const k = userLower;
+            pts[k] = { u: user, n: ((pts[k] && pts[k].n) || 0) + 1 };
+            await kv.put('trivia:points', JSON.stringify(pts));
+            const sp = postSystem(env, 'public', 'trivia', 'Trivia', `🎉 ${user} got it! The answer was ${added.trivia.answer}. ${user} has ${pts[k].n} trivia point${pts[k].n === 1 ? '' : 's'}.`);
+            if (ctx && ctx.waitUntil) ctx.waitUntil(sp);
+          }
           ts = added.ts;
           replied = added.re || null;
         } else {
@@ -3354,6 +3448,70 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       } catch (e) {
         return json({ ok: false, error: String(e && e.message || 'could not do that') }, 200);
       }
+    }
+
+    // ---- Round 3: chat extras and game leaderboards --------------------------
+    // Everything the chat shows next to names, in one small cached answer:
+    // flair the owner gave, current daily streaks (2+ days), trivia points.
+    if (url.pathname === '/chat/extras' && req.method === 'GET') {
+      const kv = env && env.TELEMETRY;
+      if (!kv) return json({ ok: false }, 200);
+      const cfg = await getConfig(kv);
+      if (!allowedUser(cfg, (await effectiveUser(url.searchParams.get('user'))).user)) return json({ ok: false, error: ACCESS_DENIED }, 403);
+      const now = Date.now();
+      const days = [ownerClock(env, now).date, ownerClock(env, now - 864e5).date];
+      const streaks = {}, trivia = {};
+      for (const [k, v] of Object.entries((await kv.get('streaks', 'json')) || {})) if (v && v.n >= 2 && days.includes(v.day)) streaks[k] = v.n;
+      for (const [k, v] of Object.entries((await kv.get('trivia:points', 'json')) || {})) if (v && v.n > 0) trivia[k] = v.n;
+      return json({ ok: true, flair: cfg.flair || {}, streaks, trivia });
+    }
+    if (url.pathname === '/games/leaderboard' && req.method === 'GET') {
+      const kv = env && env.TELEMETRY;
+      const game = String(url.searchParams.get('game') || '');
+      if (!kv || !LB_GAMES.includes(game)) return json({ ok: false, error: 'no such game' }, 404);
+      const lb = (await kv.get('lb:' + game, 'json')) || { top: [] };
+      return json({ ok: true, game, name: LB_NAMES[game], low: !!(GAME_RULES[game] && GAME_RULES[game].low), unit: (GAME_RULES[game] && GAME_RULES[game].unit) || '', top: lb.top });
+    }
+    // A new personal best (the console only sends those). Top 10 per game,
+    // one entry per person; a new #1 is announced in #public (owner can turn
+    // that off in Admin → Moderation → Fun features).
+    if (url.pathname === '/games/score' && req.method === 'POST') {
+      const kv = env && env.TELEMETRY;
+      if (!kv) return json({ ok: false }, 200);
+      let body = {};
+      try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
+      const who = await effectiveUser(body.user);
+      if (who.refused) return json({ ok: false, error: 'Sign in again.' }, 200);
+      const user = String(who.user || '').slice(0, 40);
+      if (!user || user.toLowerCase() === 'anonymous') return json({ ok: false, error: 'Sign in first.' }, 200);
+      if (!(await mayActInChatAs(who))) return json({ ok: false, error: 'name reserved' }, 200);
+      const cfg = await getConfig(kv);
+      if (!allowedUser(cfg, user)) return json({ ok: false, error: ACCESS_DENIED }, 403);
+      const game = String(body.game || '');
+      if (!LB_GAMES.includes(game)) return json({ ok: false, error: 'no such game' }, 400);
+      const rule = GAME_RULES[game] || { min: 1, max: 10000000 };
+      const score = Number(body.score);
+      if (!Number.isInteger(score) || score < rule.min || score > rule.max) return json({ ok: false, error: 'That score isn’t possible.' }, 400);
+      const better = (a, b) => (rule.low ? a < b : a > b);
+      const lb = (await kv.get('lb:' + game, 'json')) || { top: [] };
+      const key = user.toLowerCase();
+      const mine = lb.top.find((x) => x.u.toLowerCase() === key);
+      if (mine && !better(score, mine.s)) return json({ ok: true, rank: lb.top.indexOf(mine) + 1, top: lb.top, improved: false });
+      const oldFirst = lb.top[0] || null;
+      const top = [...lb.top.filter((x) => x.u.toLowerCase() !== key), { u: user, s: score, at: Date.now() }]
+        .sort((a, b) => (rule.low ? a.s - b.s : b.s - a.s) || a.at - b.at).slice(0, 10);
+      const rank = top.findIndex((x) => x.u.toLowerCase() === key) + 1;
+      if (!rank) return json({ ok: true, rank: 0, top: lb.top, improved: false });
+      await kv.put('lb:' + game, JSON.stringify({ top }));
+      if (rank === 1 && (!oldFirst || better(score, oldFirst.s)) && funOn(cfg, 'shoutouts')) {
+        const tk = 'lb:shout:' + game;
+        if (!(await kv.get(tk))) {
+          await kv.put(tk, '1', { expirationTtl: 600 });   // at most one per game every 10 minutes
+          const sp = postSystem(env, 'public', 'game', 'Games', `🏆 ${user} set a new record in ${LB_NAMES[game]}: ${lbFormat(game, score)}`);
+          if (ctx && ctx.waitUntil) ctx.waitUntil(sp);
+        }
+      }
+      return json({ ok: true, rank, top, improved: true });
     }
 
     // ---- /chat/unsend : take back your own message within 2 minutes ----
@@ -3641,7 +3799,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           account: a ? { createdAt: a.createdAt, lastLoginAt: a.lastLoginAt || 0, disabled: !!a.disabled, ownerVerified: !!a.ownerVerified, sessions: a.sessions || [] } : null,
           rollup: r || null, moderation: { ...modSafe, hasUnlockCode: !!unlock, effective: st }, quota: effQuota(mod, cfg),
           usage, memory: memCounts, security: security.slice(-40).reverse(), audit,
-          assignedKey: !!(await kv.get('key:openai:' + u))
+          assignedKey: !!(await kv.get('key:openai:' + u)),
+          flair: (cfg.flair && cfg.flair[u]) || null
         });
       }
 
@@ -3650,12 +3809,22 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const u = String(body.u || '').toLowerCase().slice(0, 40);
         const action = String(body.action || '');
         if (!u) return json({ error: 'u required' }, 400);
-        const need = { setrole: 'owner', release: 'owner', delete: 'users.delete', disable: 'users.suspend', enable: 'users.suspend', revokesessions: 'users.manage', quota: 'ai.manage' }[action];
+        const need = { setrole: 'owner', release: 'owner', delete: 'users.delete', disable: 'users.suspend', enable: 'users.suspend', revokesessions: 'users.manage', quota: 'ai.manage', flair: 'users.manage' }[action];
         if (!need) return json({ error: 'unknown action' }, 400);
         const denied = await guard(req, url, env, need);
         if (denied) return denied;
         const a = await getAcct(kv, u);
-        if (u === OWNER && action !== 'quota') return json({ error: 'the owner account cannot be changed here' }, 400);
+        if (u === OWNER && action !== 'quota' && action !== 'flair') return json({ error: 'the owner account cannot be changed here' }, 400);
+        if (action === 'flair') {
+          // A badge next to their name in chat (⭐ VIP, 🎮 Gamer, …); empty removes it.
+          const fcfg = await getConfig(kv);
+          const e = String(body.emoji || '').trim().slice(0, 8), l = String(body.label || '').trim().slice(0, 24);
+          fcfg.flair = { ...(fcfg.flair || {}) };
+          if (!e) delete fcfg.flair[u]; else fcfg.flair[u] = { e, l: l || 'Flair' };
+          await kv.put('config', JSON.stringify(fcfg));
+          await logAudit(kv, { route: url.pathname, action: 'flair', target: u, meta: { emoji: e, label: l } });
+          return json({ ok: true, flair: fcfg.flair[u] || null });
+        }
         if (action === 'setrole') {
           if (!a) return json({ error: 'no account' }, 404);
           const role = String(body.role || '');
@@ -3804,8 +3973,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const reports = [];
         for (const k of listed.keys.slice(-200)) { const v = await kv.get(k.name, 'json'); if (v) reports.push(v); }
         // Moderation also shows the chat quiet-hours setting (owner changes it).
-        const cq = (await getConfig(kv)).chatQuiet || { on: false, start: 23, end: 6 };
-        return json({ ok: true, reports: reports.sort((a, b) => b.createdAt - a.createdAt), chatQuiet: cq });
+        const mcfg = await getConfig(kv);
+        const cq = mcfg.chatQuiet || { on: false, start: 23, end: 6 };
+        return json({ ok: true, reports: reports.sort((a, b) => b.createdAt - a.createdAt), chatQuiet: cq, fun: { trivia: funOn(mcfg, 'trivia'), shoutouts: funOn(mcfg, 'shoutouts') } });
       }
 
       if (url.pathname === '/admin/reports/action') {

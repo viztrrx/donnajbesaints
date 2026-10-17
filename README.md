@@ -391,6 +391,18 @@ Each room's messages live in their own Durable Object (`CHAT_ROOMS`, see `chat/r
 
 **Quiet hours.** Admin → Moderation → **Chat quiet hours** (off unless you turn it on): between the two hours you pick (your time zone), chat is read-only for everyone but staff. People see "🌙 Quiet hours: chat is read-only until 6 AM" and their message box is off; staff see that they can still post.
 
+**Chat effects.** A message saying "congrats", "congratulations", "gg" or 🎉 sets off confetti on everyone's screen who has the chat open; "happy birthday", "hbd", 🎂 or 🎈 sends up balloons. Each person can turn effects off in Settings → Account → **Chat effects**; they never play for people who have reduced motion turned on.
+
+**Flair and badges.** In Admin → Users → a person → **Flair** you give someone a badge shown next to their name in chat (⭐ VIP, 🎮 Gamer, 💎 Supporter, 🎨 Artist, 📚 Scholar, 🔥 Legend, 🎵 Music, 👑 Royalty; **Remove flair** takes it off). Moderators and admins get a 🛡 automatically. In the "who's here" list people also show their 🔥 day streak (2+ days) and 🧠 trivia points.
+
+**Day streaks.** Opening the console on days in a row (your time zone) builds a streak, shown as 🔥 on Welcome → Your activity → **Day streak**. Missing a day starts over.
+
+**Daily trivia.** Every day at 12 PM (your time zone) a question appears in #public as a notice; the first person to type the right answer in chat wins a point ("🎉 kj got it! The answer was Paris. kj has 3 trivia points."). If nobody gets it, the next day's notice gives the answer. The questions come from a built-in list of 60 (no AI key needed, so the answers are always right). Admin → Moderation → **Fun features** turns trivia off or asks a question right now.
+
+**Game leaderboards.** Your personal bests in the scored games (Snake, Tetris, 2048, Reaction Test, Typing Test and 17 more) go to a top 10 per game, one entry per person; open **🏆 Leaderboard** under a game to see it (lower is better for Reaction Test and Guess the Number). A new #1 is announced in #public ("🏆 kj set a new record in Snake: 1,240"), at most once per game every 10 minutes; Fun features can turn those posts off. Scores that aren't humanly possible are refused.
+
+**Share a song.** In Music, the 💬 button on the now-playing bar shares the song to the chat room you're in. Everyone sees a card with the title and artist and a **▶ Play** button that plays it in their console (songs from the shared library or Audius).
+
 **Grouping.** Several messages in a row from the same person (within 5 minutes) show their picture and name once, with the rest as plain lines underneath, like iMessage. Someone else's message, a reply or a 5-minute gap starts a new group. On a computer, hovering a grouped line shows its time and the ↩ / ☺ buttons.
 
 ### AI usage meter {#usage-meter}

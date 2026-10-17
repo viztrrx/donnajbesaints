@@ -76,7 +76,8 @@ try {
   await openTab(dub.page, 'welcome');   // console open, chat not on screen
 
   // 1: who's here.
-  check('maya sees “kj is here · 1 online”', await waitText(maya.page, '.gpa-chat-people-sum', new RegExp(`^${KJ} is here· 1 online$`), 20000), await peopleSum(maya.page));
+  // "· N online": people from an earlier test can still count as online for 45 s.
+  check('maya sees “kj is here · N online”', await waitText(maya.page, '.gpa-chat-people-sum', new RegExp(`^${KJ} is here· \\d+ online$`), 20000), await peopleSum(maya.page));
   await maya.page.waitForTimeout(300);
   await shot(maya.page, '01-whos-here.png');
 

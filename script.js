@@ -758,7 +758,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       admin: ['feature', 'Invite codes for newly added names (people already approved are unchanged); “When people are online” heatmap and the weekly report in Overview'],
       console: ['feature', 'Sign-up asks for the invite code only when that name has one; subscribers get a once-a-day reminder in their last 3 days'] } },
     { at: '2026-10-17T18:00:00-04:00', commit: '', title: 'Chat: @mentions, polls, edit, pins, voice messages, quiet hours', parts: {
-      chat: ['feature', '@ name suggestions and highlighted mentions with optional phone alerts for everyone; /poll polls; edit within 2 minutes; staff pins; 30-second voice messages; owner-set quiet hours'] } }
+      chat: ['feature', '@ name suggestions and highlighted mentions with optional phone alerts for everyone; /poll polls; edit within 2 minutes; staff pins; 30-second voice messages; owner-set quiet hours'] } },
+    { at: '2026-10-17T23:00:00-04:00', commit: '', title: 'Fun: effects, flair, streaks, leaderboards, trivia, song sharing', parts: {
+      chat: ['feature', 'Confetti and balloons; flair badges and a staff shield; daily trivia at noon; new game records announced; share a song from Music'],
+      games: ['feature', 'Top-10 leaderboards per game from your personal bests'],
+      welcome: ['feature', 'Your day streak'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -2072,6 +2076,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gac-allow-list { width: 100%; min-height: 120px; padding: 10px; font: 13px/1.5 'Geist Mono', ui-monospace, monospace; resize: vertical; }
       .gac-acct-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); overflow: hidden; }
       .gac-acct { padding: 10px 12px; }
+      .gac-flair-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
       /* Activity heatmap: one hue, from the panel color (few) to full blue (busiest). */
       .gac-heat { display: flex; flex-direction: column; gap: 2px; overflow-x: auto; }
       .gac-heat-row { display: grid; grid-template-columns: 30px repeat(24, minmax(9px, 1fr)); gap: 2px; align-items: center; }
@@ -3131,6 +3136,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                   <div id="gpa-welcome-member-since" class="gpa-snapshot-num">--</div>
                   <div class="gpa-snapshot-label">Member since</div>
                 </div>
+                <div class="gpa-snapshot-stat" id="gpa-welcome-streak-box" hidden>
+                  <div id="gpa-welcome-streak" class="gpa-snapshot-num">--</div>
+                  <div class="gpa-snapshot-label">Day streak</div>
+                </div>
               </div>
             </div>
 
@@ -3370,6 +3379,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <button id="gpa-np-prev" class="gpa-btn gpx-icon-btn" type="button" aria-label="Previous song">${GPS_ICONS.prev}</button>
               <button id="gpa-np-play" class="gpa-btn primary gpx-icon-btn" type="button" aria-label="Play or pause">${GPS_ICONS.play}</button>
               <button id="gpa-np-next" class="gpa-btn gpx-icon-btn" type="button" aria-label="Next song">${GPS_ICONS.next}</button>
+              <button id="gpa-np-share" class="gpa-btn gpx-icon-btn" type="button" title="Share this song to chat" aria-label="Share this song to chat">💬</button>
             </div>
             <audio id="gpa-np-audio" preload="none"></audio>
           </div>
@@ -3576,6 +3586,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               </div>
             </div>
           </div>
+          <details id="gpa-lb" class="gpa-lb"><summary>🏆 Leaderboard · <span id="gpa-lb-name">Tic-Tac-Toe</span></summary><div id="gpa-lb-body" class="gpa-lb-body"><p class="gps-hint">Pick a game to see its top 10.</p></div></details>
         </div>
       </div>
 
@@ -4287,6 +4298,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                   </div>
                   <div class="gps-row" id="gpa-push-actions" hidden><button id="gpa-push-test" class="gps-btn" type="button">Send a test notification</button></div>
                   <p class="gps-hint" id="gpa-push-msg" role="status" aria-live="polite"></p>
+                </div>
+                <div class="gps-item gps-item-row" data-k="chat effects confetti balloons animation">
+                  <div><div class="gps-label">Chat effects</div><p class="gps-hint">Confetti and balloons when someone says “congrats”, “happy birthday” or “gg”.</p></div>
+                  <button class="gps-switch primary" id="gpa-fx-switch" type="button" aria-pressed="true" aria-label="Chat effects">Chat effects</button>
                 </div>
                 <div class="gps-item gpa-push" id="gpa-mention-push" data-k="mention alerts notifications push phone iphone chat @">
                   <div class="gpa-push-head">
@@ -5547,6 +5562,31 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-chat-poll button.po.mine { border-color: var(--gpa-accent); font-weight: 600; }
       .gpa-chat-poll .pt { font-size: 11px; color: var(--gpa-sub); }
       .gpa-chat-voice { display: block; margin-top: 5px; width: min(100%, 280px); height: 36px; }
+      /* Round 3: system notices, flair, shared songs, effects, leaderboards. */
+      .gpa-chat-msg.sys { justify-content: center; }
+      .gpa-chat-msg.sys .col { flex: 0 1 auto; max-width: 92%; }
+      .gpa-chat-msg.sys .body { text-align: center; font-size: 12px; padding: 6px 12px; border-radius: 999px; color: var(--gpa-text);
+        background: color-mix(in srgb, var(--gpa-accent) 12%, var(--gpa-panel)); border: 1px solid var(--gpa-border); }
+      .gpa-chat-msg .head .flair { font-size: 12px; }
+      .gpa-chat-msg .head .flair[hidden] { display: none; }
+      .gpa-chat-people-list .xtra { color: var(--gpa-sub); font-size: 11px; margin-left: 2px; }
+      .gpa-chat-track { display: flex; align-items: center; gap: 10px; margin-top: 5px; padding: 8px; max-width: 380px; border: 1px solid var(--gpa-border); border-radius: 12px; background: var(--gpa-panel); }
+      .gpa-chat-track .tr-art { width: 42px; height: 42px; flex-shrink: 0; border-radius: 8px; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; font-size: 20px;
+        background: color-mix(in srgb, var(--gpa-accent) 18%, var(--gpa-field)); color: var(--gpa-text); }
+      .gpa-chat-track .tr-art img { width: 100%; height: 100%; object-fit: cover; }
+      .gpa-chat-track .tr-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .gpa-chat-track .tr-info b, .gpa-chat-track .tr-info small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gpa-chat-track .tr-info small { color: var(--gpa-sub); font-size: 11px; }
+      .gpa-chat-track .tr-play { flex-shrink: 0; padding: 6px 10px; font-size: 12px; }
+      .gpa-fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2147483000; }
+      .gpa-lb { margin-top: 10px; border: 1px solid var(--gpa-border); border-radius: 12px; background: var(--gpa-panel); }
+      .gpa-lb summary { cursor: pointer; padding: 9px 12px; font-size: 13px; font-weight: 600; }
+      .gpa-lb-body { padding: 0 12px 10px; }
+      .gpa-lb-body ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+      .gpa-lb-body li { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; padding: 5px 6px; border-radius: 8px; font-size: 12.5px; }
+      .gpa-lb-body li.me { background: color-mix(in srgb, var(--gpa-accent) 16%, transparent); font-weight: 600; }
+      .gpa-lb-body li .rk { color: var(--gpa-sub); font-variant-numeric: tabular-nums; }
+      .gpa-lb-body li .sc { font-variant-numeric: tabular-nums; }
       .gpa-chat-rec { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border: 1px solid var(--gpa-border); border-radius: 10px; background: var(--gpa-panel); font-size: 12.5px; }
       .gpa-chat-rec[hidden] { display: none; }
       .gpa-chat-rec .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--gpa-danger, #ef4444); animation: gpaRecPulse 1s ease-in-out infinite; }
@@ -6886,6 +6926,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (typeof stats.opens === 'number') countUpTo(opensEl, stats.opens);
     if (sinceEl && stats.firstSeen) {
       sinceEl.textContent = new Date(stats.firstSeen).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    }
+    // Days in a row you've opened the console.
+    const streakBox = panel.querySelector('#gpa-welcome-streak-box');
+    if (streakBox && typeof stats.streak === 'number') {
+      streakBox.hidden = stats.streak < 1;
+      panel.querySelector('#gpa-welcome-streak').textContent = '🔥 ' + stats.streak;
     }
   }
   function fetchYourStats() {
@@ -10201,6 +10247,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   np.play.addEventListener('click', () => { if (np.audio.paused) np.audio.play().catch(() => {}); else np.audio.pause(); });
   panel.querySelector('#gpa-np-prev').addEventListener('click', () => { if (np.audio.currentTime > 4) np.audio.currentTime = 0; else step(-1); });
   panel.querySelector('#gpa-np-next').addEventListener('click', () => step(1));
+  // Share what's playing to the chat room you're in (a card others can play).
+  panel.querySelector('#gpa-np-share').addEventListener('click', async () => {
+    const t = np.queue[np.index];
+    if (!t) return;
+    if (!currentUser) { showToast('Sign in to share songs.'); return; }
+    try {
+      await chatPost('/chat/send', { text: '', track: { source: t.source, id: t.id, title: t.title, artist: t.artist || '', duration: t.duration || 0, art: t.art || '' } });
+      showToast('Shared “' + t.title + '” to ' + (chatRoom === 'public' ? '#public' : chatRoom === 'staff' ? 'staff chat' : 'your chat room') + '.');
+    } catch (e) { showToast(e.message || 'Couldn’t share that song.', { type: 'danger' }); }
+  });
   np.audio.addEventListener('play', () => { np.play.innerHTML = GPS_ICONS.pause; np.play.setAttribute('aria-label', 'Pause'); np.bar.classList.add('is-playing'); });
   np.audio.addEventListener('pause', () => { np.play.innerHTML = GPS_ICONS.play; np.play.setAttribute('aria-label', 'Play'); np.bar.classList.remove('is-playing'); });
   np.audio.addEventListener('ended', () => { if (np.index < np.queue.length - 1) step(1); });
@@ -11773,6 +11829,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     div.dataset.ts = String(m.ts);
     div.dataset.u = String(m.u || '');
     div.dataset.raw = String(m.t || '');
+    if (m.sys) {
+      // A notice from the console itself (daily trivia, game records).
+      div.className = 'gpa-chat-msg sys sys-' + String(m.sys).replace(/[^a-z]/g, '');
+      const note = document.createElement('div');
+      note.className = 'body';
+      note.textContent = m.t || '';
+      const col0 = document.createElement('div');
+      col0.className = 'col';
+      col0.appendChild(note);
+      div.appendChild(col0);
+      if (chatEffectsOn() && /^🎉/.test(m.t || '')) div.dataset.fx = 'confetti';
+      return div;
+    }
+    if (m.staff) div.classList.add('staff');
     const avatar = document.createElement('span');
     avatar.className = 'avatar';
     avatar.textContent = String(m.u || '?').trim().charAt(0).toUpperCase();
@@ -11787,7 +11857,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const when = document.createElement('span');
     when.className = 'when';
     when.textContent = new Date(m.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    head.appendChild(who); head.appendChild(when);
+    head.appendChild(who);
+    const flair = document.createElement('span');
+    flair.className = 'flair';
+    head.appendChild(flair);
+    head.appendChild(when);
     const reactBtn = document.createElement('button');
     reactBtn.type = 'button';
     reactBtn.className = 'gpa-chat-react-btn';
@@ -11854,12 +11928,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       div.dataset.poll = '1';
     }
     if (currentUser && m.u !== currentUser && mentionsUser(m.t, currentUser)) div.classList.add('mentions-me');
+    if (m.track && m.track.title) body.appendChild(chatTrackEl(m.track));
     col.appendChild(head);
     if (m.re && Number(m.re.ts)) col.appendChild(chatQuoteEl(m.re));
     col.appendChild(body);
     div.appendChild(avatar); div.appendChild(col);
     renderTapbacks(div, m.r);
     if (m.poll) renderPollVotes(div, m.pv || {});
+    applyFlairTo(div);   // after the name line is in place
     return div;
   }
 
@@ -11912,8 +11988,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const id = m.ts + '|' + m.u + '|' + (m.t || '') + '|' + (m.media?.id || '');
         if (chatSeen.has(id)) return;
         chatSeen.add(id);
-        chatLog.appendChild(chatMsgEl(m));
+        const el = chatMsgEl(m);
+        chatLog.appendChild(el);
         chatSince = Math.max(chatSince, m.ts);
+        if (!wasBootstrap && visible) maybeChatEffect(m, el);
         added++;
         const isMine = currentUser && m.u === currentUser;
         if (!wasBootstrap && !isMine && !visible) {
@@ -12072,7 +12150,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const faces = [...here, ...online].slice(0, 4).map((p) => faceHtml(p.u, p.state)).join('');
     const status = (p) => typing.has(p.u.toLowerCase()) ? ['typing', 'Typing…']
       : p.state === 'here' ? ['here', 'In this chat'] : p.state === 'online' ? ['online', 'Online'] : ['away', 'Last seen ' + agoText(p.ago)];
-    const rows = others.map((p) => { const [cls, txt] = status(p); return `<li>${faceHtml(p.u, p.state)}<span class="nm">${escapeHtml(p.u)}</span><span class="st ${cls}">${escapeHtml(txt)}</span></li>`; }).join('')
+    const rows = others.map((p) => { const [cls, txt] = status(p); const x = extrasFor(p.u); return `<li>${faceHtml(p.u, p.state)}<span class="nm">${escapeHtml(p.u)}${x ? ` <span class="xtra">${escapeHtml(x)}</span>` : ''}</span><span class="st ${cls}">${escapeHtml(txt)}</span></li>`; }).join('')
       || '<li><span class="nm">Nobody else has been here this week.</span></li>';
     const html = `<button type="button" class="gpa-chat-people-toggle" aria-expanded="${chatPeopleOpen}" aria-controls="gpa-chat-people-list">`
       + `<span class="gpa-chat-people-faces">${faces}</span><span class="gpa-chat-people-sum">${sum}</span><span class="gpa-chat-people-chev" aria-hidden="true">▾</span></button>`
@@ -12126,7 +12204,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     tapbackFor = null;
   }
   function openTapbackPicker(msgEl, fromButton) {
-    if (!currentUser || !msgEl || msgEl.classList.contains('unsent')) return;
+    if (!currentUser || !msgEl || msgEl.classList.contains('unsent') || msgEl.classList.contains('sys')) return;
     closeTapbackPicker();
     tapbackFor = msgEl;
     tapbackOpenedAt = Date.now();
@@ -12652,6 +12730,141 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     setTimeout(() => { try { render(); onSessionChange(render); } catch (e) { /* not ready */ } }, 0);
   })();
 
+  // ---- Round 3: flair & streaks, chat effects, shared songs ----------------
+  // Flair the owner gave (⭐ VIP…), a 🛡 for staff, 🔥 streaks and 🧠 trivia
+  // points: one small cached request every few minutes, not on every poll.
+  let chatExtras = { flair: {}, streaks: {}, trivia: {} };
+  let chatExtrasAt = 0;
+  async function refreshChatExtras(force) {
+    if (!telemetryOn() || (!force && Date.now() - chatExtrasAt < 5 * 60e3)) return;
+    chatExtrasAt = Date.now();
+    try {
+      const r = await fetch(telemetryEndpoint() + '/chat/extras?user=' + encodeURIComponent(currentUser || '') + (sessionToken() ? '&s=' + encodeURIComponent(sessionToken()) : ''), { cache: 'no-store' });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return;
+      chatExtras = { flair: d.flair || {}, streaks: d.streaks || {}, trivia: d.trivia || {} };
+      chatLog.querySelectorAll('.gpa-chat-msg:not(.sys)').forEach(applyFlairTo);
+      chatPeopleEl.dataset.html = '';
+      renderChatPeople();
+    } catch (e) { /* extras are decoration */ }
+  }
+  function applyFlairTo(msgEl) {
+    const span = msgEl.querySelector('.head .flair');
+    if (!span) return;
+    const k = String(msgEl.dataset.u || '').toLowerCase();
+    const f = chatExtras.flair[k];
+    const parts = [];
+    if (msgEl.classList.contains('staff')) parts.push(['🛡', 'Staff']);
+    if (f && f.e) parts.push([f.e, f.l || 'Flair']);
+    const key = JSON.stringify(parts);
+    if (span.dataset.key === key) return;
+    span.dataset.key = key;
+    span.textContent = parts.map((p) => p[0]).join(' ');
+    span.title = parts.map((p) => p[1]).join(' · ');
+    span.hidden = !parts.length;
+  }
+  const extrasFor = (name) => {
+    const k = String(name || '').toLowerCase();
+    const out = [];
+    if (chatExtras.flair[k]) out.push(chatExtras.flair[k].e);
+    if (chatExtras.streaks[k]) out.push('🔥' + chatExtras.streaks[k]);
+    if (chatExtras.trivia[k]) out.push('🧠' + chatExtras.trivia[k]);
+    return out.join(' ');
+  };
+  // Chat effects: confetti or balloons on everyone's screen when a message
+  // says "congrats", "happy birthday" or "gg". Off in Settings, and never
+  // with reduced motion.
+  const FX_KEY = 'gpa_chat_effects';
+  function chatEffectsOn() {
+    try { if (localStorage.getItem(FX_KEY) === 'off') return false; } catch (e) { /* default on */ }
+    try { if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return false; } catch (e) { /* ignore */ }
+    return true;
+  }
+  function effectFor(text) {
+    const t = String(text || '').toLowerCase();
+    if (/\b(happy (birth)?day|hbd)\b|🎂|🎈/.test(t)) return 'balloons';
+    if (/\b(congrats|congratulations|gg|ggs)\b|🎉/.test(t)) return 'confetti';
+    return '';
+  }
+  function maybeChatEffect(m, el) {
+    if (!chatEffectsOn()) return;
+    const kind = (el && el.dataset.fx) || (m && !m.sys && !m.unsent ? effectFor(m.t) : '');
+    if (kind) playChatEffect(kind);
+  }
+  let fxBusy = false;
+  function playChatEffect(kind) {
+    if (fxBusy) return;
+    fxBusy = true;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'gpa-fx';
+    canvas.setAttribute('aria-hidden', 'true');
+    panel.appendChild(canvas);
+    const rect = panel.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.max(1, rect.width * dpr); canvas.height = Math.max(1, rect.height * dpr);
+    const g = canvas.getContext('2d');
+    g.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+    const colors = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#facc15'];
+    const parts = kind === 'balloons'
+      ? Array.from({ length: 14 }, (_, i) => ({ x: (W / 14) * i + Math.random() * 20, y: H + Math.random() * 120, r: 14 + Math.random() * 10, vy: -(1.6 + Math.random() * 1.6), sway: Math.random() * 6, c: colors[i % colors.length] }))
+      : Array.from({ length: 140 }, () => ({ x: W / 2 + (Math.random() - 0.5) * 80, y: H * 0.35, vx: (Math.random() - 0.5) * 9, vy: -Math.random() * 9 - 2, s: 4 + Math.random() * 5, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, c: colors[Math.floor(Math.random() * colors.length)] }));
+    const start = performance.now();
+    const DUR = kind === 'balloons' ? 3200 : 2600;
+    function frame(now) {
+      const t = now - start;
+      g.clearRect(0, 0, W, H);
+      g.globalAlpha = t > DUR - 500 ? Math.max(0, (DUR - t) / 500) : 1;
+      for (const p of parts) {
+        if (kind === 'balloons') {
+          p.y += p.vy;
+          const x = p.x + Math.sin((t / 400) + p.sway) * 8;
+          g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 1;
+          g.beginPath(); g.moveTo(x, p.y + p.r * 1.2); g.lineTo(x + Math.sin(t / 300) * 3, p.y + p.r * 3); g.stroke();
+          g.fillStyle = p.c;
+          g.beginPath(); g.ellipse(x, p.y, p.r * 0.85, p.r, 0, 0, Math.PI * 2); g.fill();
+        } else {
+          p.vy += 0.22; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+          g.save(); g.translate(p.x, p.y); g.rotate(p.rot); g.fillStyle = p.c; g.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); g.restore();
+        }
+      }
+      if (t < DUR) requestAnimationFrame(frame);
+      else { canvas.remove(); fxBusy = false; }
+    }
+    requestAnimationFrame(frame);
+  }
+  const fxSwitch = panel.querySelector('#gpa-fx-switch');
+  if (fxSwitch) {
+    const showFx = () => { let off = false; try { off = localStorage.getItem(FX_KEY) === 'off'; } catch (e) { /* on */ } fxSwitch.classList.toggle('primary', !off); fxSwitch.setAttribute('aria-pressed', String(!off)); };
+    fxSwitch.addEventListener('click', () => { const on = fxSwitch.getAttribute('aria-pressed') === 'true'; try { localStorage.setItem(FX_KEY, on ? 'off' : 'on'); } catch (e) { /* ignore */ } showFx(); });
+    showFx();
+  }
+  // A song shared from Music: tap ▶ to play it here.
+  function chatTrackEl(t) {
+    const card = document.createElement('div');
+    card.className = 'gpa-chat-track';
+    const art = document.createElement('span');
+    art.className = 'tr-art';
+    art.setAttribute('aria-hidden', 'true');
+    if (t.art) { const img = document.createElement('img'); img.alt = ''; img.src = t.art; img.onerror = () => { art.textContent = '♪'; }; art.appendChild(img); } else art.textContent = '♪';
+    const info = document.createElement('span');
+    info.className = 'tr-info';
+    const ti = document.createElement('b'); ti.textContent = t.title;
+    const ar = document.createElement('small'); ar.textContent = (t.artist || 'Unknown artist') + (t.source === 'audius' ? ' · Audius' : ' · Shared library');
+    info.appendChild(ti); info.appendChild(ar);
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'gpa-btn tr-play';
+    play.textContent = '▶ Play';
+    play.setAttribute('aria-label', 'Play ' + t.title);
+    play.addEventListener('click', () => {
+      try { playTrack([{ source: t.source, id: t.id, title: t.title, artist: t.artist, duration: t.duration, art: t.art || '', stream: t.stream }], 0); showToast('Playing “' + t.title + '”. Open Music to pause or skip.'); }
+      catch (e) { showToast('That song can’t be played here.', { type: 'danger' }); }
+    });
+    card.appendChild(art); card.appendChild(info); card.appendChild(play);
+    return card;
+  }
+
   // ---- Replies, unsend and grouping -----------------------------------------
   // Reply: from the message bar (or ↩ on hover); a banner above the box
   // says who you're answering, and the sent message shows a small quote
@@ -12752,7 +12965,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function regroupChat() {
     let prev = null;
     chatLog.querySelectorAll('.gpa-chat-msg').forEach((el) => {
-      const cont = !!prev && !el.classList.contains('unsent') && !prev.classList.contains('unsent')
+      const cont = !!prev && !el.classList.contains('unsent') && !prev.classList.contains('unsent') && !el.classList.contains('sys') && !prev.classList.contains('sys')
         && String(prev.dataset.u).toLowerCase() === String(el.dataset.u).toLowerCase()
         && Number(el.dataset.ts) - Number(prev.dataset.ts) < GROUP_GAP_MS
         && !el.querySelector(':scope > .col > .gpa-chat-quote');
@@ -12909,6 +13122,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   let chatLoopGen = 0;
   let chatLoopStartedAt = 0;
   function startChatPolling() {
+    refreshChatExtras();
     if (chatTimer && Date.now() - chatLoopStartedAt < 1000) return;
     chatLoopGen++;
     chatLoopStartedAt = Date.now();
@@ -15437,8 +15651,42 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function getBest(id) { return parseInt(localStorage.getItem(gameBestKey(id)), 10) || 0; }
   function setBestIfHigher(id, score) {
     const best = getBest(id);
-    if (score > best) { localStorage.setItem(gameBestKey(id), String(score)); return score; }
+    if (score > best) { localStorage.setItem(gameBestKey(id), String(score)); submitScore(id, score); return score; }
     return best;
+  }
+  // Leaderboards: a new personal best goes to the Worker's top 10 for that
+  // game (a new #1 is announced in chat). Only bests are sent.
+  const LB_GAMES = ['2048', 'blackjack', 'breakout', 'crusade', 'fifteen', 'flappy', 'hanoi', 'invaders', 'lightsout', 'mastermind', 'mathsprint', 'maze', 'platformer', 'pong', 'racer', 'simon', 'snake', 'tetris', 'typing', 'whack', 'reaction', 'guess'];
+  async function submitScore(game, score) {
+    if (!LB_GAMES.includes(game) || !currentUser || !(typeof telemetryOn === 'function' && telemetryOn())) return;
+    try {
+      const h = { 'Content-Type': 'text/plain' };
+      if (sessionToken()) h['X-GPA-Session'] = sessionToken();
+      const r = await fetch(telemetryEndpoint() + '/games/score', { method: 'POST', headers: h, body: JSON.stringify({ user: currentUser, game, score: Math.round(score) }) });
+      const d = await r.json().catch(() => ({}));
+      if (d.ok && d.improved && d.rank) {
+        showToast(d.rank === 1 ? '🏆 New #1 on the ' + (GAME_LABELS[game] || game) + ' leaderboard!' : 'You’re #' + d.rank + ' on the ' + (GAME_LABELS[game] || game) + ' leaderboard.');
+        if (game === currentGameId) refreshLeaderboard(game);
+      }
+    } catch (e) { /* leaderboards are a bonus */ }
+  }
+  async function refreshLeaderboard(game) {
+    const nameEl = panel.querySelector('#gpa-lb-name'), body = panel.querySelector('#gpa-lb-body');
+    if (!nameEl || !body) return;
+    nameEl.textContent = GAME_LABELS[game] || game;
+    if (!LB_GAMES.includes(game)) { body.innerHTML = '<p class="gps-hint">This game has no score to rank.</p>'; return; }
+    if (!(typeof telemetryOn === 'function' && telemetryOn())) { body.innerHTML = '<p class="gps-hint">Leaderboards need the Worker.</p>'; return; }
+    try {
+      const d = await (await fetch(telemetryEndpoint() + '/games/leaderboard?game=' + encodeURIComponent(game), { cache: 'no-store' })).json();
+      if (!d.ok) throw Error();
+      if (game !== currentGameId) return;
+      const me = String(currentUser || '').toLowerCase();
+      const fmt = (x) => Number(x).toLocaleString() + (d.unit ? ' ' + d.unit : '');
+      body.innerHTML = d.top.length
+        ? `<ol>${d.top.map((x, i) => `<li class="${x.u.toLowerCase() === me ? 'me' : ''}"><span class="rk">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '#' + (i + 1)}</span><span>${escapeHtml(x.u)}</span><span class="sc">${escapeHtml(fmt(x.s))}</span></li>`).join('')}</ol>`
+          + `<p class="gps-hint">${d.low ? 'Lower is better. ' : ''}Your personal bests are sent automatically.</p>`
+        : '<p class="gps-hint">No scores yet. Set a personal best to take #1.</p>';
+    } catch (e) { body.innerHTML = '<p class="gps-hint">Couldn’t load the leaderboard.</p>'; }
   }
   function gameElapsedSeconds() {
     if (!gameStartedAt) return 0;
@@ -16066,6 +16314,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const prevBest = parseInt(localStorage.getItem(key), 10);
         const newBest = isNaN(prevBest) || tries < prevBest ? tries : prevBest;
         localStorage.setItem(key, String(newBest));
+        if (newBest === tries && (isNaN(prevBest) || tries < prevBest)) submitScore('guess', tries);
         status.textContent = `🎉 Correct! It was ${target}. Tries: ${tries}   Best: ${newBest}`;
       } else if (val < target) {
         status.textContent = `Higher than ${val}. Try again. (Tries: ${tries})`;
@@ -16903,6 +17152,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const prevBest = parseInt(localStorage.getItem(key), 10);
         const newBest = isNaN(prevBest) || reactionMs < prevBest ? reactionMs : prevBest;
         localStorage.setItem(key, String(newBest));
+        if (newBest === reactionMs && (isNaN(prevBest) || reactionMs < prevBest)) submitScore('reaction', reactionMs);
         state = 'idle';
         box.className = 'reaction-box waiting';
         box.textContent = `${reactionMs}ms — Best: ${newBest}ms. Click to try again.`;
@@ -18772,6 +19022,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   function loadGame(id) {
     currentGameId = id;
+    refreshLeaderboard(id);
     stopActiveGame();
     // Reset pause state for the new game.
     isGamePaused = false;
@@ -18796,6 +19047,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
 
   gameBtns.forEach((btn) => btn.addEventListener('click', () => loadGame(btn.dataset.game)));
+  const lbBox = panel.querySelector('#gpa-lb');
+  if (lbBox) lbBox.addEventListener('toggle', () => { if (lbBox.open) refreshLeaderboard(currentGameId); });
   panel.querySelector('#gpa-game-restart').addEventListener('click', () => loadGame(currentGameId));
   panel.querySelector('#gpa-pause-restart').addEventListener('click', () => loadGame(currentGameId));
   panel.querySelector('#gpa-pause-resume').addEventListener('click', resumeGame);
@@ -20560,8 +20813,29 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           + (can('system.manage') ? card('Chat quiet hours', `<p class="gps-hint">Chat goes read-only for everyone except staff between these hours (your time zone). Off unless you turn it on.</p>`
             + `<div class="gac-allow-row"><span>Quiet hours</span><button class="gps-switch${d.chatQuiet && d.chatQuiet.on ? ' primary' : ''}" id="gac-quiet-on" type="button" aria-pressed="${d.chatQuiet && d.chatQuiet.on ? 'true' : 'false'}" aria-label="Chat quiet hours">Chat quiet hours</button></div>`
             + `<div class="gac-allow-row"><label>From <select id="gac-quiet-start" class="gpa-input" aria-label="Quiet hours start"></select></label><label>To <select id="gac-quiet-end" class="gpa-input" aria-label="Quiet hours end"></select></label></div>`, 'timer', 'gac-quiet-card') : '')
+          + (can('system.manage') ? card('Fun features', `<p class="gps-hint">Posts the console makes in #public.</p>`
+            + `<div class="gac-allow-row"><span>🧠 Daily trivia at 12 PM (first correct answer wins a point)</span><button class="gps-switch${!d.fun || d.fun.trivia ? ' primary' : ''}" data-fun="trivia" type="button" aria-pressed="${!d.fun || d.fun.trivia}" aria-label="Daily trivia">Daily trivia</button></div>`
+            + `<div class="gac-allow-row"><span>🏆 Announce new game records</span><button class="gps-switch${!d.fun || d.fun.shoutouts ? ' primary' : ''}" data-fun="shoutouts" type="button" aria-pressed="${!d.fun || d.fun.shoutouts}" aria-label="Announce new game records">Announce new game records</button></div>`
+            + `<div class="gac-actions"><button class="gps-btn" id="gac-trivia-now" type="button">Ask a trivia question now</button></div>`, 'sparkle', 'gac-fun-card') : '')
           + `<div id="gac-legacy-moderation"></div>`;
         b.querySelectorAll('.gac-report blockquote').forEach((q, i) => { q.textContent = list[i].msgText; });
+        const funCard = b.querySelector('#gac-fun-card');
+        if (funCard) funCard.addEventListener('click', async (e) => {
+          if (e.target.closest('#gac-trivia-now')) {
+            try { const r = await api('/admin/trivia', { method: 'POST', body: { action: 'now' } }); showToast('Asked in #public: “' + r.q + '” (answer: ' + r.a[0] + ').'); }
+            catch (err) { showToast(err.message, { type: 'danger' }); }
+            return;
+          }
+          const sw = e.target.closest('[data-fun]');
+          if (!sw) return;
+          const fun = { trivia: funCard.querySelector('[data-fun="trivia"]').getAttribute('aria-pressed') === 'true', shoutouts: funCard.querySelector('[data-fun="shoutouts"]').getAttribute('aria-pressed') === 'true' };
+          fun[sw.dataset.fun] = !fun[sw.dataset.fun];
+          try {
+            await api('/admin/config', { method: 'POST', body: { fun } });
+            sw.classList.toggle('primary', fun[sw.dataset.fun]); sw.setAttribute('aria-pressed', String(fun[sw.dataset.fun]));
+            showToast((sw.dataset.fun === 'trivia' ? 'Daily trivia ' : 'Game record posts ') + (fun[sw.dataset.fun] ? 'on.' : 'off.'));
+          } catch (err) { showToast(err.message, { type: 'danger' }); }
+        });
         const quietCard = b.querySelector('#gac-quiet-card');
         if (quietCard) {
           const cq = d.chatQuiet || { on: false, start: 23, end: 6 };
@@ -20779,6 +21053,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         + (can('keys.manage') ? card('API key', `<p class="gps-hint">${d.assignedKey ? 'An OpenAI key is assigned to ' + esc(d.user) + '. It stays on the Worker; they never see it.' : 'No key assigned to ' + esc(d.user) + ' yet. Paste one to cover their AI requests.'}</p>`
           + `<div class="gac-form"><label>OpenAI key<input class="gpa-input" id="gac-key-input" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="sk-…"></label>`
           + `<div class="gac-actions"><button class="gps-btn primary" data-key="assign" type="button">${d.assignedKey ? 'Replace key' : 'Assign key'}</button>${d.assignedKey ? '<button class="gps-btn" data-key="remove" type="button">Remove key</button>' : ''}</div></div>`, 'key', 'gac-insp-key') : '')
+        + (can('users.manage') ? card('Flair', `<p class="gps-hint">A badge next to ${esc(d.user)}’s name in chat${d.flair ? ': now <b>' + esc(d.flair.e + ' ' + d.flair.l) + '</b>' : ''}.</p>`
+          + `<div class="gac-flair-row">${[['⭐', 'VIP'], ['🎮', 'Gamer'], ['💎', 'Supporter'], ['🎨', 'Artist'], ['📚', 'Scholar'], ['🔥', 'Legend'], ['🎵', 'Music'], ['👑', 'Royalty']].map(([e, l]) => `<button class="gps-btn${d.flair && d.flair.e === e ? ' primary' : ''}" data-flair="${e}" data-flair-label="${l}" type="button">${e} ${l}</button>`).join('')}</div>`
+          + (d.flair ? '<div class="gac-actions"><button class="gps-btn" data-flair="" type="button">Remove flair</button></div>' : ''), 'sparkle', 'gac-insp-flair') : '')
         + card('Permissions', `<p class="gps-hint">${d.perms.length ? esc(d.perms.includes('*') ? 'Everything (owner)' : d.perms.join(', ')) : 'Standard user'}</p>`
           + (isOwner() && d.account && d.role !== 'owner' ? `<label class="gac-inline">Role <select class="gpa-input" id="gac-role">${['user', 'moderator', 'admin'].map((r) => `<option ${r === d.role ? 'selected' : ''}>${r}</option>`).join('')}</select></label><button class="gps-btn" data-ua="setrole">Change role</button>` : ''), 'advanced')
         + card('Memory', d.memory ? `<p class="gps-hint">${num(d.memory.total)} memories (${num(d.memory.inferred)} inferred) · ${d.memory.enabled ? 'on' : 'off'}${d.memory.paused ? ', paused' : ''} · ${num(d.memory.projects)} projects</p>` : '<p class="gps-hint">No memories.</p>', 'book')
@@ -20803,6 +21080,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       box.querySelectorAll('[data-mod]').forEach((b) => b.addEventListener('click', async () => {
         try { await api('/admin/moderate', { method: 'POST', body: { user: key, action: b.dataset.mod, hours: b.dataset.hours } }); showToast('Done.'); openUser(key); }
         catch (e) { showToast(e.message, { type: 'danger' }); }
+      }));
+      box.querySelectorAll('[data-flair]').forEach((b) => b.addEventListener('click', async () => {
+        try {
+          await api('/admin/user/action', { method: 'POST', body: { u: key, action: 'flair', emoji: b.dataset.flair, label: b.dataset.flairLabel || '' } });
+          showToast(b.dataset.flair ? d.user + ' now has ' + b.dataset.flair + ' ' + b.dataset.flairLabel + '.' : d.user + '’s flair was removed.');
+          openUser(key);
+        } catch (e) { showToast(e.message, { type: 'danger' }); }
       }));
       box.querySelectorAll('[data-key]').forEach((b) => b.addEventListener('click', async () => {
         const input = box.querySelector('#gac-key-input');

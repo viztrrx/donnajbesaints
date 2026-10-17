@@ -51,7 +51,8 @@ const send = async (page, text) => { await page.fill(sr('#gpa-chat-input'), text
 const msgSel = (text) => `.gpa-chat-msg:has(.body:text-is("${text}"))`;
 const has = (page, text, ms = 12000) => page.waitForFunction((t) => [...document.getElementById('gpa-root-host').shadowRoot.querySelectorAll('#gpa-chat-log .gpa-chat-msg .body')].some((b) => b.textContent === t), text, { timeout: ms, polling: 250 }).then(() => true, () => false);
 const shot = (page, name) => page.screenshot({ path: path.join(OUT, name) });
-const rowsOf = (page) => R(page, (r) => [...r.querySelectorAll('#gpa-chat-log .gpa-chat-msg')].map((m) => ({
+// People's messages only (system notices, e.g. trivia left by another test, have no avatar).
+const rowsOf = (page) => R(page, (r) => [...r.querySelectorAll('#gpa-chat-log .gpa-chat-msg:not(.sys)')].map((m) => ({
   u: m.dataset.u, body: m.querySelector('.body').textContent, cont: m.classList.contains('cont'),
   avatarShown: getComputedStyle(m.querySelector('.avatar')).visibility !== 'hidden', nameShown: !!m.querySelector('.who').offsetParent,
   quote: m.querySelector('.gpa-chat-quote') ? m.querySelector('.gpa-chat-quote').textContent : null, unsent: m.classList.contains('unsent')

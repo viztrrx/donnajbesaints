@@ -80,9 +80,10 @@ try {
 
   // 1: @ suggestions.
   await kj.page.fill(sr('#gpa-chat-input'), '');
-  await kj.page.type(sr('#gpa-chat-input'), 'yo @ma', { delay: 40 });
+  // Enough of the name to be unique (other test runs leave other "maya…" in the room).
+  await kj.page.type(sr('#gpa-chat-input'), 'yo @' + MAYA.slice(0, 6), { delay: 40 });
   const sug = await waitFor(kj.page, (r, u) => !r.querySelector('#gpa-chat-suggest').hidden && r.querySelector('#gpa-chat-suggest').textContent.includes(u), MAYA, 6000);
-  check('kj types “@ma”: maya is suggested', sug);
+  check('kj types “@maya…”: maya is suggested', sug);
   await kj.page.waitForTimeout(200);
   await shot(kj.page, '01-mention-suggest.png');
   await kj.page.press(sr('#gpa-chat-input'), 'Enter');

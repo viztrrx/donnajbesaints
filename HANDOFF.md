@@ -2,7 +2,7 @@
 
 Context for the next Claude session working on this repository. Read this
 first, then `README.md` for user-facing docs. Last updated 2026-10-17
-(rounds 1-2 of the feature list done; round 3 next).
+(rounds 1-3 of the feature list done; the full HANDOFF rewrite is next).
 
 ---
 
@@ -30,9 +30,9 @@ first, then `README.md` for user-facing docs. Last updated 2026-10-17
 | Round | Features | Status |
 |---|---|---|
 | 1 | Invite codes · weekly report · subscriber "ending" reminders · activity heatmap | **Done, pushed `04ed68b`** (details in §4) |
-| 2 | @mentions with autocomplete + phone alerts for everyone · pinned messages · polls · edit within 2 min · voice messages · chat quiet hours | **Done** (see the round 2 notes below; pushed right after this update) |
-| 3 | Chat effects (confetti/balloons) · profile flair · daily streaks · game leaderboards · daily trivia · "now playing" in chat | **Next** |
-| 4 | Rewrite this HANDOFF.md end to end with all context, goals and the owner's way of working | After round 3 |
+| 2 | @mentions with autocomplete + phone alerts for everyone · pinned messages · polls · edit within 2 min · voice messages · chat quiet hours | **Done, pushed `31b2322`** |
+| 3 | Chat effects (confetti/balloons) · profile flair · daily streaks · game leaderboards · daily trivia · "now playing" in chat | **Done** (notes below; pushed right after this update) |
+| 4 | Rewrite this HANDOFF.md end to end with all context, goals and the owner's way of working | **Next** |
 
 **Round 2 as built** (it follows the plan below; differences: the admin
 token also proves the owner for chat actions (`mayActInChatAs`), pin
@@ -93,7 +93,31 @@ browser-tested.
   mic: launch Chromium with `--use-fake-device-for-media-stream
   --use-fake-ui-for-media-stream`) with screenshots.
 
-**Round 3 plan:**
+**Round 3 as built:** `chat/trivia.js` (60 questions; it is its own module
+because **`worker.js` may only export handlers/classes — exporting a plain
+value makes workerd refuse to start the Worker**; `npm test` can't catch
+that, the browser suites do). Trivia state lives in #public's room DO
+(`trivia_open`, checked on `append`; `triviaMatches()` normalizes answers)
+so the first right answer wins; points in KV `trivia:points`; cron at 12 PM
+owner time (`maybePostTrivia`); owner "Ask a trivia question now"
+(`/admin/trivia`). System notices are messages with `m.sys` (not counted
+in weekly stats, not grouped, no message bar). Leaderboards: `/games/score`
+(only new personal bests, sent by `setBestIfHigher()` + reaction/guess),
+`/games/leaderboard`, `lb:<game>` top 10, `GAME_RULES` ranges, record posts
+throttled 10 min per game. Fun toggles `cfg.fun {trivia, shoutouts}`
+(default on) in Admin → Moderation → Fun features (`/admin/reports`
+carries them). Flair: `/admin/user/action {action:'flair', emoji, label}`
+→ `cfg.flair`; staff shield = `m.staff` stamped at send from a verified
+moderator/admin session. `/chat/extras` (flair, streaks ≥2, trivia points)
+fetched by the console every 5 min, not per poll. Streaks are kept in the
+`user:<name>` rollup on the "open" event plus one `streaks` key (one write
+per person per day). Song sharing: `body.track` validated, stream path
+rebuilt server-side. Effects: client-only canvas (`playChatEffect`),
+`gpa_chat_effects` = off in Settings. Tests: `tests/fun.test.mjs` (5),
+`tests/browser/fun.mjs` (18 checks; it caught a flair bug: flair was
+applied before the name line existed).
+
+**Round 3 plan (kept for reference):**
 - *Chat effects*: "happy birthday"/"hbd" → balloons, "congrats" →
   confetti, "gg" → confetti; played on everyone's screen when the message
   arrives (not when history loads); canvas overlay; off with
@@ -427,7 +451,7 @@ All on `main`. Each has tests; see section 6.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (95 tests)
+npm test                                   # node --test tests/*.test.mjs (100 tests)
 node tests/browser/eaglercraft.e2e.mjs     # 83 checks (workerd via wrangler unstable_dev)
 node tests/browser/console-app.mjs         # 20 (iPhone app)
 node tests/browser/announcements.mjs       # 15
@@ -449,6 +473,7 @@ node tests/browser/chat-replies.mjs        # 20 (replies, unsend, grouping; 2 ph
 node tests/browser/ask-photo-size.mjs      # 6 (a 9 MB phone photo leaves the console as 0.8 MB)
 node tests/browser/owner-tools.mjs         # 15 (invite codes, weekly report, heatmap, subscriber reminder)
 node tests/browser/chat-round2.mjs         # 26 (mentions, polls, edit, pins, voice, quiet hours; fake mic)
+node tests/browser/fun.mjs                 # 18 (effects, flair, trivia, leaderboard, song sharing, streak)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundling/config check, deploys nothing
 ```
 

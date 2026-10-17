@@ -57,6 +57,16 @@ const COUNT_DAYS = 14;
 // (m.poll = { q, options }); each person has one vote (m.pv = { index:
 // [names] }), voting again for the same option takes it back.
 export const EDIT_MS = 2 * 60 * 1000;
+//
+// Daily trivia (round 3): the open question lives here, in #public's
+// object, so "first correct answer wins" is decided one message at a time.
+// System messages (trivia, game records) carry m.sys and aren't counted.
+const normAnswer = (x) => String(x || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9 ]+/g, ' ').replace(/\b(the|a|an)\b/g, ' ').replace(/\s+/g, ' ').trim();
+export function triviaMatches(text, answers) {
+  const t = ' ' + normAnswer(text) + ' ';
+  return (answers || []).some((a) => { const n = normAnswer(a); return n && t.includes(' ' + n + ' '); });
+}
 const PINS_MAX = 3;
 
 const TTL_MS = 7 * 24 * 3600 * 1000;   // same week-long lifetime as before
@@ -180,19 +190,31 @@ export class ChatRoom {
         // A reply quotes a message that is still in the room (and not unsent).
         const q = Number(body.replyTo) ? log.find((x) => x && x.ts === Number(body.replyTo) && !x.unsent) : null;
         if (q) msg.re = { ts: q.ts, u: q.u, t: String(q.t || '').slice(0, 140), ...(q.media ? { photo: true } : {}) };
+        // A correct answer to the open trivia question (first one wins).
+        let trivia = null;
+        if (!msg.sys && msg.t) {
+          const open = await this.storage.get('trivia');
+          if (open && !open.solved && triviaMatches(msg.t, open.a)) {
+            open.solved = { u: msg.u, at: ts };
+            await this.storage.put('trivia', open);
+            trivia = { won: true, answer: open.a[0] };
+          }
+        }
         log.push(msg);
         await this.save(log.slice(-MAX));
         // Sending ends "typing…" at once.
         const e = this.live.get(String(m.u || '').toLowerCase());
         if (e) e.typingUntil = 0;
         const day = new Date(ts).toISOString().slice(0, 10);
-        const counts = (await this.storage.get('counts')) || {};
-        const who = String(m.u || '').toLowerCase();
-        counts[day] = counts[day] || {};
-        counts[day][who] = { u: m.u, n: ((counts[day][who] && counts[day][who].n) || 0) + 1 };
-        for (const d of Object.keys(counts).sort().slice(0, -COUNT_DAYS)) delete counts[d];
-        await this.storage.put('counts', counts);
-        return reply({ ok: true, ts, re: msg.re || null });
+        const counts = msg.sys ? null : ((await this.storage.get('counts')) || {});
+        if (counts) {
+          const who = String(m.u || '').toLowerCase();
+          counts[day] = counts[day] || {};
+          counts[day][who] = { u: m.u, n: ((counts[day][who] && counts[day][who].n) || 0) + 1 };
+          for (const d of Object.keys(counts).sort().slice(0, -COUNT_DAYS)) delete counts[d];
+          await this.storage.put('counts', counts);
+        }
+        return reply({ ok: true, ts, re: msg.re || null, trivia });
       }
       if (action === 'edit') {
         const key = String(body.user || '').trim().toLowerCase();
@@ -236,6 +258,13 @@ export class ChatRoom {
         m.pv = pv;
         await this.save(log);
         return reply({ ok: true, votes: pv, mine: had === String(opt) ? null : opt });
+      }
+      if (action === 'trivia_open') {
+        // A new question replaces yesterday's; the old one comes back so its
+        // answer can be revealed if nobody got it.
+        const prev = (await this.storage.get('trivia')) || null;
+        await this.storage.put('trivia', { q: String(body.q || ''), a: Array.isArray(body.a) ? body.a.map(String) : [], day: String(body.day || ''), askedAt: Date.now(), solved: null });
+        return reply({ ok: true, prev });
       }
       if (action === 'stats') {
         // Messages per person since a UTC day (inclusive).
