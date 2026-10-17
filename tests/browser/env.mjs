@@ -25,7 +25,10 @@ export const requests = [];   // every request the file host saw: proves who fet
 
 // clientDir: the folder served as EAGLER_CLIENT. The stand-in by default;
 // real-client.mjs passes a real EaglercraftX build folder.
-export async function startEnv({ relay = !!process.env.RELAY_JAR, extraEnv = {}, clientDir = STUB_CLIENT_DIR } = {}) {
+// appGate: keep the Worker's default "phone app for the owner and admins
+// only". Off by default here, because most suites sign regular users into
+// the app (/console/) to drive the console.
+export async function startEnv({ relay = !!process.env.RELAY_JAR, extraEnv = {}, clientDir = STUB_CLIENT_DIR, appGate = false } = {}) {
   const files = await serve((rq, rs) => {
     requests.push({ url: rq.url, ua: rq.headers['user-agent'] || '' });
     const u = new URL(rq.url, 'http://x');
@@ -78,6 +81,9 @@ export async function startEnv({ relay = !!process.env.RELAY_JAR, extraEnv = {},
     }
   });
   const workerUrl = `http://${mf.address}:${mf.port}`;
+  if (extraEnv.ADMIN_TOKEN) {
+    await fetch(workerUrl + '/admin/config', { method: 'POST', headers: { Authorization: 'Bearer ' + extraEnv.ADMIN_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ appStaffOnly: appGate }) }).catch(() => {});
+  }
   return {
     files, filesPort: files.port, echo, echoPort, relayPort, relayProc, mf, workerUrl,
     async close() {

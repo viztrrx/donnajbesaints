@@ -15167,7 +15167,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         showAccessRequest(user, d.request, d.subscriptionEnded);
         return false;
       }
-      accessNeedsServer = !!d.sessionRequired;
+      // The phone app is for the owner and admins: it always signs in on the
+      // server first, which only lets them in.
+      accessNeedsServer = !!d.sessionRequired || !!d.appStaffOnly;
       return true;
     } catch (e) { return true; }
   }
@@ -15339,6 +15341,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     showLoginMsg('');
     enterApp(user);
+    // The session was linked before the console knew whose it was, so tell
+    // the rest of the console again now (an admin's Admin panel connects here).
+    emitSession();
   }
 
   // ---- Server session (worker accounts) ----------------------------------------
@@ -15477,10 +15482,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!AUTH_BASE()) return;
     await workerHealth();
     const t = sessionToken();
-    if (!t) { serverSessionStatus = workerSupports('sessions') ? 'needs_pin' : 'unsupported'; emitSession(); return; }
+    if (!t) {
+      serverSessionStatus = workerSupports('sessions') ? 'needs_pin' : 'unsupported'; emitSession();
+      // The phone app needs a server sign-in (owner and admins only).
+      if (APP_MODE && currentUser && (await accessAllowed(currentUser)) && accessNeedsServer) signOutWith('Sign in again with your PIN.', true);
+      return;
+    }
     try {
       const r = await fetch(AUTH_BASE() + '/auth/me', { headers: { 'X-GPA-Session': t } });
       const d = await r.json().catch(() => ({}));
+      if (r.status === 403 && d.appStaffOnly) { signOutWith(d.error || 'The Agent Console app is only for the owner and admins.', true); return; }
       if (r.ok && d.ok) {
         serverSession.role = d.account.role;
         if (d.token) serverSession.token = d.token;
@@ -20660,7 +20671,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           const br = /Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
           return [os, br].filter(Boolean).join(' · ') || 'Unknown device';
         };
-        const LABEL = { signin_in_use: 'Second sign-ins refused', signin_moved: 'Sign-ins moved to another website (same computer)', invite_wrong: 'Wrong invite codes', session_required: 'Name-only access refused', login_failed: 'Failed sign-ins', login_lockout: 'Sign-in lockouts', admin_auth_failed: 'Bad admin credentials', admin_lockout: 'Admin lockouts', forbidden: 'Forbidden requests', identity_mismatch: 'Spoofed usernames', rate_limited: 'Rate-limited', legacy_identity_refused: 'Legacy identity refused', bad_session: 'Bad sessions', owner_claim_refused: 'Owner-name claims refused', account_created: 'Accounts created', login_disabled: 'Disabled-account sign-ins' };
+        const LABEL = { signin_in_use: 'Second sign-ins refused', signin_moved: 'Sign-ins moved to another website (same computer)', invite_wrong: 'Wrong invite codes', app_not_staff: 'Phone-app sign-ins refused (not an admin)', session_required: 'Name-only access refused', login_failed: 'Failed sign-ins', login_lockout: 'Sign-in lockouts', admin_auth_failed: 'Bad admin credentials', admin_lockout: 'Admin lockouts', forbidden: 'Forbidden requests', identity_mismatch: 'Spoofed usernames', rate_limited: 'Rate-limited', legacy_identity_refused: 'Legacy identity refused', bad_session: 'Bad sessions', owner_claim_refused: 'Owner-name claims refused', account_created: 'Accounts created', login_disabled: 'Disabled-account sign-ins' };
         b.innerHTML = `<div class="gac-kpis">` + Object.entries(types).sort((a, b2) => b2[1] - a[1]).slice(0, 8).map(([t, n]) => kpi(LABEL[t] || t, num(n), 'last 7 days', /fail|forbid|mismatch|lockout|refused/.test(t) ? 'warn' : '')).join('')
           + (Object.keys(types).length ? '' : kpi('Security events', '0', 'last 7 days')) + `</div>`
           + `<div class="gpx-split"><div class="gpx-main">`
@@ -20675,13 +20686,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             + `<li class="ok"><i></i><span>Approval queue</span><em>${d.config.approvalMode ? 'On' : 'Off'}</em></li><li class="ok"><i></i><span>Private mode</span><em>${d.config.privateMode ? 'On' : 'Off'}</em></li>`
             + `<li class="ok"><i></i><span>Allowed users only</span><em>${d.config.allowlist && d.config.allowlist.on ? 'On (' + d.config.allowlist.users.length + ')' : 'Off'}</em></li></ul>`
             + (isOwner() ? `<button class="gps-btn" id="gac-reqsess">${d.config.requireSessions ? 'Allow legacy identity again' : 'Require verified sessions'}</button><p class="gps-hint">When required, AI and chat refuse clients that only assert a username. Turn it on once everyone runs the updated console.</p>` : ''), 'controls')
+          + (isOwner() ? card('Phone app', `<div class="gac-allow-row"><span>Only you and admins can use the app</span><button class="gps-switch${d.config.appStaffOnly !== false ? ' primary' : ''}" id="gac-app-staff" type="button" aria-pressed="${d.config.appStaffOnly !== false}" aria-label="Only you and admins can use the app">Only you and admins can use the app</button></div>`
+            + `<p class="gps-hint">The home-screen app (<code>/console/</code>) signs in with a name and PIN. With this on, only you and people with the <b>admin</b> role get in; everyone else is told to use the console on a computer. To make someone an admin: Users → their name → Role: admin → Change role (they sign in again once). Admins never need the admin token: the Admin panel opens from their role, and they can be signed in on their phone and a computer at the same time.</p>`, 'account', 'gac-app-card') : '')
           + (isOwner() ? card('Access requests', `<div id="gac-access-req"><p class="gps-hint">Loading…</p></div>`, 'key') : '')
           + (isOwner() ? card('Subscribers', `<div id="gac-subs"><p class="gps-hint">Loading…</p></div>`, 'timer', 'gac-subs-card') : '')
           + (isOwner() ? card('Allowed users', `<p class="gps-hint">When on, only these usernames (and you) can create an account, sign in or use the console. Everyone else sees “Unable to create account”, and anyone already signed in who isn’t listed is signed out.</p>`
             + `<div class="gac-allow-row"><span>Only allow listed users</span><button class="gps-switch${d.config.allowlist && d.config.allowlist.on ? ' primary' : ''}" id="gac-allow-on" type="button" aria-pressed="${d.config.allowlist && d.config.allowlist.on ? 'true' : 'false'}" aria-label="Only allow listed users">Only allow listed users</button></div>`
             + `<label class="gac-allow-label">Usernames, one per line or separated by commas<textarea class="gpa-sync-box gac-allow-list" id="gac-allow-users" rows="6" spellcheck="false" autocapitalize="off" placeholder="kj&#10;dub&#10;sam">${esc(((d.config.allowlist && d.config.allowlist.users) || []).join('\n'))}</textarea></label>`
             + `<div class="gac-allow-row"><span class="gps-hint" id="gac-allow-count">${((d.config.allowlist && d.config.allowlist.users) || []).length} listed</span><button class="gps-btn primary" id="gac-allow-save" type="button">Save list</button></div>`
-            + `<p class="gps-hint">One sign-in per name: while this is on, each listed name works only with its PIN, on one device at a time. A second device is refused while the first was used in the last 15 minutes; signing out frees the name right away.</p>`
+            + `<p class="gps-hint">One sign-in per name: while this is on, each listed name works only with its PIN, on one device at a time (admins and you can use several). A second device is refused while the first was used in the last 15 minutes; signing out frees the name right away.</p>`
             + ((d.config.allowAccounts || []).length ? `<ul class="gac-acct-list" id="gac-allow-accts">` + d.config.allowAccounts.map((a) => `<li class="gac-acct" data-user="${esc(a.user)}"><div class="gac-acct-top"><span class="gac-req-name">${esc(a.user)}</span>`
               + `<span class="gac-req-badge ${a.signedIn ? 'pending' : ''}">${a.signedIn ? 'Signed in' : a.claimed ? 'Signed out' : 'No PIN yet'}</span></div>`
               + `<div class="gac-req-meta">${a.claimed ? (a.lastSeen ? 'Last used ' + ago(a.lastSeen) + (a.country && a.country !== '??' ? ' · ' + esc(a.country) : '') + (a.device ? ' · ' + esc(deviceName(a.device)) : '') : 'PIN set ' + (a.createdAt ? ago(a.createdAt) : ''))
@@ -20855,6 +20868,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           });
           loadRequests();
         }
+        const appSw = b.querySelector('#gac-app-staff');
+        if (appSw) appSw.addEventListener('click', async () => {
+          const on = appSw.getAttribute('aria-pressed') !== 'true';
+          try {
+            await api('/admin/config', { method: 'POST', body: { appStaffOnly: on } });
+            appSw.classList.toggle('primary', on); appSw.setAttribute('aria-pressed', String(on));
+            showToast(on ? 'The phone app is now for you and admins only.' : 'Everyone who can sign in can use the phone app again.');
+          } catch (e) { showToast(e.message, { type: 'danger' }); }
+        });
         const allowOn = b.querySelector('#gac-allow-on'), allowUsers = b.querySelector('#gac-allow-users');
         const saveAllow = async (on) => {
           const users = allowUsers.value.split(/[\s,;]+/).map((u) => u.trim().replace(/^@/, '')).filter(Boolean);

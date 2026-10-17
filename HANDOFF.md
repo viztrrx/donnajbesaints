@@ -13,7 +13,12 @@ list (rounds 1–3) was finished and pushed.
 ### Status right now
 - **Nothing is half-done.** All work from this session is on `main` and
   deployed (pushing to `main` deploys; see below). The last commit:
-  **weekday streaks + My music** (the owner's request: "make day streaks
+  **admins in the phone app** (owner's words: "make it so admins i have
+  listed can also add the console agent to their phone with the same exact
+  features as me just as admin… they dont have to put the ADMIN_TOKEN…
+  only the admin no other user will have access to the app… their music
+  they uploaded from their phone should be there as well on the computer").
+  Before that: **weekday streaks + My music** (the owner's request: "make day streaks
   last only thru out the weekdays… weekends dont count so the streak will
   still be active when they log back in on monday, also… if a user uploads
   their music via their computer… they can also share that to others and
@@ -222,6 +227,24 @@ day, 14 days; not system notices), `trivia` (#public only). Memory only:
   the last 15 min. **Same computer, another website**: warns and offers
   "Sign in here" (takeover) via `ipH`/`uaH`/`site` on the session. Owner
   exempt. Tests: `one-session.mjs`, `same-computer.mjs`.
+- **Admins and the phone app** (`appStaffOnly`, on unless the owner turns
+  it off in Admin → Security → Phone app): the home-screen app only lets the
+  owner and `admin`-role accounts in. Detected server-side by the request
+  coming from the Worker's own origin (`fromApp()`: Origin = url.origin or
+  Referer under `/console/`); `/access` adds `appStaffOnly` (not for the
+  owner's name, who may use the app without a server account), so the app
+  always does a server sign-in; `/auth/login` and `/auth/register` refuse
+  non-admins from the app, and `/auth/me` makes the app sign them out on the
+  next launch. Admins are exempt from one-device (`oneDevice()`): phone and
+  computer at once. Admin panel: a session with role ≥ moderator already
+  connects without a token (`creds()` sends `X-GPA-Session`); the bug that
+  hid it right after a server-first sign-in (emitSession ran before
+  `currentUser` was set) is fixed in `serverFirstSignIn`. A role change
+  revokes the person's sessions (they sign in again). Owner phone alerts
+  stay owner-only. Tests: `admin-app.test.mjs`, `admin-app.mjs` (browser
+  suites use `startEnv({ appGate: true })` to keep the gate; it's off by
+  default in `tests/browser/env.mjs` because most suites sign regular users
+  into the app).
 - **Invite codes** (round 1): names added to the list *after* this shipped
   get a one-time code (`invite:<name>`, `/admin/invites`); registering that
   name needs it (`body.invite`; wrong code counts toward the lockout).
@@ -331,7 +354,9 @@ real client build is separate, see `eaglercraft/README.md`), Saints Command.
 
 | Commit | What |
 |---|---|
-| (this) | Weekday streaks; My music (personal uploads, shareable) |
+| (this) | Admins: phone app for owner + admins, no admin token, two devices |
+| `ef627f0` | Streaks: start on any weekday |
+| `ee82ee3` | Weekday streaks; My music (personal uploads, shareable) |
 | `d3fd527` | HANDOFF rewrite |
 | `5f2b5ac` | Fun: effects, flair, streaks, leaderboards, trivia, song sharing |
 | `31b2322` | Chat round 2: @mentions, polls, edit, pins, voice, quiet hours |
@@ -359,7 +384,7 @@ real client build is separate, see `eaglercraft/README.md`), Saints Command.
 ## 6. Testing
 
 ```bash
-npm test                                   # node --test tests/*.test.mjs (101 tests)
+npm test                                   # node --test tests/*.test.mjs (103 tests)
 npx wrangler deploy --dry-run --outdir /tmp/x   # bundle/config check, deploys nothing
 # Browser suites (Playwright vs local workerd), each takes an output dir for screenshots:
 node tests/browser/eaglercraft.e2e.mjs     # 83
@@ -382,6 +407,7 @@ node tests/browser/chat-round2.mjs         # 26 (fake microphone)
 node tests/browser/fun.mjs                 # 18
 node tests/browser/music.mjs               # 15
 node tests/browser/my-music.mjs            # 15
+node tests/browser/admin-app.mjs           # 20
 node tests/browser/usage-meter.mjs         # 16
 node tests/browser/usage-meter-sizes.mjs   # 25
 node tests/browser/ask-photo-size.mjs      # 6

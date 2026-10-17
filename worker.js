@@ -964,6 +964,16 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     const SEEN_WRITE_MS = 5 * 60e3;   // how often lastSeen is rewritten (KV write budget)
     const singleSession = (cfg, user) => !!(cfg && cfg.allowlist && cfg.allowlist.on && sessionKey())
       && !!String(user || '').trim() && String(user).trim().toLowerCase() !== OWNER;
+    // Admins, like the owner, may be signed in on several devices at once (the
+    // phone app and a computer). They still need a PIN-checked session.
+    const oneDevice = (cfg, acct) => singleSession(cfg, acct && acct.user) && !(acct && acct.role === 'admin');
+    // The home-screen app (/console/) is for the owner and admins only (owner
+    // switch config.appStaffOnly, on unless turned off). The app runs on the
+    // Worker's own origin; the injected console runs on other websites.
+    const APP_STAFF_ONLY_MSG = 'The Agent Console app is only for the owner and admins. You can still use the console on a computer.';
+    const appGateOn = (cfg) => !!cfg && cfg.appStaffOnly !== false && !!sessionKey();
+    const fromApp = () => (req.headers.get('Origin') || '') === url.origin || (req.headers.get('Referer') || '').startsWith(url.origin + '/console/');
+    const appStaffRole = (role) => role === 'owner' || role === 'admin';
     const liveSession = (acct, now) => (acct.sessions || []).find((s) => now - (s.lastSeen || s.createdAt || 0) < ONE_SESSION_IDLE_MS) || null;
 
     // Memoized for the life of this request.
@@ -1002,14 +1012,14 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           if (!acct) sessionProblem = 'no_account';
           else if (acct.disabled) sessionProblem = 'disabled';
           else if ((acct.epoch || 0) !== (p.e || 0) || (cfg.sessionEpoch || 0) !== (p.g || 0)) sessionProblem = 'revoked';
-          else if (singleSession(cfg, acct.user) && !((acct.sessions || [])[0] && acct.sessions[0].id === p.s)) {
+          else if (oneDevice(cfg, acct) && !((acct.sessions || [])[0] && acct.sessions[0].id === p.s)) {
             sessionProblem = 'signed_in_elsewhere';
             // Same computer, another website: say where, so the message makes sense.
             const cur = (acct.sessions || [])[0];
             if (cur && cur.site && cur.ipH && cur.uaH && cur.ipH === (await deviceHashes()).ipH && cur.uaH === (await deviceHashes()).uaH) elsewhereSite = cur.site;
           }
           else {
-            if (singleSession(cfg, acct.user)) {
+            if (oneDevice(cfg, acct)) {
               // Keep "last used" fresh so a second sign-in can tell whether
               // this session is still in use. Rate-limited to save KV writes.
               const cur = acct.sessions[0];
@@ -1865,7 +1875,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const fresh = { id: sid, createdAt: now, lastSeen: now, country: cf.country || '??', ua: String(req.headers.get('User-Agent') || '').slice(0, 80), ipH: dev.ipH, uaH: dev.uaH, site: cleanSite(site) };
         // One sign-in per name: the new session replaces any older one, whose
         // token stops working on its next request (see resolvePrincipal).
-        acct.sessions = singleSession(cfg, acct.user) ? [fresh] : [fresh, ...(acct.sessions || [])].slice(0, 5);
+        acct.sessions = oneDevice(cfg, acct) ? [fresh] : [fresh, ...(acct.sessions || [])].slice(0, 5);
         acct.lastLoginAt = now;
         await kv.put(acctKey(acct.user), JSON.stringify(acct));
         return { token, exp: now + SESSION_MS };
@@ -1886,6 +1896,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           return json({ ok: false, error: ACCESS_DENIED, notAllowed: true }, 403);
         }
         if (await getAcct(kv, user)) return json({ ok: false, error: 'account exists', exists: true }, 409);
+        // New accounts are regular users, so only the owner can create one in the app.
+        if (userLower !== OWNER && appGateOn(await getConfig(kv)) && fromApp()) return json({ ok: false, error: APP_STAFF_ONLY_MSG, appStaffOnly: true }, 403);
         // An invited name needs its code (see /admin/invites).
         const invite = await kv.get(inviteKey(user), 'json');
         if (invite) {
@@ -1937,7 +1949,12 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         await clearFailures(kv, 'login', ip);
         // Only checked after the PIN is right, so this never tells a stranger
         // whether the name is in use.
-        if (singleSession(await getConfig(kv), acct.user)) {
+        // The phone app: owner and admins only.
+        if (appGateOn(await getConfig(kv)) && fromApp() && !appStaffRole(roleOf(acct))) {
+          await noteSec('app_not_staff', { user: acct.user, note: 'login' });
+          return json({ ok: false, error: APP_STAFF_ONLY_MSG, appStaffOnly: true }, 403);
+        }
+        if (oneDevice(await getConfig(kv), acct)) {
           const live = liveSession(acct, Date.now());
           if (live) {
             const dev = await deviceHashes();
@@ -1964,6 +1981,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (!p || p.kind !== 'session') return json({ ok: false, error: 'not signed in', reason: sessionProblem || 'no_session' }, 401);
 
       if (url.pathname === '/auth/me' && req.method === 'GET') {
+        if (appGateOn(await getConfig(kv)) && fromApp() && !appStaffRole(p.role)) return json({ ok: false, error: APP_STAFF_ONLY_MSG, appStaffOnly: true }, 403);
         // Sliding renewal: past half its life, a fresh token comes back.
         let renewed = null;
         if (p.payload.exp - Date.now() < SESSION_MS / 2) {
@@ -2647,7 +2665,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const ok = allowedUser(cfg, name);
       // sessionRequired: the console must finish a PIN-checked server sign-in
       // before it opens (one sign-in per name).
-      if (ok) return json({ allowed: true, sessionRequired: singleSession(cfg, name) });
+      // appStaffOnly: in the phone app the console must sign in on the server
+      // (which only lets the owner and admins in) before it opens.
+      // (Not for the owner's name: the owner may use the app without a server
+      // account, as before.)
+      if (ok) return json({ allowed: true, sessionRequired: singleSession(cfg, name), ...(appGateOn(cfg) && fromApp() && name.trim().toLowerCase() !== OWNER ? { appStaffOnly: true } : {}) });
       if (name) await noteSec('not_allowed', { user: name, note: 'sign-in screen' });
       let request = null;
       if (kv && name) {
@@ -2894,6 +2916,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const cfg = await getConfig(kv);
       const cfgBefore = JSON.parse(JSON.stringify(cfg));
       if ('privateMode' in body) cfg.privateMode = !!body.privateMode;
+      // The phone app for the owner and admins only (on unless turned off).
+      if ('appStaffOnly' in body) cfg.appStaffOnly = !!body.appStaffOnly;
       // Chat quiet hours: read-only for everyone but staff between two hours
       // (owner time zone). Off unless the owner turns it on.
       // Fun features (round 3): daily trivia and game-record posts in #public.
@@ -4005,7 +4029,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           ok: true, days, recent: recent.sort((a, b) => b.ts - a.ts).slice(0, 150), lockouts,
           sessions: { accounts: accts.length, active: accts.reduce((n, a) => n + (a.value.sessions || []).length, 0), disabled: accts.filter((a) => a.value.disabled).length, globalEpoch: cfg.sessionEpoch || 0 },
           config: {
-            requireSessions: !!cfg.requireSessions, ownerCode: !!(env && env.OWNER_CODE), coadminToken: !!(env && env.COADMIN_TOKEN),
+            requireSessions: !!cfg.requireSessions, appStaffOnly: appGateOn(cfg), ownerCode: !!(env && env.OWNER_CODE), coadminToken: !!(env && env.COADMIN_TOKEN),
             legacyQueryToken: env && env.ALLOW_QUERY_TOKEN === '1', approvalMode: !!cfg.approvalMode, privateMode: !!cfg.privateMode,
             allowlist: { on: !!(cfg.allowlist && cfg.allowlist.on), users: (cfg.allowlist && cfg.allowlist.users) || [] },
             // Per listed name: has someone set a PIN for it yet, and is it

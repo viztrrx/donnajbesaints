@@ -100,6 +100,31 @@ Owners can point at a different Audius gateway with the Worker variable
 `AUDIUS_API`. Checks: `node --test tests/music.test.mjs` and
 `node tests/browser/music.mjs`.
 
+## Admins and the phone app {#admins}
+
+- **Make someone an admin:** Admin → Users → their name → Role: **admin** →
+  **Change role**. They need an account first (made on a computer), and they
+  sign in again once for the new role to apply.
+- **No admin token for admins.** An admin signs in with their own name and
+  PIN; the Admin panel (Command Center) opens and connects from their role,
+  on the phone app and on a computer. They get what the admin role allows
+  (users, AI, memory, security, moderation, system views); owner-only things
+  (Allowed users, subscriptions, settings, keys, danger zone) stay yours.
+- **Phone app for you and admins only.** Admin → Security → **Phone app**
+  (on by default). With it on, only you and admins can sign in to the
+  home-screen app (`/console/`); anyone else is told to use the console on a
+  computer, and someone already in the app who isn't an admin is signed out
+  of it on their next launch. The console injected into websites is
+  unchanged for everyone.
+- **Two devices at once.** Admins, like you, can be signed in on their phone
+  and a computer at the same time (one sign-in per name still applies to
+  everyone else).
+- **Their music follows them.** Songs an admin uploads in Music → My music
+  on the phone are in My music on the computer when they sign in there, and
+  the other way round.
+- Owner phone alerts (Settings → Account → Phone notifications) stay
+  owner-only; admins can turn on @mention alerts in the app.
+
 ## Allowed users {#allowed-users}
 
 **Admin → Security → Allowed users** (owner only) limits the console to the
@@ -186,7 +211,9 @@ that aren't listed.
 ## Agent Console as an iPhone app {#iphone-app}
 
 The Worker also serves the whole console as a home-screen web app at
-`https://donnajbe.viztrrx.workers.dev/console/`.
+`https://donnajbe.viztrrx.workers.dev/console/`. It's for you and your admins
+(see [Admins and the phone app](#admins); Admin → Security → Phone app turns
+that off).
 
 1. Open that address in **Safari** on your iPhone.
 2. Tap **Share**, then **Add to Home Screen**.
