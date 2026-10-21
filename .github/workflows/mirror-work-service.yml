@@ -1,0 +1,49 @@
+name: Mirror work-service main
+
+# This file is intentionally present in BOTH repositories to keep their trees
+# identical. Only the deployment repository actually runs the mirror job.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: saints-work-service-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.repository == 'viztrrx/donnajbesaints'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout deployment repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: deployment
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Clone canonical repository
+        run: git clone --depth 1 --branch main https://github.com/viztrrx/work-service.git source
+
+      - name: Synchronize and push changed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Copy the entire working tree, except the target repository's .git.
+          # This includes dotfiles, the Cloudflare configuration, and assets.
+          rsync -a --delete --exclude='.git' source/ deployment/
+          cd deployment
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Both repositories already contain identical files."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Mirror work-service/main $(git -C ../source rev-parse --short HEAD)"
+          git push origin HEAD:main
