@@ -1,0 +1,18 @@
+// Standalone Worker. This file does not change the root donnajbe Worker.
+// In Cloudflare Builds, use this exact deploy command from the repo root:
+// npx wrangler deploy --config proxy-worker/wrangler.jsonc
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "saints-proxy-test",
+  "main": "./index.js",
+  "compatibility_date": "2026-10-19",
+  "workers_dev": true,
+  "vars": {
+    // The approved HTTPS sites this proxy may open (and nothing else).
+    // Separate several with spaces or commas, e.g.
+    //   "https://example.com https://www.example.org"
+    // Only list sites you own or are authorized to proxy. IP addresses,
+    // localhost, private/internal names and non-HTTPS are always refused.
+    "TARGET_ORIGINS": "https://example.com https://youtube.com https://www.youtube.com https://m.youtube.com https://youtu.be"
+  }
+}

@@ -1,0 +1,2918 @@
+From 287d2c4457f245f3e5fcb5f88d2c45ea29e1e90d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 13 Sep 2026 19:14:09 +0000
+Subject: [PATCH 1/6] Add README, MIT license, and package manifest
+
+The repo had no project metadata, so anyone landing on it had to read
+7k lines of script.js to work out what it is or how to run it.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019GqTQm8E1znRkM37YVj6K7
+---
+ LICENSE      |  21 ++++++++
+ README.md    | 149 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ package.json |  43 +++++++++++++++
+ 3 files changed, 213 insertions(+)
+ create mode 100644 LICENSE
+ create mode 100644 README.md
+ create mode 100644 package.json
+
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..2cf0ba3
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2026 viztrrx
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..330fccf
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,149 @@
++# Agent Console
++
++A floating AI assistant panel you can drop onto **any web page** — no extension, no install, no build step. It's one self-contained JavaScript file you paste into the browser console (or run as a bookmarklet), plus an optional Cloudflare Worker that proxies API calls.
++
++The panel reads the page you're on, answers questions about it, explains quiz questions, takes notes, plays music, browses, and — when you need a break — ships with seventeen playable games.
++
++---
++
++## Quick start
++
++1. Open any web page.
++2. Open DevTools → Console (`F12`, or `Cmd`/`Ctrl` + `Shift` + `J`).
++3. Paste and run:
++
++```js
++fetch('https://raw.githubusercontent.com/viztrrx/donnajbe/main/script.js')
++  .then(r => r.text())
++  .then(eval)
++```
++
++The panel appears in the corner. Drag it anywhere; minimize it and it flies to the bottom-right as a small button that's still draggable. Running the snippet again toggles the panel instead of injecting a second copy.
++
++The first time you use an AI feature it asks for an API key. Keys live in that site's `localStorage` and never leave your browser except in the request to the provider.
++
++### Make it a bookmarklet
++
++Create a new bookmark and use this as the URL, so it's one click on any page:
++
++```
++javascript:fetch('https://raw.githubusercontent.com/viztrrx/donnajbe/main/script.js').then(r=>r.text()).then(eval)
++```
++
++A DevTools **Snippet** (Sources → Snippets) works too, and survives navigation better than retyping the fetch.
++
++---
++
++## API keys
++
++| Feature | Key | Where to get it |
++| --- | --- | --- |
++| AI (Google) | Gemini API key | <https://aistudio.google.com/apikey> |
++| AI (OpenAI) | OpenAI key, starts with `sk-` | <https://platform.openai.com/api-keys> |
++| Music search | YouTube Data API v3 key | <https://console.cloud.google.com> → enable *YouTube Data API v3* → Credentials |
++
++Pick your provider under **Settings → AI provider**. Each key is stored separately, so you can switch back and forth without re-entering anything.
++
++Because browsers scope `localStorage` per origin, a key entered on `example.com` isn't visible on `wikipedia.org` — you'll be asked again on each new domain. If that gets tedious, host your own copy of `script.js` and paste your Gemini key into `API_KEY_DEFAULT` near the top of the file. Only do that for a private copy; anything in a public repo is public.
++
++The YouTube free tier covers roughly 100 searches per day.
++
++---
++
++## Features
++
++### Page Insights
++Scans the current page's visible text (`document.body.innerText`, capped at 18,000 characters) and optionally a screenshot, then summarizes, analyzes, or answers questions about it. Answers come back with a confidence score, and the supporting phrases get highlighted directly on the page so you can see where an answer came from.
++
++The screenshot path uses the browser's native `getDisplayMedia` prompt — Chrome asks *you* to pick a tab, window, or screen, grabs one frame, and immediately stops sharing. There's no silent capture; that permission dialog is a browser-level protection. You can also upload an image file or just paste one with `Ctrl`+`V` anywhere in the panel. Images are downscaled to 1280px wide before sending.
++
++Alongside that tab: a table extractor that pulls every `<table>` on the page to CSV, a page watcher that re-reads the page every 30 seconds and notifies you when a condition you described in plain English is met, natural-language page commands ("click the third link"), and a form auto-filler that generates mock values. The auto-filler previews everything it intends to type and fills only after you confirm — it never submits anything.
++
++### Quiz solver and Tutor mode
++Both read the page including the parts plain text misses: closed `<select>` dropdowns only render their selected option, and radio/checkbox labels aren't always adjacent to their question, so those are extracted separately and handed to the model.
++
++**Quiz solver** returns one answer per question — including multi-part items like *2a* / *2b* — as an animated answer grid with per-answer confidence, then double-checks its own draft in a second pass before showing it.
++
++**Tutor mode** reads the same content but gives you the *why*: an explanation and a short step-by-step solution per question, each of which can float next to its question on the page. You still enter and submit every answer yourself — the tutor explains, it doesn't take the quiz for you.
++
++Any answer grid can be turned into flashcards with one click.
++
++### Ask AI
++General-purpose chat, independent of the page. Voice input via the browser's speech recognition, and optional read-aloud for responses via speech synthesis — both local, both free, neither needs a key.
++
++### Selection assistant
++Select any text on the page and a small bubble appears: **Explain**, **Simplify**, **Translate**, **Define**, copy-as-clean-text, or save to your insights.
++
++### Study
++Generates flashcard decks from whatever page you're on, with spaced practice and grading.
++
++### Notes
++Paste a passage; the AI reads it, researches it across the web, and writes organized study notes. It keeps the passage, the notes, and the research in context, so follow-up questions get answered against the whole thing rather than starting cold.
++
++### Saved
++Insights you save get organized into folders and a calendar view, alongside an autosaved scratchpad and a 25/5 Pomodoro timer.
++
++### Browser
++A plain iframe with a URL bar. It only loads sites that allow being embedded — banks, most social apps, and SoundCloud's own site set `X-Frame-Options` or CSP `frame-ancestors` to prevent it. That's a protection those sites deliberately set, and this script makes no attempt to circumvent it.
++
++**Research mode** lives here: the AI picks a few authoritative sources, the Worker fetches each one server-side, and you get back a brief with citations.
++
++### Music
++Three ways to play something:
++
++1. **Search** — type a song name or description and it queries the official YouTube Data API, then plays the closest match in YouTube's own embed player.
++2. **SoundCloud** — paste a track link, played through SoundCloud's official embeddable player.
++3. **Local library** — list `raw.githubusercontent.com` URLs in `PRELOADED_TRACKS` at the top of `script.js` and they appear in the playlist on load, or click **Add audio files** to pick files off your own device for the session. This path is a plain `<audio>` element: no iframe, no network for local files.
++
++Playback keeps running while you switch sections — the player stays in the DOM, just hidden.
++
++### Games
++Tic-Tac-Toe, Rock-Paper-Scissors, Memory, Snake, 2048, Whack-a-Mole, Guess the Number, Hangman, Wordle, Connect 4, Minesweeper, Flappy, Word Scramble, Reaction Test, Tetris, Checkers, and Sudoku. Per-game options, high scores, a pause screen with stats, fullscreen, and a match timer you toggle with `T`.
++
++### Settings
++Several color themes plus a custom accent, ambient particle backgrounds in a few styles with an adjustable play area, four panel size presets, typing speed and response font controls, and a customizable icon for the minimized button.
++
++### Profiles and sync
++An optional username + PIN profile (the PIN is hashed, not stored in the clear) that snapshots every `gpa_*` key. Move settings between browsers with a portable sync code — pure encode/decode, no server involved — or turn on cloud auto-sync backed by your own JSONBin credentials.
++
++---
++
++## The Worker (`worker.js`)
++
++An optional Cloudflare Worker that does two small things the browser can't do on its own:
++
++- **`/v1/*`** — forwards to `api.openai.com` and adds the CORS header. Direct browser → OpenAI calls are frequently blocked by ad blockers, antivirus shields, and network filters, which surface as confusing CORS errors. It also answers `OPTIONS` preflights itself, because forwarding those upstream returns a response that doesn't allow the `Authorization` header, which makes the browser block the real request.
++- **`/read?url=…`** — fetches a page server-side and returns its HTML, so research mode can read sources the browser isn't allowed to fetch cross-origin. HTML and plain text only, capped at 3MB.
++
++### Deploying it
++
++Cloudflare dashboard → **Workers & Pages** → your worker → **Edit code** → replace everything with `worker.js` → **Deploy**.
++
++Then point the script at it by setting `OPENAI_PROXY` near the top of `script.js` to your Worker URL. Set it to `''` to call OpenAI directly instead.
++
++The Worker holds no key of its own — it passes through whatever the browser sends (`Authorization` header, `?key=` parameter, or the `X-GPA-Key` fallback header, in that order). If you deploy it publicly, anyone who knows the URL can route their own OpenAI requests through it using their own key.
++
++---
++
++## Notes and limits
++
++This is injected JavaScript, not an extension, so it disappears on reload or navigation — re-run the snippet, or use the bookmarklet. Page text is truncated and screenshots downscaled to keep requests fast and within token limits. Gemini calls go to the public Generative Language REST API with the key as a query parameter, which is how Google's own docs show client-side usage — it does mean the key is visible in network requests from your own browser session.
++
++The panel renders inside a Shadow DOM, so the host page's CSS can't bleed into it and vice versa.
++
++---
++
++## Files
++
++```
++script.js   The entire assistant — UI, AI calls, games, everything
++worker.js   Optional Cloudflare Worker: OpenAI CORS proxy + page reader
++```
++
++No build step, no dependencies, no bundler.
++
++---
++
++## License
++
++MIT — see [LICENSE](LICENSE).
+diff --git a/package.json b/package.json
+new file mode 100644
+index 0000000..d6eb751
+--- /dev/null
++++ b/package.json
+@@ -0,0 +1,43 @@
++{
++  "name": "donnajbe",
++  "version": "1.0.0",
++  "description": "Agent Console — an injectable floating AI assistant panel for any web page: reads the page, answers questions, explains quizzes, takes notes, plays music, and bundles seventeen games. No extension, no build step.",
++  "keywords": [
++    "ai",
++    "assistant",
++    "bookmarklet",
++    "browser",
++    "gemini",
++    "openai",
++    "cloudflare-worker",
++    "userscript",
++    "overlay",
++    "shadow-dom"
++  ],
++  "homepage": "https://github.com/viztrrx/donnajbe#readme",
++  "bugs": {
++    "url": "https://github.com/viztrrx/donnajbe/issues"
++  },
++  "repository": {
++    "type": "git",
++    "url": "git+https://github.com/viztrrx/donnajbe.git"
++  },
++  "license": "MIT",
++  "author": "viztrrx",
++  "type": "module",
++  "main": "script.js",
++  "files": [
++    "script.js",
++    "worker.js",
++    "README.md",
++    "LICENSE"
++  ],
++  "browser": "script.js",
++  "private": false,
++  "scripts": {
++    "start": "echo \"Paste the snippet from README.md into your browser console.\" && exit 0"
++  },
++  "engines": {
++    "node": ">=18"
++  }
++}
+-- 
+2.43.0
+
+
+From 6aff9663cbe7b4105387c046fa3cd18225ec5a8b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 13 Sep 2026 19:25:20 +0000
+Subject: [PATCH 2/6] Fix requests failing with "Invalid value" from a key with
+ hidden characters
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+An API key pasted from a styled page or document can carry invisible
+characters — zero-width space, non-breaking space, soft hyphen, a stray
+newline. None of those are legal in an HTTP header value, so fetch threw
+TypeError "Failed to execute 'fetch' on 'Window': Invalid value" locally,
+before any request went out, on every transport. getOpenAiKey only
+trimmed, which catches a trailing newline but nothing interior.
+
+The XHR transport made it much harder to read: setRequestHeader was
+wrapped in an empty catch, so instead of failing it sent the request with
+no Authorization header at all. That came back 401 "You didn't provide an
+API key", which looks exactly like a rejected key, and sent you off
+rotating a key that was never the problem.
+
+- sanitizeKey/readStoredKey scrub stored keys to printable ASCII, on save
+  and on read, and rewrite the cleaned value back
+- assertHeaderSafe fails with a sentence that names the cause
+- XHR transport now fails loudly instead of sending an unauthenticated
+  request
+- explainError distinguishes "key never arrived" from "key rejected"
+
+Also stop sending the key as ?key= in the URL. Query strings land in
+browser history, Referer headers, proxy logs and screenshots; the key now
+travels in the request body instead, which the worker strips before
+forwarding. The worker no longer forwards "Authorization: null" when no
+key reaches it, and returns a clear error instead.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019GqTQm8E1znRkM37YVj6K7
+---
+ README.md |  18 ++++++++-
+ script.js | 108 +++++++++++++++++++++++++++++++++++++++++++++---------
+ worker.js |  60 +++++++++++++++++++++++++-----
+ 3 files changed, 159 insertions(+), 27 deletions(-)
+
+diff --git a/README.md b/README.md
+index 330fccf..224c82a 100644
+--- a/README.md
++++ b/README.md
+@@ -121,10 +121,26 @@ Cloudflare dashboard → **Workers & Pages** → your worker → **Edit code** 
+ 
+ Then point the script at it by setting `OPENAI_PROXY` near the top of `script.js` to your Worker URL. Set it to `''` to call OpenAI directly instead.
+ 
+-The Worker holds no key of its own — it passes through whatever the browser sends (`Authorization` header, `?key=` parameter, or the `X-GPA-Key` fallback header, in that order). If you deploy it publicly, anyone who knows the URL can route their own OpenAI requests through it using their own key.
++The Worker holds no key of its own — it passes through whatever the browser sends. It looks for the key in the `Authorization` header, then the `X-GPA-Key` header, then a `_gpa_key` field in the request body, then a legacy `?key=` query parameter. The extra channels exist because some pages wrap `fetch` and `XMLHttpRequest` and strip headers in transit; the body is used rather than the URL because **a key in a URL ends up in browser history, `Referer` headers, proxy and CDN logs, and any screenshot of the network tab.** If you're still using a build that sends `?key=`, treat that key as compromised and rotate it.
++
++If you deploy the Worker publicly, anyone who knows the URL can route their own OpenAI requests through it using their own key.
++
++> **`script.js` and `worker.js` have to be deployed together.** The Worker isn't pulled from this repo at runtime — you paste it into the Cloudflare dashboard by hand. If you update one and not the other, the key channel they agree on can drift apart and every request comes back `401`.
+ 
+ ---
+ 
++## Troubleshooting
++
++**`Failed to execute 'fetch' on 'Window': Invalid value`** — the saved API key contains a character that can't go in an HTTP header, almost always an invisible one picked up by copying the key out of a styled web page or a document: a zero-width space, a non-breaking space, a soft hyphen, a stray newline. The error is thrown by the browser before any request is sent, so it looks identical whether the key is valid or not. Keys are now scrubbed to printable ASCII on save and on read, so this repairs itself; if you still see it, clear the key in Settings and paste it again.
++
++**`401` with "You didn't provide an API key"** — the key never arrived, which is not the same as the key being rejected. Two usual causes: the page is stripping headers (the script falls through several transports to work around this), or `worker.js` on Cloudflare is older than `script.js` and is looking for the key somewhere the script no longer puts it. Redeploy the Worker.
++
++**`401` with "Incorrect API key provided"** — that one really is the key. Check it at <https://platform.openai.com/api-keys>.
++
++**Everything fails only on one site** — some pages wrap `fetch` and `XMLHttpRequest`, and strict CSP can block the blob-worker transport the script uses to get a clean one. The console log names each transport as it's tried, so it's visible which ones the page is interfering with.
++
++**Keys are per-origin.** A key entered on one domain isn't visible on another; that's browser security, not a bug.
++
+ ## Notes and limits
+ 
+ This is injected JavaScript, not an extension, so it disappears on reload or navigation — re-run the snippet, or use the bookmarklet. Page text is truncated and screenshots downscaled to keep requests fast and within token limits. Gemini calls go to the public Generative Language REST API with the key as a query parameter, which is how Google's own docs show client-side usage — it does mean the key is visible in network requests from your own browser session.
+diff --git a/script.js b/script.js
+index 5dcffc9..4364677 100644
+--- a/script.js
++++ b/script.js
+@@ -1998,14 +1998,63 @@
+     });
+   });
+ 
++  // ---- API key hygiene ----------------------------------------------------
++  // Keys get pasted out of web pages, PDFs, docs and chat apps, which is how
++  // invisible characters end up inside them: zero-width spaces, non-breaking
++  // spaces, soft hyphens, stray newlines. Every one of those is ILLEGAL in an
++  // HTTP header value, so fetch() rejects the entire request with the famously
++  // unhelpful "Failed to execute 'fetch' on 'Window': Invalid value" — thrown
++  // locally, before a single byte reaches the API, and identical whether the
++  // key is good or garbage. Worse, XMLHttpRequest silently declines to set the
++  // bad header instead of throwing, so that transport sends an unauthenticated
++  // request and the API answers 401 — which reads like a rejected key and
++  // sends you off rotating a key that was fine all along.
++  //
++  // So: scrub on the way in and on the way out. A header value may only
++  // contain printable ASCII (0x21-0x7E); anything else is removed.
++  const HEADER_SAFE_RE = /^[\x21-\x7E]+$/;
++
++  function sanitizeKey(raw) {
++    if (!raw) return '';
++    // One rule covers every case: keep printable ASCII, drop everything else.
++    // That removes spaces, tabs and newlines (0x20 and below), and every
++    // invisible troublemaker above 0x7E — zero-width space U+200B, zero-width
++    // joiner U+200D, BOM U+FEFF, non-breaking space U+00A0, soft hyphen
++    // U+00AD — none of which can legally appear in a header value anyway.
++    return String(raw).replace(/[^\x21-\x7E]/g, '');
++  }
++
++  // Reads a stored key, scrubs it, and writes the clean version back so the
++  // repair sticks instead of being redone on every request.
++  function readStoredKey(storageKey) {
++    const raw = localStorage.getItem(storageKey);
++    if (!raw) return '';
++    const clean = sanitizeKey(raw);
++    if (clean !== raw) {
++      if (clean) localStorage.setItem(storageKey, clean);
++      console.info('[Agent Console] removed ' + (raw.length - clean.length) + ' invisible/illegal character(s) from the saved key');
++    }
++    return clean;
++  }
++
++  // Last line of defence before a key goes into a header.
++  function assertHeaderSafe(key, providerLabel) {
++    if (!HEADER_SAFE_RE.test(key)) {
++      throw new Error(
++        `Your ${providerLabel} key contains characters that cannot be sent in a request header. ` +
++        'Clear the key in Settings and paste it again — copying it from a plain text field avoids the hidden formatting that causes this.'
++      );
++    }
++  }
++
+   // ---- Gemini API helpers -----------------------------------------------
+   function getApiKey() {
+-    let key = API_KEY_DEFAULT || localStorage.getItem(STORAGE_KEY);
++    let key = sanitizeKey(API_KEY_DEFAULT) || readStoredKey(STORAGE_KEY);
+     if (!key) {
+-      key = prompt('Paste your Gemini API key (from aistudio.google.com/apikey):');
+-      if (key) localStorage.setItem(STORAGE_KEY, key.trim());
++      key = sanitizeKey(prompt('Paste your Gemini API key (from aistudio.google.com/apikey):'));
++      if (key) localStorage.setItem(STORAGE_KEY, key);
+     }
+-    return key ? key.trim() : null;
++    return key || null;
+   }
+ 
+   async function callGemini(userText, systemText, imageDataUrls) {
+@@ -2041,18 +2090,17 @@
+ 
+   // ---- OpenAI API helpers -------------------------------------------------
+   function getOpenAiKey() {
+-    let key = localStorage.getItem(OPENAI_STORAGE_KEY);
++    let key = readStoredKey(OPENAI_STORAGE_KEY);
+     if (!key) {
+-      key = prompt('Paste your OpenAI API key (starts with "sk-"):');
++      key = sanitizeKey(prompt('Paste your OpenAI API key (starts with "sk-"):'));
+       if (key) {
+-        key = key.trim();
+         if (!key.startsWith('sk-')) {
+           alert('That doesn\'t look like an OpenAI key — they normally start with "sk-". Saving it anyway; double-check if requests fail.');
+         }
+         localStorage.setItem(OPENAI_STORAGE_KEY, key);
+       }
+     }
+-    return key ? key.trim() : null;
++    return key || null;
+   }
+ 
+   // Native fetch that bypasses the page's own monkey-patched window.fetch.
+@@ -2124,7 +2172,18 @@
+       const xhr = new XMLHttpRequest();
+       xhr.open(opts.method || 'GET', url, true);
+       const headers = opts.headers || {};
+-      Object.keys(headers).forEach((k) => { try { xhr.setRequestHeader(k, headers[k]); } catch (e) { /* skip */ } });
++      // A header that can't be set must fail this transport, not be skipped.
++      // Skipping it sends an unauthenticated request, which comes back as a
++      // 401 that looks exactly like a rejected key — the single most
++      // misleading failure this script can produce. Fail here instead, so the
++      // real reason reaches the console and the next transport gets a turn.
++      try {
++        Object.keys(headers).forEach((k) => xhr.setRequestHeader(k, headers[k]));
++      } catch (e) {
++        xhr.abort();
++        reject(new TypeError('XHR refused header: ' + ((e && e.message) || e)));
++        return;
++      }
+       xhr.withCredentials = false;
+       const makeResponse = () => ({
+         ok: xhr.status >= 200 && xhr.status < 300,
+@@ -2205,28 +2264,37 @@
+     if (systemText) messages.push({ role: 'system', content: systemText });
+     messages.push({ role: 'user', content });
+ 
++    assertHeaderSafe(key, 'OpenAI');
++
+     const headers = {
+       'Content-Type': 'application/json',
+       'Authorization': `Bearer ${key}`
+     };
+-    // Backup channels for pages whose wrappers strip the Authorization
+-    // header in transit: (1) X-GPA-Key custom header, (2) ?key= query
+-    // parameter in the URL itself — a header-stripping wrapper can rewrite
+-    // headers, but the URL arrives intact. The worker converts either back
+-    // into a real Authorization header before forwarding to OpenAI. Both
+-    // are only sent through our own proxy — api.openai.com wouldn't accept
++    const payload = { model: OPENAI_MODEL, messages };
++    // Backup channels for pages whose wrappers strip the Authorization header
++    // in transit: (1) the X-GPA-Key custom header, (2) a _gpa_key field in the
++    // request body. The worker converts either back into a real Authorization
++    // header before forwarding, and strips _gpa_key so it never reaches
++    // OpenAI. Both only go through our own proxy — api.openai.com would reject
+     // them in direct mode.
++    //
++    // The body is deliberately used here rather than a ?key= query parameter.
++    // A key in a URL is a key in your browser history, in the Referer header
++    // sent to third parties, in proxy and CDN access logs, and legible in any
++    // screenshot of the network tab — a query-string key should be considered
++    // burned the moment it is used. Request bodies are logged by none of that.
+     if (OPENAI_PROXY) {
+       headers['X-GPA-Key'] = key;
++      payload._gpa_key = key;
+     }
+     const endpoint = OPENAI_PROXY
+-      ? `${OPENAI_PROXY}/v1/chat/completions?key=${encodeURIComponent(key)}`
++      ? `${OPENAI_PROXY}/v1/chat/completions`
+       : 'https://api.openai.com/v1/chat/completions';
+ 
+     const res = await rawFetch(endpoint, {
+       method: 'POST',
+       headers,
+-      body: JSON.stringify({ model: OPENAI_MODEL, messages })
++      body: JSON.stringify(payload)
+     });
+     if (!res.ok) {
+       const errText = await res.text().catch(() => '');
+@@ -2271,6 +2339,12 @@
+     const status = statusMatch ? statusMatch[1] : null;
+ 
+     if (/No .*API key provided/i.test(msg)) return 'No API key entered yet — try again and paste one when prompted.';
++    if (/cannot be sent in a request header|Invalid value|refused header/i.test(msg)) {
++      return 'Your saved API key has hidden characters in it — that happens when it is copied out of a styled page or document. Clear the key in Settings, then paste it again.';
++    }
++    if (status === '401' && /didn'?t provide an API key|No API key provided|api key was not provided/i.test(msg)) {
++      return 'Your key never made it to the API. If you updated script.js recently, redeploy worker.js to Cloudflare as well — the two have to match.';
++    }
+     if (/Nothing to send|Nothing to analyze/i.test(msg)) return 'Nothing to work with yet — scan the page, capture the screen, or type something first.';
+     if (status === '401' || /invalid.*key|unauthorized|API key not valid/i.test(msg)) {
+       return `${label} rejected your API key. Double-check it (or clear and re-enter it) in the Theme tab.`;
+diff --git a/worker.js b/worker.js
+index 6b9d26f..18580da 100644
+--- a/worker.js
++++ b/worker.js
+@@ -64,20 +64,62 @@ export default {
+     }
+ 
+     // ---- /v1/* : forward to OpenAI ----
+-    // Authorization first, but if the browser's wrapper stripped it, fall
+-    // back to the ?key= query parameter (survives header-stripping wrappers)
+-    // and then the X-GPA-Key backup header the panel sends.
+-    const keyParam = url.searchParams.get('key');
+-    const authHeader = req.headers.get('Authorization')
+-      || (keyParam ? `Bearer ${keyParam}` : null)
+-      || (req.headers.get('X-GPA-Key') ? `Bearer ${req.headers.get('X-GPA-Key')}` : null);
++    // The key can arrive four ways, tried in this order:
++    //   1. a normal Authorization header
++    //   2. the X-GPA-Key header    — for pages that rewrite Authorization
++    //   3. a _gpa_key field in the JSON body — for pages whose wrappers strip
++    //      custom headers too. Preferred over a query parameter because a key
++    //      in a URL leaks into browser history, Referer headers, proxy/CDN
++    //      logs and screenshots; a key in a body leaks into none of those.
++    //   4. ?key= in the query string — legacy, still accepted so an older
++    //      copy of script.js keeps working, but it should be considered
++    //      compromised once used and rotated.
++    let bodyText;
++    let keyFromBody = '';
++
++    if (req.method !== 'GET' && req.method !== 'HEAD') {
++      bodyText = await req.text();
++      if (bodyText) {
++        try {
++          const parsed = JSON.parse(bodyText);
++          if (parsed && typeof parsed._gpa_key === 'string') {
++            keyFromBody = parsed._gpa_key;
++            delete parsed._gpa_key;          // never forward it upstream
++            bodyText = JSON.stringify(parsed);
++          }
++        } catch (e) { /* not JSON — forward untouched */ }
++      }
++    }
++
++    // A header value may only contain printable ASCII. If a key picked up an
++    // invisible character somewhere (a zero-width space pasted in with it, a
++    // stray newline), passing it straight to fetch throws a TypeError and the
++    // whole worker 500s. Strip it here so the request still goes through.
++    const strip = (v) => (v ? String(v).replace(/[^\x21-\x7E]/g, '') : '');
++    const bearer = strip((req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, ''))
++      || strip(req.headers.get('X-GPA-Key'))
++      || strip(keyFromBody)
++      || strip(url.searchParams.get('key'));
++
++    // Without this, a missing key was forwarded as the literal header
++    // "Authorization: null", and OpenAI's reply ("You didn't provide an API
++    // key") made it look like the key itself was at fault.
++    if (!bearer) {
++      return new Response(JSON.stringify({
++        error: {
++          message: 'No API key reached the proxy. The page is probably stripping headers — make sure script.js and worker.js are both up to date, since the key channel they agree on changed.',
++          type: 'agent_console_no_key'
++        }
++      }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } });
++    }
++
+     const res = await fetch('https://api.openai.com' + url.pathname, {
+       method: req.method,
+       headers: {
+-        'Authorization': authHeader,
++        'Authorization': `Bearer ${bearer}`,
+         'Content-Type': 'application/json'
+       },
+-      body: req.method !== 'GET' ? req.body : undefined
++      body: bodyText
+     });
+     const r = new Response(res.body, res);
+     r.headers.set('Access-Control-Allow-Origin', '*');
+-- 
+2.43.0
+
+
+From 883cbbe51cf2960a2220560fcc55b5a91a371a78 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 13 Sep 2026 19:49:44 +0000
+Subject: [PATCH 3/6] Tutor mode: auto-explain on the page, cited sources,
+ insights as AI context
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Four changes to Tutor mode, all driven by the same friction: the
+explanations were there but getting to them was manual, and once read
+they were gone.
+
+Auto-explain (on by default) replaces pressing "Show on page" per
+question. A MutationObserver plus a scroll listener track which question
+is actually visible and float that explanation beside it, so a stepped
+quiz that swaps one question for the next carries the popup with it.
+Scans are debounced and gated behind a busy flag, because highlighting
+and showing the popup are themselves DOM mutations and would otherwise
+feed the observer that triggered them. Highlights are reused rather than
+re-wrapped, and auto-explain never scrolls the page.
+
+Explanations are substantially deeper: concept, reasoning that names why
+each wrong option is wrong, a worked solution with real arithmetic shown
+per step, and the common pitfall. The prompt carries a worked example of
+the required detail level, since "factor; apply formula; compute" is what
+you get otherwise.
+
+Sources are cited per question. The model is told never to invent a URL
+and to name the rule instead when unsure; citeList drops anything that
+isn't a real http(s) link, so a javascript: or malformed URL can never be
+rendered as one.
+
+Explanations save as insights, and any insight can be switched on as
+context memory with the 🧠 button on its card — it then rides along in
+the system prompt of later calls, newest first, up to a character budget.
+Opt-in per insight and off by default: blanket recall is noise plus
+tokens on every request.
+
+The popup is draggable by its header and remembers where it was put, so
+it stays parked as questions change rather than springing back.
+
+Verified in Chromium against a simulated stepped quiz: one popup per
+question, correct switch on Next, no observer feedback loop, no nested
+highlights, no scroll hijacking.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019GqTQm8E1znRkM37YVj6K7
+---
+ README.md |  10 +-
+ script.js | 473 ++++++++++++++++++++++++++++++++++++++++++++++++------
+ 2 files changed, 433 insertions(+), 50 deletions(-)
+
+diff --git a/README.md b/README.md
+index 224c82a..664c1fd 100644
+--- a/README.md
++++ b/README.md
+@@ -64,9 +64,13 @@ Both read the page including the parts plain text misses: closed `<select>` drop
+ 
+ **Quiz solver** returns one answer per question — including multi-part items like *2a* / *2b* — as an animated answer grid with per-answer confidence, then double-checks its own draft in a second pass before showing it.
+ 
+-**Tutor mode** reads the same content but gives you the *why*: an explanation and a short step-by-step solution per question, each of which can float next to its question on the page. You still enter and submit every answer yourself — the tutor explains, it doesn't take the quiz for you.
++**Tutor mode** reads the same content but gives you the *why*. Each question comes back with the concept being tested, the reasoning that reaches the answer including why each tempting wrong option is wrong, a fully worked solution with the actual arithmetic shown step by step, the mistake people usually make on that question, and the rule or theorem it all rests on. You still enter and submit every answer yourself — the tutor explains, it doesn't take the quiz for you.
+ 
+-Any answer grid can be turned into flashcards with one click.
++**Sources** are cited per question. The model is told never to invent a URL: when it isn't certain a page exists at an exact address it names the rule without linking, because a named theorem beats a link that 404s. Citations that aren't real `http(s)` links are dropped rather than rendered.
++
++**Auto-explain** (on by default) removes the need to press "Show on page" for every question. It watches which question is actually on screen and floats that explanation beside it, following along as you go — press Next on a stepped quiz and question 8's explanation is already there. It never scrolls the page on you. Drag the popup by its header to park it wherever you like and it stays there as the questions change; close it with ✕ and it won't reopen for that question. Toggle it from the Page Insights tab or from the popup itself.
++
++Any answer grid can be turned into flashcards with one click, and 💾 saves an explanation as an insight — see below.
+ 
+ ### Ask AI
+ General-purpose chat, independent of the page. Voice input via the browser's speech recognition, and optional read-aloud for responses via speech synthesis — both local, both free, neither needs a key.
+@@ -83,6 +87,8 @@ Paste a passage; the AI reads it, researches it across the web, and writes organ
+ ### Saved
+ Insights you save get organized into folders and a calendar view, alongside an autosaved scratchpad and a 25/5 Pomodoro timer.
+ 
++**Context memory.** Each saved insight has a 🧠 toggle. Switch it on and that insight travels with every later AI request as background the assistant already knows — so a worked explanation you saved on question 7 informs the answer to question 9, or notes from one page carry into a different one. It's opt-in per insight and off by default, on purpose: a blanket "remember everything" turns every unrelated note into a source of confusion and costs tokens on every request. Selected insights go in newest-first up to a character budget, and the prompt tells the model that when saved context conflicts with the page currently open, the page wins.
++
+ ### Browser
+ A plain iframe with a URL bar. It only loads sites that allow being embedded — banks, most social apps, and SoundCloud's own site set `X-Frame-Options` or CSP `frame-ancestors` to prevent it. That's a protection those sites deliberately set, and this script makes no attempt to circumvent it.
+ 
+diff --git a/script.js b/script.js
+index 4364677..733982e 100644
+--- a/script.js
++++ b/script.js
+@@ -301,6 +301,9 @@
+           <button id="gpa-quiz-btn" class="gpa-btn quiz-btn">✨ Solve quiz on this page</button>
+           <button id="gpa-tutor-btn" class="gpa-btn">🎓 Tutor mode</button>
+         </div>
++        <div class="gpa-row">
++          <button id="gpa-autofollow-btn" class="gpa-btn">📍 Auto-explain: ON</button>
++        </div>
+         <div class="gpa-row">
+           <button id="gpa-scan-btn" class="gpa-btn">Scan page text</button>
+           <button id="gpa-capture-btn" class="gpa-btn">Capture screen</button>
+@@ -953,11 +956,18 @@
+       .gpa-answer-grid.wide { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+       .gpa-answer-grid.wide .gpa-grid-cell { align-items: flex-start; text-align: left; padding: 10px 12px; }
+       .gpa-answer-grid.wide .gpa-grid-q { font-size: 11px; }
+-      .gpa-tutor-why, .gpa-tutor-sol {
++      .gpa-tutor-why, .gpa-tutor-sol, .gpa-tutor-concept, .gpa-tutor-pitfall, .gpa-tutor-cite {
+         font-size: 11px; line-height: 1.55; color: ${t.text}; word-break: break-word;
+       }
+-      .gpa-tutor-why b, .gpa-tutor-sol b { color: ${t.accent}; font-weight: 700; }
+-      .gpa-tutor-pin, .gpa-tutor-card { font-size: 10px; padding: 3px 8px; }
++      .gpa-tutor-why b, .gpa-tutor-sol b, .gpa-tutor-concept b,
++      .gpa-tutor-pitfall b, .gpa-tutor-cite b { color: ${t.accent}; font-weight: 700; }
++      .gpa-tutor-sol { white-space: pre-wrap; }
++      .gpa-tutor-concept { margin-bottom: 2px; opacity: 0.95; }
++      .gpa-tutor-pitfall { margin-top: 4px; opacity: 0.9; }
++      .gpa-tutor-cite { margin-top: 5px; font-size: 10px; opacity: 0.85; }
++      .gpa-tutor-cite a { color: ${t.accent}; text-decoration: underline; text-underline-offset: 2px; }
++      .gpa-tutor-cite .gpa-cite-plain { opacity: 0.8; }
++      .gpa-tutor-pin, .gpa-tutor-card, .gpa-tutor-save { font-size: 10px; padding: 3px 8px; }
+       .gpa-chat {
+         flex: 1; min-height: 80px; overflow-y: auto; margin-bottom: 8px;
+         display: flex; flex-direction: column; gap: 6px;
+@@ -2304,12 +2314,52 @@
+     return data?.choices?.[0]?.message?.content || '(no response)';
+   }
+ 
++  // ---- Context memory -------------------------------------------------------
++  // Any saved insight can be switched on as context (the 🧠 button on its card
++  // in the Saved tab). Insights switched on are prepended to the system prompt
++  // of every later AI call, so the assistant carries forward exactly what you
++  // chose to keep and nothing else.
++  //
++  // Opt-in per insight, deliberately: a blanket "remember everything" turns
++  // every unrelated note into a source of confusion three questions later, and
++  // costs tokens on every single request. Off is the default for new insights.
++  const CTX_CHAR_BUDGET = 6000;
++
++  function contextInsights() {
++    try { return savedAll().filter((it) => it.ctx); } catch (e) { return []; }
++  }
++
++  function buildContextMemory() {
++    const picked = contextInsights().sort((a, b) => b.ts - a.ts);
++    if (!picked.length) return '';
++    const parts = [];
++    let used = 0;
++    for (const it of picked) {
++      // Newest first, and stop at the budget rather than truncating mid-note:
++      // half an explanation is worse than one fewer explanation.
++      const entry = `- [${it.label || it.title || 'Saved note'}] ${it.text}`;
++      if (used + entry.length > CTX_CHAR_BUDGET) break;
++      parts.push(entry);
++      used += entry.length;
++    }
++    if (!parts.length) return '';
++    return 'SAVED CONTEXT THE USER CHOSE TO CARRY FORWARD (their own earlier notes and worked explanations). '
++      + 'Treat it as background they already know and build on it — reuse its notation and conclusions instead of re-deriving them. '
++      + 'It describes earlier material, so where it conflicts with what the CURRENT page says, the current page wins.\n'
++      + parts.join('\n') + '\n\n';
++  }
++
+   // Dispatches to whichever provider is selected in the Theme tab.
+   async function callAI(userText, systemText, imageDataUrls) {
+     const provider = localStorage.getItem(PROVIDER_KEY) || 'gemini';
++    // Memory goes in FRONT of the caller's system text, never behind it: the
++    // JSON-only response rules several callers rely on have to be the last
++    // word, or the model starts narrating what it remembered.
++    const memory = buildContextMemory();
++    const sys = memory ? memory + (systemText || '') : systemText;
+     return provider === 'openai'
+-      ? callOpenAI(userText, systemText, imageDataUrls)
+-      : callGemini(userText, systemText, imageDataUrls);
++      ? callOpenAI(userText, sys, imageDataUrls)
++      : callGemini(userText, sys, imageDataUrls);
+   }
+ 
+   // Real second-pass check for quiz/answer-grid results: sends the draft
+@@ -2484,21 +2534,75 @@
+   // and any card can float a themed popup right next to its question on the
+   // page (with the question text highlighted). You still type and submit
+   // every answer yourself — this is a tutor, not an auto-taker.
++  // The model is asked for cite: [{label, url}], but models being models it
++  // may send a bare string, a single object, or an entry with no label.
++  // Normalize all of that, and drop any url that isn't a real http(s) link so
++  // a malformed value can never be rendered as one.
++  function citeList(item) {
++    const raw = item && item.cite;
++    if (!raw) return [];
++    const arr = Array.isArray(raw) ? raw : [raw];
++    return arr.map((c) => {
++      if (typeof c === 'string') return { label: c.trim(), url: '' };
++      if (!c || typeof c !== 'object') return null;
++      const label = String(c.label || c.name || c.title || c.source || '').trim();
++      let url = String(c.url || c.href || c.link || '').trim();
++      if (!/^https?:\/\//i.test(url)) url = '';
++      if (!label && !url) return null;
++      return { label: label || url, url };
++    }).filter(Boolean).slice(0, 3);
++  }
++
++  function citeHtml(item) {
++    const list = citeList(item);
++    if (!list.length) return '';
++    const inner = list.map((c) => (c.url
++      ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(c.label)}</a>`
++      : `<span class="gpa-cite-plain">${escapeHtml(c.label)}</span>`)).join(', ');
++    return `<div class="gpa-tutor-cite"><b>Sources:</b> ${inner}</div>`;
++  }
++
++  // Worked solutions come back as steps separated by ";". Split them onto
++  // numbered lines — a single run-on line of semicolons is exactly the thing
++  // people's eyes slide straight off.
++  function formatSolution(sol) {
++    const steps = String(sol || '').split(/\s*;\s*/).map((s) => s.trim()).filter(Boolean);
++    return steps.length < 2 ? String(sol || '') : steps.map((s, i) => `${i + 1}. ${s}`).join('\n');
++  }
++
++  // One tutor answer as plain text: readable in the Saved tab, and ready to
++  // drop straight back into a later prompt if it's switched on as context.
++  function tutorInsightText(item) {
++    if (!item) return '';
++    const lines = [`Q${item.q} — answer: ${item.a}`];
++    if (item.concept) lines.push(`Concept: ${item.concept}`);
++    if (item.why) lines.push(`Why: ${item.why}`);
++    if (item.sol) lines.push(`Solution:\n${formatSolution(item.sol)}`);
++    if (item.pitfall) lines.push(`Common mistake: ${item.pitfall}`);
++    const cites = citeList(item);
++    if (cites.length) lines.push('Sources: ' + cites.map((c) => (c.url ? `${c.label} (${c.url})` : c.label)).join(' | '));
++    if (item.h) lines.push(`From the page: "${item.h}"`);
++    return lines.join('\n');
++  }
++
+   function renderTutorGrid(el, arr) {
+     el.classList.remove('gpa-typing');
+     const cells = arr.map((it, idx) => {
+       const hasConf = typeof it.c === 'number' && !isNaN(it.c);
+       const pct = hasConf ? Math.max(0, Math.min(100, Math.round(it.c))) : null;
+       const badge = pct === null ? '' : `<span class="gpa-grid-conf ${confidenceClass(pct)}">${pct}%</span>`;
++      const concept = it.concept ? `<div class="gpa-tutor-concept"><b>Concept:</b> ${escapeHtml(it.concept)}</div>` : '';
+       const why = it.why ? `<div class="gpa-tutor-why"><b>Why:</b> ${escapeHtml(it.why)}</div>` : '';
+-      const sol = it.sol ? `<div class="gpa-tutor-sol"><b>Solution:</b> ${escapeHtml(it.sol)}</div>` : '';
++      const sol = it.sol ? `<div class="gpa-tutor-sol"><b>Solution:</b>\n${escapeHtml(formatSolution(it.sol))}</div>` : '';
++      const pitfall = it.pitfall ? `<div class="gpa-tutor-pitfall"><b>Watch out:</b> ${escapeHtml(it.pitfall)}</div>` : '';
+       const pin = it.h ? `<button class="gpa-btn gpa-tutor-pin" data-idx="${idx}">📍 Show on page</button>` : '';
+       const card = `<button class="gpa-btn gpa-tutor-card" data-idx="${idx}">➕ Flashcard</button>`;
++      const save = `<button class="gpa-btn gpa-tutor-save" data-idx="${idx}">💾 Save</button>`;
+       return `<div class="gpa-grid-cell" style="animation-delay:${idx * 35}ms">
+          <span class="gpa-grid-q">${escapeHtml(it.q)}</span>
+          <span class="gpa-grid-a">${escapeHtml(it.a)}</span>
+-         ${badge}${why}${sol}
+-         <div class="gpa-row" style="margin-top:6px;">${pin}${card}</div>
++         ${badge}${concept}${why}${sol}${pitfall}${citeHtml(it)}
++         <div class="gpa-row" style="margin-top:6px;">${pin}${card}${save}</div>
+        </div>`;
+     }).join('');
+     el.innerHTML = `<div class="gpa-answer-grid wide">${cells}</div>`;
+@@ -2510,9 +2614,15 @@
+       const pinBtn = e.target.closest('.gpa-tutor-pin');
+       if (pinBtn) {
+         const item = arr[Number(pinBtn.dataset.idx)];
++        tutorPopPos = null;   // an explicit pin means "put it back by the question"
+         showTutorPopupFor(item);
+         return;
+       }
++      const saveBtn = e.target.closest('.gpa-tutor-save');
++      if (saveBtn) {
++        saveInsight(tutorInsightText(arr[Number(saveBtn.dataset.idx)]));
++        return;
++      }
+       const cardBtn = e.target.closest('.gpa-tutor-card');
+       if (cardBtn) {
+         const item = arr[Number(cardBtn.dataset.idx)];
+@@ -2528,68 +2638,289 @@
+   // span that was just injected (the last entry in injectedHighlights).
+   function showTutorPopupFor(item) {
+     if (!item) return;
+-    const found = item.h ? highlightSnippetOnPage(item.h) : false;
++    const span = item.h ? highlightSnippetOnPage(item.h) : false;
+     let rect = null;
+-    if (found && injectedHighlights.length) {
+-      rect = injectedHighlights[injectedHighlights.length - 1].getBoundingClientRect();
+-    }
++    if (span && span.getBoundingClientRect) rect = span.getBoundingClientRect();
++    else if (injectedHighlights.length) rect = injectedHighlights[injectedHighlights.length - 1].getBoundingClientRect();
+     showTutorPopup(rect, item);
+   }
+ 
+-  function showTutorPopup(rect, item) {
+-    // One popup at a time.
++  // Where the user dragged the popup to, if they have. Deliberately remembered
++  // across questions: drag it once into a clear corner and it stays there as
++  // the quiz advances, rather than springing back beside each new question.
++  let tutorPopPos = null;
++  let tutorPopCleanup = null;
++
++  function closeTutorPopup() {
++    if (tutorPopCleanup) { tutorPopCleanup(); tutorPopCleanup = null; }
+     document.querySelectorAll('.gpa-tutor-pop').forEach((p) => p.remove());
++  }
++
++  function showTutorPopup(rect, item) {
++    closeTutorPopup();   // one popup at a time
+     const t = THEMES[theme] || THEMES.dark;
+     const pop = document.createElement('div');
+     pop.className = 'gpa-tutor-pop';
+     Object.assign(pop.style, {
+-      position: 'fixed', zIndex: '2147483647', width: '300px', maxWidth: 'calc(100vw - 24px)',
++      position: 'fixed', zIndex: '2147483647', width: '320px', maxWidth: 'calc(100vw - 24px)',
++      maxHeight: 'calc(100vh - 24px)', overflowY: 'auto',
+       background: t.panel, color: t.text, border: `1px solid ${t.accent}`, borderRadius: '12px',
+       boxShadow: '0 10px 34px rgba(0,0,0,0.5)', padding: '12px 14px',
+       font: '12px/1.5 "JetBrains Mono", ui-monospace, monospace'
+     });
++
+     const close = document.createElement('button');
+     close.textContent = '✕';
+     Object.assign(close.style, {
+       position: 'absolute', top: '6px', right: '8px', background: 'transparent',
+       border: 'none', color: t.sub, cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit'
+     });
+-    close.addEventListener('click', () => pop.remove());
++    close.addEventListener('click', () => {
++      // Closing means "not this one" — remember it, or auto-explain simply
++      // reopens the same popup on its next scan and the ✕ looks broken.
++      autoFollowDismissed = autoFollowQ;
++      closeTutorPopup();
++    });
+     pop.appendChild(close);
+ 
+     const head = document.createElement('div');
+-    head.style.cssText = `font-weight:600;color:${t.accent};margin-bottom:6px;padding-right:18px;`;
+-    head.textContent = `${item.q} → ${item.a}`;
++    head.style.cssText = `font-weight:600;color:${t.accent};margin-bottom:6px;padding-right:18px;cursor:move;user-select:none;`;
++    head.title = 'Drag to move';
++    head.textContent = `⠿ ${item.q} → ${item.a}`;
+     pop.appendChild(head);
+ 
+-    if (item.why) {
+-      const why = document.createElement('div');
+-      why.style.cssText = `margin-bottom:6px;`;
+-      why.innerHTML = `<b style="color:${t.sub}">Why:</b> `;
+-      why.appendChild(document.createTextNode(item.why));
+-      pop.appendChild(why);
+-    }
+-    if (item.sol) {
+-      const sol = document.createElement('div');
+-      sol.innerHTML = `<b style="color:${t.sub}">Solution:</b> `;
+-      sol.appendChild(document.createTextNode(item.sol));
+-      pop.appendChild(sol);
+-    }
++    const section = (label, text) => {
++      if (!text) return;
++      const d = document.createElement('div');
++      d.style.cssText = 'margin-bottom:6px;white-space:pre-wrap;';
++      d.innerHTML = `<b style="color:${t.sub}">${label}:</b> `;
++      d.appendChild(document.createTextNode(text));
++      pop.appendChild(d);
++    };
++    section('Concept', item.concept);
++    section('Why', item.why);
++    section('Solution', item.sol ? '\n' + formatSolution(item.sol) : '');
++    section('Watch out', item.pitfall);
++
++    const cites = citeList(item);
++    if (cites.length) {
++      const c = document.createElement('div');
++      c.style.cssText = 'margin-top:6px;font-size:10px;opacity:0.85;';
++      c.innerHTML = `<b style="color:${t.sub}">Sources:</b> ` + cites.map((x) => (x.url
++        ? `<a href="${escapeHtml(x.url)}" target="_blank" rel="noopener noreferrer" style="color:${t.accent}">${escapeHtml(x.label)}</a>`
++        : escapeHtml(x.label))).join(', ');
++      pop.appendChild(c);
++    }
++
++    // Footer controls live on the popup itself, not just in the panel — the
++    // panel is often minimized while this is the thing you are reading.
++    const foot = document.createElement('div');
++    foot.style.cssText = 'display:flex;gap:6px;margin-top:9px;flex-wrap:wrap;';
++    const mkBtn = (text, title, fn) => {
++      const b = document.createElement('button');
++      b.textContent = text;
++      b.title = title || '';
++      b.style.cssText = `font:10px/1.4 inherit;padding:4px 8px;border-radius:7px;cursor:pointer;background:transparent;color:${t.text};border:1px solid ${t.accent};`;
++      b.addEventListener('click', fn);
++      foot.appendChild(b);
++      return b;
++    };
++    mkBtn('💾 Save insight', 'Save this explanation — you can switch it on as AI context later', () => {
++      saveInsight(tutorInsightText(item));
++    });
++    const autoBtn = mkBtn(autoFollowOn() ? '⏸ Auto: ON' : '▶ Auto: OFF', 'Follow whichever question is on screen', () => {
++      setAutoFollow(!autoFollowOn());
++      autoBtn.textContent = autoFollowOn() ? '⏸ Auto: ON' : '▶ Auto: OFF';
++    });
++    pop.appendChild(foot);
++
+     document.body.appendChild(pop);
+ 
+-    // Anchor beside the question if we know where it is; otherwise center
+-    // bottom. Either way, clamp so the card never leaves the screen.
+-    let x = window.innerWidth / 2 - 150;
+-    let y = window.innerHeight - 220;
+-    if (rect) {
+-      x = rect.right + 12;
+-      y = rect.top - 8;
+-      if (x + 300 > window.innerWidth - 8) x = Math.max(8, rect.left - 312);
++    const place = (px, py) => {
++      pop.style.left = `${Math.round(Math.max(8, Math.min(px, window.innerWidth - pop.offsetWidth - 8)))}px`;
++      pop.style.top = `${Math.round(Math.max(8, Math.min(py, window.innerHeight - 40)))}px`;
++    };
++
++    // Position: the user's own spot if they have dragged it, else beside the
++    // question, else bottom-centre. Always clamped inside the viewport.
++    if (tutorPopPos) {
++      place(tutorPopPos.x, tutorPopPos.y);
++    } else if (rect) {
++      let x = rect.right + 12;
++      let y = rect.top - 8;
++      if (x + pop.offsetWidth > window.innerWidth - 8) x = Math.max(8, rect.left - pop.offsetWidth - 12);
+       if (y + pop.offsetHeight > window.innerHeight - 8) y = Math.max(8, window.innerHeight - pop.offsetHeight - 8);
+-      if (y < 8) y = 8;
++      place(x, Math.max(8, y));
++    } else {
++      place(window.innerWidth / 2 - pop.offsetWidth / 2, window.innerHeight - pop.offsetHeight - 20);
+     }
+-    pop.style.left = `${Math.round(Math.max(8, Math.min(x, window.innerWidth - 308)))}px`;
+-    pop.style.top = `${Math.round(y)}px`;
++
++    // ---- Drag, by the header ----
++    let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
++    const down = (e) => {
++      const p = e.touches ? e.touches[0] : e;
++      dragging = true;
++      sx = p.clientX; sy = p.clientY;
++      const r = pop.getBoundingClientRect();
++      ox = r.left; oy = r.top;
++      e.preventDefault();
++    };
++    const move = (e) => {
++      if (!dragging) return;
++      const p = e.touches ? e.touches[0] : e;
++      place(ox + (p.clientX - sx), oy + (p.clientY - sy));
++      e.preventDefault();
++    };
++    const up = () => {
++      if (!dragging) return;
++      dragging = false;
++      const r = pop.getBoundingClientRect();
++      tutorPopPos = { x: r.left, y: r.top };
++    };
++    head.addEventListener('mousedown', down);
++    head.addEventListener('touchstart', down, { passive: false });
++    window.addEventListener('mousemove', move, true);
++    window.addEventListener('touchmove', move, { passive: false, capture: true });
++    window.addEventListener('mouseup', up, true);
++    window.addEventListener('touchend', up, true);
++    // move/up live on window, so they have to come off with the popup or every
++    // popup shown this session keeps listening to every mouse move.
++    tutorPopCleanup = () => {
++      window.removeEventListener('mousemove', move, true);
++      window.removeEventListener('touchmove', move, { capture: true });
++      window.removeEventListener('mouseup', up, true);
++      window.removeEventListener('touchend', up, true);
++    };
++  }
++
++  // ---- Auto-explain: follow whichever question is on screen -------------------
++  // Pressing "Show on page" once per question gets old fast, and stepped
++  // quizzes (one question at a time behind Next/Back) make it worse: the
++  // question changes and the popup doesn't. Auto-explain watches what is
++  // actually visible and swaps the popup to match, so pressing Next means
++  // question 8's explanation is already sitting there.
++  const AUTOFOLLOW_KEY = 'gpa_tutor_autofollow';
++  let tutorRun = [];               // this run's questions
++  let tutorAnchors = new Map();    // question label -> its highlight span
++  let autoFollowQ = null;          // question the popup is showing
++  let autoFollowDismissed = null;  // question the user closed by hand
++  let autoFollowObserver = null;
++  let autoFollowTimer = null;
++  let autoFollowBusy = false;
++  let autoFollowRaf = null;
++
++  function autoFollowOn() { return localStorage.getItem(AUTOFOLLOW_KEY) !== 'off'; }
++
++  function renderAutoFollowBtn() {
++    const btn = panel.querySelector('#gpa-autofollow-btn');
++    if (!btn) return;
++    const on = autoFollowOn();
++    btn.textContent = on ? '📍 Auto-explain: ON' : '📍 Auto-explain: OFF';
++    btn.classList.toggle('primary', on);
++    btn.title = 'After Tutor mode runs, float the explanation for whichever question is on screen and follow along as the quiz advances.';
++  }
++
++  function setAutoFollow(on) {
++    localStorage.setItem(AUTOFOLLOW_KEY, on ? 'on' : 'off');
++    renderAutoFollowBtn();
++    if (on) startAutoFollow(tutorRun);
++    else stopAutoFollow();
++  }
++
++  // The highlight span for one question, created on demand — stepped quizzes
++  // only put a question in the DOM when you reach it.
++  function anchorFor(item) {
++    const key = String(item.q);
++    const existing = tutorAnchors.get(key);
++    if (existing && existing.isConnected) return existing;
++    if (!item.h) return null;
++    // Reuse a highlight that already covers this text (the tutor run
++    // highlights everything up front) rather than wrapping it a second time.
++    const target = normalizeForMatch(item.h);
++    const already = injectedHighlights.find((s) => s.isConnected && normalizeForMatch(s.textContent) === target);
++    if (already) { tutorAnchors.set(key, already); return already; }
++    const span = highlightSnippetOnPage(item.h, { scroll: false });
++    if (span && span.nodeType === 1) { tutorAnchors.set(key, span); return span; }
++    return null;
++  }
++
++  function visibleTutorItem() {
++    let best = null, bestScore = -Infinity;
++    tutorRun.forEach((it) => {
++      const el = anchorFor(it);
++      if (!el) return;
++      const r = el.getBoundingClientRect();
++      if (!r.width && !r.height) return;
++      const visible = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
++      if (visible <= 0) return;                          // off screen entirely
++      const score = visible - Math.max(0, r.top) * 0.2;  // prefer nearer the top
++      if (score > bestScore) { bestScore = score; best = it; }
++    });
++    return best;
++  }
++
++  function autoFollowScan() {
++    if (!autoFollowOn() || !tutorRun.length || autoFollowBusy) return;
++    autoFollowBusy = true;
++    try {
++      const item = visibleTutorItem();
++      if (!item) return;
++      const q = String(item.q);
++      if (q === autoFollowDismissed) return;
++      if (q === String(autoFollowQ) && document.querySelector('.gpa-tutor-pop')) return;
++      autoFollowQ = q;
++      autoFollowDismissed = null;
++      const el = tutorAnchors.get(q);
++      showTutorPopup(el && el.isConnected ? el.getBoundingClientRect() : null, item);
++    } catch (e) {
++      console.warn('[Agent Console] auto-explain scan failed:', e && e.message);
++    } finally {
++      // Highlighting and showing the popup are themselves DOM mutations. Let
++      // them settle before the observer may queue another scan, or injecting
++      // one highlight schedules the scan that injects the next one, forever.
++      setTimeout(() => { autoFollowBusy = false; }, 150);
++    }
++  }
++
++  function scheduleAutoFollow(delay) {
++    clearTimeout(autoFollowTimer);
++    autoFollowTimer = setTimeout(autoFollowScan, delay || 250);
++  }
++
++  function onAutoFollowScroll() {
++    if (autoFollowRaf) return;
++    autoFollowRaf = requestAnimationFrame(() => { autoFollowRaf = null; scheduleAutoFollow(180); });
++  }
++
++  function startAutoFollow(items) {
++    stopAutoFollow();
++    tutorRun = items || [];
++    autoFollowQ = null;
++    autoFollowDismissed = null;
++    if (!autoFollowOn() || !tutorRun.length) return;
++    autoFollowObserver = new MutationObserver((muts) => {
++      const relevant = muts.some((m) => {
++        const node = m.target;
++        const el = node && node.nodeType === 1 ? node : (node && node.parentElement);
++        if (!el || !el.closest) return false;
++        // Our own furniture changing doesn't count as the page changing.
++        return !el.closest('#gpa-root-host, .gpa-tutor-pop, .gpa-page-highlight, .gpa-sel-pop, .gpa-sel-bubble');
++      });
++      if (relevant) scheduleAutoFollow(300);
++    });
++    try {
++      autoFollowObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
++    } catch (e) { /* nothing observable — scroll still drives it */ }
++    window.addEventListener('scroll', onAutoFollowScroll, true);
++    window.addEventListener('resize', onAutoFollowScroll);
++    scheduleAutoFollow(150);
++  }
++
++  function stopAutoFollow() {
++    clearTimeout(autoFollowTimer);
++    if (autoFollowObserver) { autoFollowObserver.disconnect(); autoFollowObserver = null; }
++    window.removeEventListener('scroll', onAutoFollowScroll, true);
++    window.removeEventListener('resize', onAutoFollowScroll);
+   }
+ 
+   // The verification pass re-checks answers/confidence but doesn't carry
+@@ -2645,6 +2976,14 @@
+       }
+     });
+     injectedHighlights = [];
++    // Clearing the highlights removes every anchor auto-explain was following,
++    // so stop it rather than let it chase spans that are no longer in the DOM.
++    try {
++      stopAutoFollow();
++      closeTutorPopup();
++      tutorAnchors = new Map();
++      tutorRun = [];
++    } catch (e) { /* auto-explain not initialized yet */ }
+     const clearBtn = panel.querySelector('#gpa-clear-highlights');
+     if (clearBtn) clearBtn.style.display = 'none';
+   }
+@@ -2686,8 +3025,13 @@
+   }
+ 
+   // Highlights the first occurrence of `snippet` found on the page. Returns
+-  // true if something was found and highlighted.
+-  function highlightSnippetOnPage(snippet) {
++  // the highlight span (truthy) if something was found, false otherwise —
++  // callers that only need a yes/no still work, and auto-explain uses the
++  // span itself as the anchor to position the popup against.
++  // opts.scroll === false suppresses the scroll-into-view, which auto-explain
++  // needs: it highlights questions as they appear, and yanking the page
++  // around while someone is reading is the opposite of helpful.
++  function highlightSnippetOnPage(snippet, opts) {
+     if (!snippet || snippet.length < 3) return false;
+     const target = normalizeForMatch(snippet);
+     if (!target) return false;
+@@ -2732,10 +3076,10 @@
+       } catch (e) { continue; }
+ 
+       injectedHighlights.push(span);
+-      span.scrollIntoView({ behavior: 'smooth', block: 'center' });
++      if (!opts || opts.scroll !== false) span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+       const clearBtn = panel.querySelector('#gpa-clear-highlights');
+       if (clearBtn) clearBtn.style.display = 'inline-block';
+-      return true;
++      return span;
+     }
+     return false;
+   }
+@@ -2930,6 +3274,18 @@
+       `;
+       const actions = document.createElement('div');
+       actions.className = 'gpa-insight-actions';
++      // Per-insight context switch. On = this note rides along with every
++      // later AI request as background; off = it just sits here.
++      const ctxBtn = document.createElement('button');
++      ctxBtn.className = 'gpa-btn' + (it.ctx ? ' primary' : '');
++      ctxBtn.textContent = it.ctx ? '🧠 Context: ON' : '🧠 Use as context';
++      ctxBtn.title = it.ctx
++        ? 'This insight is being sent with every AI request. Click to stop.'
++        : 'Send this insight along with every later AI request as background context.';
++      ctxBtn.addEventListener('click', () => {
++        updateInsight(it.id, (x) => { x.ctx = !x.ctx; });
++        renderSavedInsights();
++      });
+       const lab = document.createElement('button');
+       lab.className = 'gpa-btn';
+       lab.textContent = '🏷 Label';
+@@ -2952,6 +3308,7 @@
+         saveSavedAll(arr);
+         renderSavedInsights();
+       });
++      actions.appendChild(ctxBtn);
+       actions.appendChild(lab);
+       actions.appendChild(move);
+       actions.appendChild(del);
+@@ -3374,16 +3731,33 @@
+     scanOutput.innerHTML = '';
+     scanOutput.textContent = 'Reading the page and working out the explanations…';
+     try {
+-      const sys = 'You are a patient tutor helping a student understand a quiz, exam, or worksheet on this web page, including any dropdown menus and multiple-choice/checkbox options listed under FORM CONTROLS ON THIS PAGE. Identify every question — including multi-part questions like "2a"/"2b" — and for each give the best correct answer, a clear explanation of WHY it is correct, and a short step-by-step solution. Respond with ONLY a JSON array in this exact shape and nothing else: [{"q":"1","a":"B","c":85,"why":"one or two sentences on why this answer is correct","sol":"short step-by-step working or reasoning, steps separated by ; ","h":"exact verbatim phrase from PAGE TEXT for this question"}] — "q" is the question number/label as a string, "a" is the short correct answer, "c" is your confidence (0-100), "h" is a short exact quote copied verbatim from PAGE TEXT that pinpoints where that question appears. Keep "why" and "sol" tight and genuinely explanatory, in plain language. If you genuinely cannot determine an answer, use "a":"Unclear", a low "c", and say what is missing in "why". Do not include any text outside the JSON array.';
++      const sys = [
++        'You are an expert tutor helping a student understand a quiz, exam, or worksheet on this web page, including any dropdown menus and multiple-choice/checkbox options listed under FORM CONTROLS ON THIS PAGE.',
++        'Identify every question, including multi-part questions like "2a"/"2b". For EACH question, give an explanation thorough enough that the student could solve the next question like it unaided.',
++        'Fields for each question:',
++        '"q": the question number/label as a string. "a": the short correct answer. "c": your confidence 0-100 that the answer is correct.',
++        '"concept": the single idea or rule being tested, under 10 words.',
++        '"why": 3 to 6 sentences. Give the reasoning that reaches the answer, and say explicitly why each tempting wrong option is wrong, naming them (for example "A is wrong because it counts only the divisors of 2026 itself"). Do not restate the question.',
++        '"sol": the complete worked solution, steps separated by " ; ". SHOW THE REAL WORK - actual numbers, actual arithmetic, actual substitutions at every step. "Factor the number ; use the formula ; compute the result" is useless and unacceptable. "2026 = 2 x 1013 ; 1013 is prime, since no prime up to 31 divides it ; so 2026^2 = 2^2 x 1013^2 ; divisor count = (2+1)(2+1) = 9" is the required level of detail.',
++        '"pitfall": the single most common mistake a student makes on this question, one sentence.',
++        '"cite": an array of 1 to 3 sources the explanation rests on, each {"label":"name of the rule, theorem, definition or section","url":"https://..."}.',
++        'NEVER invent, guess, or approximate a URL. Include "url" ONLY when you are certain that exact address exists (Wikipedia article titles and official documentation are usually safe); otherwise give "label" alone and omit "url" entirely. A named rule with no link is far more useful than a link that 404s. When the answer rests only on information stated on the page, cite {"label":"Stated on this page"}.',
++        '"h": a short exact quote copied verbatim from PAGE TEXT that pinpoints where that question appears.',
++        'Respond with ONLY a JSON array and nothing else, in exactly this shape: [{"q":"7","a":"B","c":90,"concept":"...","why":"...","sol":"... ; ... ; ...","pitfall":"...","cite":[{"label":"...","url":"..."}],"h":"..."}].',
++        'If you genuinely cannot determine an answer, use "a":"Unclear", a low "c", and say what is missing in "why". Do not include any text outside the JSON array.'
++      ].join(' ');
+       const out = await callAI(combinedText, sys, screenshotDataUrl ? [screenshotDataUrl] : null);
+       const grid = tryParseAnswerGrid(out);
+       if (grid) {
+         renderTutorGrid(scanOutput, grid);
+         highlightSnippetsOnPage(grid.map((it) => it.h).filter(Boolean));
++        startAutoFollow(grid);
+         const hint = document.createElement('div');
+         hint.className = 'gpa-sub';
+         hint.style.marginTop = '6px';
+-        hint.textContent = 'Questions are highlighted on the page. Press 📍 on any card to float its explanation right next to the question. You type the answers — the tutor explains.';
++        hint.textContent = autoFollowOn()
++          ? 'Questions are highlighted on the page, and the explanation for whichever one is on screen floats next to it automatically — it follows along as you press Next. Drag the popup by its header to park it anywhere. 💾 saves an explanation you can switch on later as AI context. You type the answers; the tutor explains.'
++          : 'Questions are highlighted on the page. Press 📍 on any card to float its explanation next to the question, or turn Auto-explain on to have it follow the question you are looking at. You type the answers; the tutor explains.';
+         scanOutput.appendChild(hint);
+       } else {
+         typeText(scanOutput, out, scanOutput);
+@@ -3396,6 +3770,9 @@
+     }
+   });
+ 
++  panel.querySelector('#gpa-autofollow-btn').addEventListener('click', () => setAutoFollow(!autoFollowOn()));
++  renderAutoFollowBtn();
++
+   scanBtn.addEventListener('click', () => {
+     pageText = extractPageText();
+     scanOutput.textContent = '';
+-- 
+2.43.0
+
+
+From eeef8937ec4c8b722c5db4933b8d58bb256523e3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 13 Sep 2026 20:07:58 +0000
+Subject: [PATCH 4/6] Add hidden PIN-gated admin console: usage logs, power
+ tools, telemetry
+
+A concealed owner dashboard, opened by clicking the "Account & sync"
+heading five times and entering a PIN (1029). Re-locks on every
+injection so the PIN is required each session.
+
+Usage tab: a local log of every open on this browser (profile name,
+timestamp, url, host, user-agent), with stat cards, a per-user
+last-seen list, and export/clear. Logged from enterApp, best-effort so
+it can never block a sign-in.
+
+Power tools tab: model override for either provider, a system-prompt
+prefix prepended to every callAI request, max-page-chars, OpenAI
+temperature, and a raw prompt playground. Overrides read through
+effectiveModel/effectiveMaxPageChars/effectiveTemp/adminSysPrefix at the
+call sites; admin keys are added to NON_PROFILE_KEYS so they're
+device-global and survive profile sign-in rather than being wiped.
+
+Data tab: inline localStorage editor, export-all, wipe-all.
+
+Cross-device telemetry (opt-in, off by default): mirrors opens to a
+shared JSONBin so the owner can see other people's devices. When on,
+end users get a one-time on-page notice that usage is recorded; that
+notice is not config-removable, because logging people who aren't told
+is the line this shouldn't cross. The reality of client-side limits (PIN
+is in public source, shared bin key ships in the client) is stated both
+in the panel and the README rather than papered over.
+
+Verified in Chromium: PIN 1029 unlocks and 0000 does not; admin hidden
+until unlocked; opens log per user; unique-user stats correct; admin
+override survives profile sign-in and reaches the request URL; telemetry
+off by default makes zero network calls and shows no notice.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019GqTQm8E1znRkM37YVj6K7
+---
+ README.md |  13 ++
+ script.js | 524 +++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 528 insertions(+), 9 deletions(-)
+
+diff --git a/README.md b/README.md
+index 664c1fd..c56d3cc 100644
+--- a/README.md
++++ b/README.md
+@@ -89,6 +89,19 @@ Insights you save get organized into folders and a calendar view, alongside an a
+ 
+ **Context memory.** Each saved insight has a 🧠 toggle. Switch it on and that insight travels with every later AI request as background the assistant already knows — so a worked explanation you saved on question 7 informs the answer to question 9, or notes from one page carry into a different one. It's opt-in per insight and off by default, on purpose: a blanket "remember everything" turns every unrelated note into a source of confusion and costs tokens on every request. Selected insights go in newest-first up to a character budget, and the prompt tells the model that when saved context conflicts with the page currently open, the page wins.
+ 
++### Admin console
++A hidden owner dashboard in Settings. To open it: click the **Account & sync** heading five times quickly, then enter the PIN (`1029`). It re-locks every time the script is re-injected, so the PIN is asked for each session. It has three tabs:
++
++- **Usage** — a log of every time the tool was opened on this browser, with the profile name, timestamp, page, and host. Stat cards for total opens, unique users, opens today; a per-user list with counts and last-seen; and recent activity. Export the log to JSON or clear it.
++- **Power tools** — override the AI model for either provider, prepend a standing system-prompt to every request, change how much page text is sent, set the OpenAI temperature, and a raw prompt playground that talks straight to the model.
++- **Data** — an inline editor for every `gpa_*` value in this browser, export-everything, and a wipe-all.
++
++**Two honest limits, because they matter:**
++
++*This is a soft lock, not security.* The PIN lives in the script, which is public — anyone who reads the source sees `1029` — and every "admin-only" value sits in the same `localStorage` any visitor can open in DevTools. It keeps a casual user out of the dashboard; it does not protect anything. Don't put anything genuinely sensitive behind it.
++
++*Seeing other people needs a server, and honesty.* Because `localStorage` is per-browser, the local log only ever shows *this* browser — your own opens. To see opens from other people's devices, the Usage tab has optional **cross-device telemetry**: point every copy at one shared JSONBin and opens collect there. It's off until you turn it on, and when it's on, anyone who opens the tool sees a one-time notice that usage is recorded (the profile name and open times — never what they type). That notice is deliberately not removable from the settings: logging people who know they're logged is analytics; logging people who don't is spyware, and the second one isn't something this builds. Note too that the shared bin's key has to ship inside the script, so those remote logs are low-security by nature — anyone with the tool can read or clear them.
++
+ ### Browser
+ A plain iframe with a URL bar. It only loads sites that allow being embedded — banks, most social apps, and SoundCloud's own site set `X-Frame-Options` or CSP `frame-ancestors` to prevent it. That's a protection those sites deliberately set, and this script makes no attempt to circumvent it.
+ 
+diff --git a/script.js b/script.js
+index 733982e..2b8df87 100644
+--- a/script.js
++++ b/script.js
+@@ -552,7 +552,7 @@
+           <label for="gpa-custom-color" class="gpa-sub" style="flex:1;">Custom color (pick any shade)</label>
+           <input type="color" id="gpa-custom-color" class="gpa-color-input" value="#8b5cf6" />
+         </div>
+-        <div class="gpa-sub" style="margin:14px 0 6px;">Account &amp; sync</div>
++        <div id="gpa-account-heading" class="gpa-sub" style="margin:14px 0 6px; cursor:default; user-select:none;">Account &amp; sync</div>
+         <div class="gpa-row">
+           <span id="gpa-account-who" class="gpa-sub">Not signed in</span>
+           <button id="gpa-logout-btn" class="gpa-btn">Sign out</button>
+@@ -648,6 +648,99 @@
+           <button id="gpa-clear-openai-key" class="gpa-btn">Clear saved OpenAI key</button>
+           <button id="gpa-clear-yt-key" class="gpa-btn">Clear saved YouTube key</button>
+         </div>
++
++        <!-- Admin console: hidden until unlocked by the secret gesture on the
++             "Account & sync" heading (click it 5x) + PIN. Rendered here but
++             display:none, and re-hidden on every load. -->
++        <div id="gpa-admin" style="display:none; margin-top:16px; border-top:1px dashed var(--gpa-accent,#888); padding-top:12px;">
++          <div class="gpa-row" style="justify-content:space-between;">
++            <div class="gpa-sub gpa-admin-title">🛠 Admin console</div>
++            <button id="gpa-admin-lock" class="gpa-btn">🔒 Lock</button>
++          </div>
++
++          <div class="gpa-admin-note" id="gpa-admin-reality"></div>
++
++          <div class="gpa-admin-tabs">
++            <button class="gpa-admin-tab primary" data-atab="usage">📊 Usage</button>
++            <button class="gpa-admin-tab" data-atab="tools">⚙️ Power tools</button>
++            <button class="gpa-admin-tab" data-atab="data">🗄 Data</button>
++          </div>
++
++          <!-- Usage / logs -->
++          <div class="gpa-admin-pane active" data-apane="usage">
++            <div id="gpa-admin-stats" class="gpa-admin-stats"></div>
++            <div class="gpa-row" style="margin-top:8px; flex-wrap:wrap;">
++              <button id="gpa-admin-refresh" class="gpa-btn" style="flex:1;">↻ Refresh</button>
++              <button id="gpa-admin-export-logs" class="gpa-btn" style="flex:1;">⬇ Export logs</button>
++              <button id="gpa-admin-clear-logs" class="gpa-btn" style="flex:1;">🗑 Clear logs</button>
++            </div>
++            <div class="gpa-sub" style="margin:12px 0 4px;">Everyone seen on this browser</div>
++            <div id="gpa-admin-users" class="gpa-admin-users"></div>
++            <div class="gpa-sub" style="margin:12px 0 4px;">Recent activity</div>
++            <div id="gpa-admin-log" class="gpa-admin-log"></div>
++
++            <div class="gpa-sub" style="margin:16px 0 4px;">Cross-device telemetry (see other people, not just this browser)</div>
++            <div class="gpa-admin-note">
++              This is the only way to see opens from other people's devices. It needs a shared
++              JSONBin the owner sets up, and — honestly — a key placed in a public script can't be
++              kept owner-only, so treat these logs as low-security. When it's on, anyone who opens
++              the tool sees a one-time notice that usage is recorded. It's off until you turn it on.
++            </div>
++            <div class="gpa-row" style="margin-top:6px;">
++              <input id="gpa-tele-bin" class="gpa-input" placeholder="Shared Bin ID (logs)" autocomplete="off" />
++            </div>
++            <div class="gpa-row">
++              <input id="gpa-tele-key" class="gpa-input" type="password" placeholder="X-Master-Key for that bin" autocomplete="off" />
++            </div>
++            <div class="gpa-row" style="flex-wrap:wrap;">
++              <button id="gpa-tele-toggle" class="gpa-btn" style="flex:1;">Telemetry: OFF</button>
++              <button id="gpa-tele-pull" class="gpa-btn" style="flex:1;">⬇ Pull remote logs</button>
++            </div>
++            <div id="gpa-tele-msg" class="gpa-sub" style="margin-top:4px;"></div>
++          </div>
++
++          <!-- Power tools -->
++          <div class="gpa-admin-pane" data-apane="tools">
++            <div class="gpa-sub" style="margin:4px 0 4px;">Model override (both providers)</div>
++            <div class="gpa-row">
++              <input id="gpa-adm-model" class="gpa-input" placeholder="e.g. gpt-4o, gemini-2.0-flash — blank = default" autocomplete="off" />
++            </div>
++            <div class="gpa-sub" style="margin:12px 0 4px;">System-prompt prefix (prepended to every AI call)</div>
++            <textarea id="gpa-adm-sysprefix" class="gpa-sync-box" style="height:70px;" placeholder="Extra standing instructions for the AI on every request…"></textarea>
++            <div class="gpa-row" style="margin-top:8px;">
++              <label class="gpa-sub" style="flex:1;">Max page characters sent</label>
++              <input id="gpa-adm-maxchars" class="gpa-input" type="number" min="1000" max="200000" step="1000" style="max-width:120px;" />
++            </div>
++            <div class="gpa-row" style="margin-top:8px;">
++              <label class="gpa-sub" style="flex:1;">Temperature (OpenAI, 0–2)</label>
++              <input id="gpa-adm-temp" class="gpa-input" type="number" min="0" max="2" step="0.1" style="max-width:120px;" placeholder="default" />
++            </div>
++            <div class="gpa-row" style="margin-top:10px; flex-wrap:wrap;">
++              <button id="gpa-adm-save-tools" class="gpa-btn primary" style="flex:1;">Save power settings</button>
++              <button id="gpa-adm-reset-tools" class="gpa-btn" style="flex:1;">Reset to defaults</button>
++            </div>
++            <div class="gpa-sub" style="margin:16px 0 4px;">Raw AI playground</div>
++            <textarea id="gpa-adm-play-sys" class="gpa-sync-box" style="height:50px;" placeholder="System prompt (optional)"></textarea>
++            <textarea id="gpa-adm-play-user" class="gpa-sync-box" style="height:60px;" placeholder="User message — send straight to the model, bypassing all the panel's own prompts"></textarea>
++            <div class="gpa-row">
++              <button id="gpa-adm-play-run" class="gpa-btn primary" style="flex:1;">▶ Run raw prompt</button>
++            </div>
++            <div id="gpa-adm-play-out" class="gpa-admin-log" style="margin-top:6px;"></div>
++            <div id="gpa-adm-tools-msg" class="gpa-sub" style="margin-top:4px;"></div>
++          </div>
++
++          <!-- Data -->
++          <div class="gpa-admin-pane" data-apane="data">
++            <div class="gpa-sub" style="margin:4px 0 4px;">Every gpa_* value in this browser (editable)</div>
++            <div id="gpa-adm-ls" class="gpa-admin-ls"></div>
++            <div class="gpa-row" style="margin-top:8px; flex-wrap:wrap;">
++              <button id="gpa-adm-ls-refresh" class="gpa-btn" style="flex:1;">↻ Refresh</button>
++              <button id="gpa-adm-dump" class="gpa-btn" style="flex:1;">⬇ Export everything</button>
++              <button id="gpa-adm-wipe" class="gpa-btn" style="flex:1;">💥 Wipe all data</button>
++            </div>
++            <div id="gpa-adm-data-msg" class="gpa-sub" style="margin-top:4px;"></div>
++          </div>
++        </div>
+       </div>
+     </div>
+   `;
+@@ -1233,6 +1326,45 @@
+         font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+       }
+       .gpa-sync-box:focus { border-color: ${t.accent}; }
++      /* ---- Admin console ---- */
++      .gpa-admin-title { font-weight: 700; color: ${t.accent}; }
++      .gpa-admin-note {
++        font-size: 10px; line-height: 1.5; color: ${t.sub}; margin: 8px 0;
++        padding: 7px 9px; background: ${t.field}; border: 1px solid ${t.border};
++        border-radius: 6px;
++      }
++      .gpa-admin-tabs { display: flex; gap: 5px; margin: 10px 0 8px; flex-wrap: wrap; }
++      .gpa-admin-tab { font-size: 10px; padding: 4px 9px; }
++      .gpa-admin-pane { display: none; }
++      .gpa-admin-pane.active { display: block; }
++      .gpa-admin-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
++      .gpa-admin-statcard {
++        padding: 8px 10px; background: ${t.field}; border: 1px solid ${t.border};
++        border-radius: 7px; text-align: center;
++      }
++      .gpa-admin-statcard .n { font-size: 18px; font-weight: 800; color: ${t.accent}; display: block; }
++      .gpa-admin-statcard .l { font-size: 9px; color: ${t.sub}; margin-top: 2px; }
++      .gpa-admin-users, .gpa-admin-log, .gpa-admin-ls {
++        max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
++      }
++      .gpa-admin-userrow, .gpa-admin-logrow {
++        display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
++        padding: 5px 8px; background: ${t.field}; border: 1px solid ${t.border};
++        border-radius: 5px; font-size: 10px;
++        font-family: 'JetBrains Mono', ui-monospace, monospace;
++      }
++      .gpa-admin-userrow b { color: ${t.accent}; font-weight: 700; }
++      .gpa-admin-logrow .t { color: ${t.sub}; white-space: nowrap; }
++      .gpa-admin-logrow .ev { flex: 1; overflow-wrap: anywhere; }
++      .gpa-admin-ls-row { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px;
++        background: ${t.field}; border: 1px solid ${t.border}; border-radius: 5px; }
++      .gpa-admin-ls-row .k { font-size: 9.5px; color: ${t.accent}; font-weight: 700; overflow-wrap: anywhere; }
++      .gpa-admin-ls-row textarea {
++        width: 100%; min-height: 34px; background: ${t.panel}; color: ${t.text};
++        border: 1px solid ${t.border}; border-radius: 4px; font-size: 9px; padding: 4px;
++        font-family: 'JetBrains Mono', ui-monospace, monospace; resize: vertical;
++      }
++      .gpa-admin-ls-row .gpa-btn { align-self: flex-end; font-size: 9px; padding: 2px 7px; }
+       .gpa-pause-stats { display: flex; flex-direction: column; gap: 5px; }
+       .gpa-pause-stat {
+         display: flex; justify-content: space-between; align-items: center; gap: 10px;
+@@ -2057,6 +2189,31 @@
+     }
+   }
+ 
++  // ---- Admin overrides ------------------------------------------------------
++  // The admin console (unlocked with a PIN, see far below) can override a few
++  // engine settings. They live in their own localStorage keys, kept out of
++  // profile snapshots so they're device-global and survive sign-in/sign-out.
++  // Honest note: the PIN and these keys are all client-side. Anyone who reads
++  // this file sees the PIN, and anyone with DevTools can read/write these keys.
++  // This is a soft lock and a personal dashboard, not real access control.
++  const ADMIN_PIN = '1029';
++  const ADMIN_KEYS = {
++    MODEL: 'gpa_admin_model',
++    SYSPREFIX: 'gpa_admin_sysprefix',
++    MAXCHARS: 'gpa_admin_maxchars',
++    TEMP: 'gpa_admin_temp',
++    LOGS: 'gpa_admin_logs',
++    TELE_ON: 'gpa_admin_tele_on',
++    TELE_BIN: 'gpa_admin_tele_bin',
++    TELE_KEY: 'gpa_admin_tele_key',
++    TELE_NOTICE_SEEN: 'gpa_tele_notice_seen'
++  };
++  function admGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
++  function effectiveModel(dflt) { const m = (admGet(ADMIN_KEYS.MODEL) || '').trim(); return m || dflt; }
++  function effectiveMaxPageChars() { const n = parseInt(admGet(ADMIN_KEYS.MAXCHARS), 10); return (n && n >= 1000) ? n : MAX_PAGE_CHARS; }
++  function effectiveTemp() { const v = parseFloat(admGet(ADMIN_KEYS.TEMP)); return isNaN(v) ? null : Math.max(0, Math.min(2, v)); }
++  function adminSysPrefix() { const p = (admGet(ADMIN_KEYS.SYSPREFIX) || '').trim(); return p ? p + '\n\n' : ''; }
++
+   // ---- Gemini API helpers -----------------------------------------------
+   function getApiKey() {
+     let key = sanitizeKey(API_KEY_DEFAULT) || readStoredKey(STORAGE_KEY);
+@@ -2084,7 +2241,7 @@
+     const body = { contents: [{ role: 'user', parts }] };
+     if (systemText) body.systemInstruction = { parts: [{ text: systemText }] };
+ 
+-    const res = await rawFetch(`${API_BASE}${MODEL}:generateContent?key=${key}`, {
++    const res = await rawFetch(`${API_BASE}${effectiveModel(MODEL)}:generateContent?key=${key}`, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify(body)
+@@ -2301,6 +2458,10 @@
+       ? `${OPENAI_PROXY}/v1/chat/completions`
+       : 'https://api.openai.com/v1/chat/completions';
+ 
++    payload.model = effectiveModel(OPENAI_MODEL);
++    const temp = effectiveTemp();
++    if (temp !== null) payload.temperature = temp;
++
+     const res = await rawFetch(endpoint, {
+       method: 'POST',
+       headers,
+@@ -2352,11 +2513,10 @@
+   // Dispatches to whichever provider is selected in the Theme tab.
+   async function callAI(userText, systemText, imageDataUrls) {
+     const provider = localStorage.getItem(PROVIDER_KEY) || 'gemini';
+-    // Memory goes in FRONT of the caller's system text, never behind it: the
+-    // JSON-only response rules several callers rely on have to be the last
+-    // word, or the model starts narrating what it remembered.
+-    const memory = buildContextMemory();
+-    const sys = memory ? memory + (systemText || '') : systemText;
++    // Order matters: admin standing instructions, then saved context, then the
++    // caller's own system text LAST — the JSON-only rules several callers rely
++    // on have to be the final word, or the model narrates instead of obeying.
++    const sys = adminSysPrefix() + buildContextMemory() + (systemText || '');
+     return provider === 'openai'
+       ? callOpenAI(userText, sys, imageDataUrls)
+       : callGemini(userText, sys, imageDataUrls);
+@@ -3549,7 +3709,8 @@
+     clone.querySelectorAll('script,style,noscript,svg,canvas,iframe').forEach((el) => el.remove());
+     let text = clone.innerText || clone.textContent || '';
+     text = text.replace(/\n{3,}/g, '\n\n').trim();
+-    if (text.length > MAX_PAGE_CHARS) text = text.slice(0, MAX_PAGE_CHARS) + '\n\n[...truncated...]';
++    const cap = effectiveMaxPageChars();
++    if (text.length > cap) text = text.slice(0, cap) + '\n\n[...truncated...]';
+     return text;
+   }
+ 
+@@ -4868,7 +5029,15 @@
+   const CLOUD_SECRET_KEY = 'gpa_cloud_key';
+   // Keys that identify the session/profiles themselves must never be swept
+   // into a profile snapshot, or restoring one would clobber the login system.
+-  const NON_PROFILE_KEYS = [SESSION_KEY, CLOUD_BIN_KEY, CLOUD_SECRET_KEY];
++  // The admin keys and the usage log are device-global on purpose: they belong
++  // to this browser/owner, not to whichever profile happens to be signed in,
++  // so restoring a profile must leave them untouched.
++  const NON_PROFILE_KEYS = [
++    SESSION_KEY, CLOUD_BIN_KEY, CLOUD_SECRET_KEY,
++    ADMIN_KEYS.MODEL, ADMIN_KEYS.SYSPREFIX, ADMIN_KEYS.MAXCHARS, ADMIN_KEYS.TEMP,
++    ADMIN_KEYS.LOGS, ADMIN_KEYS.TELE_ON, ADMIN_KEYS.TELE_BIN, ADMIN_KEYS.TELE_KEY,
++    ADMIN_KEYS.TELE_NOTICE_SEEN
++  ];
+ 
+   const loginOverlay = panel.querySelector('#gpa-login');
+   const loginUserInput = panel.querySelector('#gpa-login-user');
+@@ -4994,6 +5163,10 @@
+   function enterApp(user) {
+     currentUser = user;
+     localStorage.setItem(SESSION_KEY, user);
++    // Record the open in the local usage log, and mirror it to the shared
++    // telemetry bin if the owner turned that on. Wrapped so a logging hiccup
++    // can never block a sign-in.
++    try { logUsageEvent('open', user); } catch (e) { /* logging is best-effort */ }
+     loginOverlay.style.display = 'none';
+     setLockedChrome(false);
+     refreshAccountUI();
+@@ -7395,6 +7568,339 @@
+     }
+   });
+ 
++  // ---- Usage logging --------------------------------------------------------
++  // A record of who opened the tool and when. Local by default: it only ever
++  // sees THIS browser, because localStorage is per-origin per-device and no
++  // other instance can reach it. Cross-device visibility needs the telemetry
++  // bin below. Entries: u=username, ev=event, ts=time, url, host, ua.
++  const LOG_CAP = 400; // keep the newest N; the log is not an archive
++
++  function readLogs() {
++    try { const a = JSON.parse(localStorage.getItem(ADMIN_KEYS.LOGS) || '[]'); return Array.isArray(a) ? a : []; }
++    catch (e) { return []; }
++  }
++  function writeLogs(arr) {
++    try { localStorage.setItem(ADMIN_KEYS.LOGS, JSON.stringify(arr.slice(-LOG_CAP))); } catch (e) { /* quota */ }
++  }
++  function logUsageEvent(ev, user) {
++    const entry = {
++      u: user || currentUser || '(anonymous)',
++      ev,
++      ts: Date.now(),
++      url: location.href.slice(0, 300),
++      host: location.hostname,
++      ua: (navigator.userAgent || '').slice(0, 160)
++    };
++    const arr = readLogs();
++    arr.push(entry);
++    writeLogs(arr);
++    maybePushTelemetry(entry);
++    maybeShowTelemetryNotice();
++  }
++
++  // ---- Cross-device telemetry (opt-in, disclosed) ---------------------------
++  // Sends each open to a shared JSONBin the owner configures, so opens from
++  // OTHER people's devices land somewhere the owner can read. Read-modify-write
++  // (JSONBin holds one record per bin). Fire-and-forget: a failed push must
++  // never disrupt the person using the tool.
++  function telemetryOn() { return admGet(ADMIN_KEYS.TELE_ON) === 'on'; }
++  function telemetryCreds() {
++    return { bin: (admGet(ADMIN_KEYS.TELE_BIN) || '').trim(), key: (admGet(ADMIN_KEYS.TELE_KEY) || '').trim() };
++  }
++  async function maybePushTelemetry(entry) {
++    if (!telemetryOn()) return;
++    const { bin, key } = telemetryCreds();
++    if (!bin || !key) return;
++    try {
++      const cur = await fetch(`https://api.jsonbin.io/v3/b/${encodeURIComponent(bin)}/latest`, {
++        headers: { 'X-Master-Key': key }
++      }).then((r) => r.ok ? r.json() : null).catch(() => null);
++      const rec = (cur && (cur.record || cur)) || {};
++      const logs = Array.isArray(rec.logs) ? rec.logs : [];
++      logs.push(entry);
++      await fetch(`https://api.jsonbin.io/v3/b/${encodeURIComponent(bin)}`, {
++        method: 'PUT',
++        headers: { 'Content-Type': 'application/json', 'X-Master-Key': key },
++        body: JSON.stringify({ logs: logs.slice(-2000) })
++      });
++    } catch (e) { /* telemetry is best-effort and must never surface to the user */ }
++  }
++
++  // The disclosure the end user sees. Shown once per browser when telemetry is
++  // active — the difference between analytics and covert tracking is that the
++  // people being logged are told. Deliberately not removable by config.
++  function maybeShowTelemetryNotice() {
++    if (!telemetryOn()) return;
++    if (admGet(ADMIN_KEYS.TELE_NOTICE_SEEN) === 'yes') return;
++    try { localStorage.setItem(ADMIN_KEYS.TELE_NOTICE_SEEN, 'yes'); } catch (e) { /* ignore */ }
++    const t = THEMES[theme] || THEMES.dark;
++    const toast = document.createElement('div');
++    toast.style.cssText = `position:fixed;left:12px;bottom:12px;z-index:2147483647;max-width:320px;
++      background:${t.panel};color:${t.text};border:1px solid ${t.accent};border-radius:10px;
++      padding:11px 13px;font:11px/1.5 ui-monospace,monospace;box-shadow:0 8px 26px rgba(0,0,0,0.5);`;
++    toast.textContent = 'Heads up: this assistant records basic usage (the profile name you sign in with and when you open it) for its owner. Nothing you type is sent.';
++    const ok = document.createElement('button');
++    ok.textContent = 'OK';
++    ok.style.cssText = `display:block;margin-top:8px;margin-left:auto;font:11px/1 inherit;
++      padding:4px 12px;border-radius:6px;cursor:pointer;background:transparent;color:${t.text};border:1px solid ${t.accent};`;
++    ok.addEventListener('click', () => toast.remove());
++    toast.appendChild(ok);
++    document.body.appendChild(toast);
++    setTimeout(() => { if (toast.parentNode) toast.remove(); }, 15000);
++  }
++
++  // ---- Admin console --------------------------------------------------------
++  (function adminConsole() {
++    const adminBox = panel.querySelector('#gpa-admin');
++    const heading = panel.querySelector('#gpa-account-heading');
++    if (!adminBox || !heading) return;
++    let adminUnlocked = false;   // resets every injection — PIN is required each session
++
++    // Reality check shown inside the panel, so the owner is never misled about
++    // what this actually protects.
++    const reality = panel.querySelector('#gpa-admin-reality');
++    if (reality) {
++      reality.className = 'gpa-admin-note';
++      reality.textContent = 'Reality check: this PIN and every setting here live in your browser. '
++        + 'Anyone who reads the script source can see the PIN, and anyone with DevTools can open this. '
++        + 'Treat it as a personal dashboard and a soft lock — not real security. Do not put anything truly sensitive behind it.';
++    }
++
++    // ---- Hidden trigger: five quick clicks on the "Account & sync" heading ----
++    let clicks = 0, clickTimer = null;
++    heading.addEventListener('click', () => {
++      if (adminUnlocked) return;
++      clicks++;
++      clearTimeout(clickTimer);
++      clickTimer = setTimeout(() => { clicks = 0; }, 1200);
++      if (clicks >= 5) {
++        clicks = 0;
++        const pin = prompt('Enter admin PIN:');
++        if (pin === null) return;
++        if (pin.trim() === ADMIN_PIN) { adminUnlocked = true; openAdmin(); }
++        else alert('Incorrect PIN.');
++      }
++    });
++
++    function openAdmin() {
++      adminBox.style.display = 'block';
++      loadPowerToolFields();
++      loadTelemetryFields();
++      renderUsage();
++      adminBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
++    }
++    panel.querySelector('#gpa-admin-lock').addEventListener('click', () => {
++      adminUnlocked = false;
++      adminBox.style.display = 'none';
++    });
++
++    // ---- Admin tab switching ----
++    adminBox.querySelectorAll('.gpa-admin-tab').forEach((tab) => {
++      tab.addEventListener('click', () => {
++        adminBox.querySelectorAll('.gpa-admin-tab').forEach((x) => x.classList.toggle('primary', x === tab));
++        const name = tab.dataset.atab;
++        adminBox.querySelectorAll('.gpa-admin-pane').forEach((p) => p.classList.toggle('active', p.dataset.apane === name));
++        if (name === 'usage') renderUsage();
++        if (name === 'data') renderLsEditor();
++      });
++    });
++
++    // ---- Usage pane ----
++    function fmtTime(ts) { return new Date(ts).toLocaleString(); }
++    function renderUsage() {
++      const logs = readLogs();
++      const opens = logs.filter((l) => l.ev === 'open');
++      const users = {};
++      opens.forEach((l) => {
++        const u = l.u || '(anonymous)';
++        if (!users[u]) users[u] = { count: 0, first: l.ts, last: l.ts };
++        users[u].count++;
++        users[u].first = Math.min(users[u].first, l.ts);
++        users[u].last = Math.max(users[u].last, l.ts);
++      });
++      const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
++      const todayOpens = opens.filter((l) => l.ts >= startOfDay.getTime()).length;
++
++      const stats = [
++        { n: opens.length, l: 'Total opens' },
++        { n: Object.keys(users).length, l: 'Unique users' },
++        { n: todayOpens, l: 'Opens today' },
++        { n: logs.length, l: 'Log entries' }
++      ];
++      panel.querySelector('#gpa-admin-stats').innerHTML = stats.map((s) =>
++        `<div class="gpa-admin-statcard"><span class="n">${s.n}</span><div class="l">${escapeHtml(s.l)}</div></div>`).join('');
++
++      const userRows = Object.keys(users).sort((a, b) => users[b].last - users[a].last).map((u) => {
++        const info = users[u];
++        return `<div class="gpa-admin-userrow"><b>${escapeHtml(u)}</b>`
++          + `<span>${info.count}× · last ${escapeHtml(fmtTime(info.last))}</span></div>`;
++      }).join('');
++      panel.querySelector('#gpa-admin-users').innerHTML = userRows || '<div class="gpa-sub">No sign-ins recorded on this browser yet.</div>';
++
++      const logRows = logs.slice().reverse().slice(0, 120).map((l) =>
++        `<div class="gpa-admin-logrow"><span class="ev"><b>${escapeHtml(l.u || '?')}</b> · ${escapeHtml(l.ev)} · ${escapeHtml(l.host || '')}</span>`
++        + `<span class="t">${escapeHtml(fmtTime(l.ts))}</span></div>`).join('');
++      panel.querySelector('#gpa-admin-log').innerHTML = logRows || '<div class="gpa-sub">Nothing logged yet.</div>';
++    }
++    panel.querySelector('#gpa-admin-refresh').addEventListener('click', renderUsage);
++    panel.querySelector('#gpa-admin-clear-logs').addEventListener('click', () => {
++      if (!confirm('Clear the local usage log on this browser? (Remote telemetry logs are not affected.)')) return;
++      writeLogs([]);
++      renderUsage();
++    });
++    panel.querySelector('#gpa-admin-export-logs').addEventListener('click', () => {
++      const blob = JSON.stringify(readLogs(), null, 2);
++      navigator.clipboard.writeText(blob).then(
++        () => alert('Usage log copied to clipboard as JSON.'),
++        () => { const w = window.open('', '_blank'); if (w) w.document.write('<pre>' + escapeHtml(blob) + '</pre>'); }
++      );
++    });
++
++    // ---- Telemetry controls ----
++    const teleBin = panel.querySelector('#gpa-tele-bin');
++    const teleKey = panel.querySelector('#gpa-tele-key');
++    const teleToggle = panel.querySelector('#gpa-tele-toggle');
++    const teleMsg = panel.querySelector('#gpa-tele-msg');
++    function loadTelemetryFields() {
++      teleBin.value = admGet(ADMIN_KEYS.TELE_BIN) || '';
++      teleKey.value = admGet(ADMIN_KEYS.TELE_KEY) || '';
++      teleToggle.textContent = telemetryOn() ? 'Telemetry: ON' : 'Telemetry: OFF';
++      teleToggle.classList.toggle('primary', telemetryOn());
++    }
++    function saveTeleCreds() {
++      localStorage.setItem(ADMIN_KEYS.TELE_BIN, teleBin.value.trim());
++      localStorage.setItem(ADMIN_KEYS.TELE_KEY, teleKey.value.trim());
++    }
++    teleBin.addEventListener('change', saveTeleCreds);
++    teleKey.addEventListener('change', saveTeleCreds);
++    teleToggle.addEventListener('click', () => {
++      saveTeleCreds();
++      const turningOn = !telemetryOn();
++      if (turningOn && (!teleBin.value.trim() || !teleKey.value.trim())) {
++        teleMsg.textContent = 'Add a shared Bin ID and its master key first.';
++        return;
++      }
++      localStorage.setItem(ADMIN_KEYS.TELE_ON, turningOn ? 'on' : 'off');
++      // Re-arm the end-user notice each time it's switched on, so people are
++      // told again after any pause in collection.
++      if (turningOn) localStorage.removeItem(ADMIN_KEYS.TELE_NOTICE_SEEN);
++      loadTelemetryFields();
++      teleMsg.textContent = turningOn
++        ? 'On. Opens from every device pointed at this bin will collect here. Users see a one-time notice.'
++        : 'Off. Only this browser is logged now.';
++    });
++    panel.querySelector('#gpa-tele-pull').addEventListener('click', async () => {
++      saveTeleCreds();
++      const bin = teleBin.value.trim(), key = teleKey.value.trim();
++      if (!bin || !key) { teleMsg.textContent = 'Add a shared Bin ID and its master key first.'; return; }
++      teleMsg.textContent = 'Pulling…';
++      try {
++        const json = await fetch(`https://api.jsonbin.io/v3/b/${encodeURIComponent(bin)}/latest`, {
++          headers: { 'X-Master-Key': key }
++        }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
++        const rec = (json && (json.record || json)) || {};
++        const remote = Array.isArray(rec.logs) ? rec.logs : [];
++        // Merge remote into the local view, de-duped by user+event+timestamp.
++        const seen = new Set(readLogs().map((l) => l.u + '|' + l.ev + '|' + l.ts));
++        const merged = readLogs();
++        remote.forEach((l) => { const id = l.u + '|' + l.ev + '|' + l.ts; if (!seen.has(id)) { seen.add(id); merged.push(l); } });
++        merged.sort((a, b) => a.ts - b.ts);
++        writeLogs(merged);
++        renderUsage();
++        teleMsg.textContent = `Pulled ${remote.length} remote entr${remote.length === 1 ? 'y' : 'ies'}.`;
++      } catch (e) {
++        teleMsg.textContent = 'Pull failed: ' + e.message;
++      }
++    });
++
++    // ---- Power tools ----
++    function loadPowerToolFields() {
++      panel.querySelector('#gpa-adm-model').value = admGet(ADMIN_KEYS.MODEL) || '';
++      panel.querySelector('#gpa-adm-sysprefix').value = admGet(ADMIN_KEYS.SYSPREFIX) || '';
++      panel.querySelector('#gpa-adm-maxchars').value = admGet(ADMIN_KEYS.MAXCHARS) || String(MAX_PAGE_CHARS);
++      panel.querySelector('#gpa-adm-temp').value = admGet(ADMIN_KEYS.TEMP) || '';
++    }
++    panel.querySelector('#gpa-adm-save-tools').addEventListener('click', () => {
++      const set = (k, v) => { v = String(v).trim(); if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); };
++      set(ADMIN_KEYS.MODEL, panel.querySelector('#gpa-adm-model').value);
++      set(ADMIN_KEYS.SYSPREFIX, panel.querySelector('#gpa-adm-sysprefix').value);
++      set(ADMIN_KEYS.MAXCHARS, panel.querySelector('#gpa-adm-maxchars').value);
++      set(ADMIN_KEYS.TEMP, panel.querySelector('#gpa-adm-temp').value);
++      panel.querySelector('#gpa-adm-tools-msg').textContent = 'Saved. Applies to the next AI request.';
++    });
++    panel.querySelector('#gpa-adm-reset-tools').addEventListener('click', () => {
++      [ADMIN_KEYS.MODEL, ADMIN_KEYS.SYSPREFIX, ADMIN_KEYS.MAXCHARS, ADMIN_KEYS.TEMP].forEach((k) => localStorage.removeItem(k));
++      loadPowerToolFields();
++      panel.querySelector('#gpa-adm-tools-msg').textContent = 'Reset to defaults.';
++    });
++    panel.querySelector('#gpa-adm-play-run').addEventListener('click', async () => {
++      const out = panel.querySelector('#gpa-adm-play-out');
++      const userMsg = panel.querySelector('#gpa-adm-play-user').value.trim();
++      const sysMsg = panel.querySelector('#gpa-adm-play-sys').value.trim();
++      if (!userMsg) { out.textContent = 'Type a user message first.'; return; }
++      out.textContent = 'Running…';
++      try {
++        // Straight to the provider — but callAI still prepends admin prefix and
++        // any saved context, which is usually what a power user wants to test.
++        const res = await callAI(userMsg, sysMsg || undefined);
++        out.textContent = res;
++      } catch (e) {
++        out.textContent = 'Error: ' + ((e && e.message) || e);
++      }
++    });
++
++    // ---- Data pane: localStorage inspector ----
++    function renderLsEditor() {
++      const wrap = panel.querySelector('#gpa-adm-ls');
++      wrap.innerHTML = '';
++      const keys = [];
++      for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('gpa_')) keys.push(k); }
++      keys.sort();
++      if (!keys.length) { wrap.innerHTML = '<div class="gpa-sub">No gpa_ keys stored.</div>'; return; }
++      keys.forEach((k) => {
++        const row = document.createElement('div');
++        row.className = 'gpa-admin-ls-row';
++        const kEl = document.createElement('div');
++        kEl.className = 'k';
++        kEl.textContent = k;
++        const ta = document.createElement('textarea');
++        ta.value = localStorage.getItem(k) || '';
++        const rowBtns = document.createElement('div');
++        rowBtns.style.cssText = 'display:flex;gap:6px;justify-content:flex-end;';
++        const save = document.createElement('button');
++        save.className = 'gpa-btn';
++        save.textContent = 'Save';
++        save.addEventListener('click', () => { localStorage.setItem(k, ta.value); save.textContent = '✓'; setTimeout(() => (save.textContent = 'Save'), 800); });
++        const del = document.createElement('button');
++        del.className = 'gpa-btn';
++        del.textContent = 'Delete';
++        del.addEventListener('click', () => { if (confirm('Delete ' + k + '?')) { localStorage.removeItem(k); renderLsEditor(); } });
++        rowBtns.appendChild(save); rowBtns.appendChild(del);
++        row.appendChild(kEl); row.appendChild(ta); row.appendChild(rowBtns);
++        wrap.appendChild(row);
++      });
++    }
++    panel.querySelector('#gpa-adm-ls-refresh').addEventListener('click', renderLsEditor);
++    panel.querySelector('#gpa-adm-dump').addEventListener('click', () => {
++      const dump = {};
++      for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('gpa_')) dump[k] = localStorage.getItem(k); }
++      const blob = JSON.stringify(dump, null, 2);
++      navigator.clipboard.writeText(blob).then(
++        () => { panel.querySelector('#gpa-adm-data-msg').textContent = 'All gpa_ data copied to clipboard.'; },
++        () => { const w = window.open('', '_blank'); if (w) w.document.write('<pre>' + escapeHtml(blob) + '</pre>'); }
++      );
++    });
++    panel.querySelector('#gpa-adm-wipe').addEventListener('click', () => {
++      if (!confirm('Wipe ALL of this tool\'s data on this browser — profiles, settings, logs, keys? This cannot be undone.')) return;
++      if (!confirm('Really wipe everything? Last chance.')) return;
++      const keys = [];
++      for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('gpa_')) keys.push(k); }
++      keys.forEach((k) => localStorage.removeItem(k));
++      panel.querySelector('#gpa-adm-data-msg').textContent = 'Wiped. Reload the tool to start fresh.';
++      renderLsEditor();
++    });
++  })();
++
+   // ---- Session restore on load ----
+   // If this browser already had someone signed in, skip straight back in.
+   (function restoreSession() {
+-- 
+2.43.0
+
+
+From d8bf6a0a46b8913d55527be2258946dec354b7d1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 13 Sep 2026 20:23:14 +0000
+Subject: [PATCH 5/6] Rebuild telemetry on the Cloudflare Worker with live
+ presence
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Replaces the shared-JSONBin approach (whose master key had to ship in the
+public client, so anyone could read or wipe the logs) with a proper
+worker-backed design:
+
+Worker (KV-backed):
+- POST /track stores a heartbeat: a short-TTL session:<sid> key for
+  presence, and a user:<name> rollup refreshed on 'open'. Coarse geo
+  (Cloudflare country/region) is kept, never a raw IP.
+- GET /admin/summary returns active-now (sessions still within TTL,
+  collapsed per user) plus all-time users, but ONLY to a request whose
+  ?token= matches env.ADMIN_TOKEN. That server-side check is the real,
+  owner-only access control — no secret is exposed to the browser.
+- POST /admin/clear wipes logs (same token gate).
+- Degrades cleanly: no KV bound -> /track no-ops; no ADMIN_TOKEN ->
+  admin endpoints return a helpful 500; the OpenAI proxy and /read are
+  untouched.
+
+Client:
+- Every instance heartbeats to /track on open and every 45s while signed
+  in (text/plain body = no CORS preflight, keepalive for the unload
+  beat). Controlled by a top-level TELEMETRY_ENABLED constant.
+- Admin console Usage tab gains a Live view: an "active right now" count,
+  the active users with host/region/last-seen, and all-time users with
+  open counts, plus auto-refresh. Admin token is entered once and kept on
+  the owner's device only.
+- One-time end-user disclosure notice retained.
+
+Tested: worker handlers against a mock KV (track, token auth, presence
+expiry, per-open counting, clear, graceful degradation, proxy intact);
+client heartbeat payload and live view rendering in Chromium against a
+mocked worker, including the wrong-token error path and the disclosure
+notice.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019GqTQm8E1znRkM37YVj6K7
+---
+ README.md |  16 +++-
+ script.js | 230 +++++++++++++++++++++++++++++++++---------------------
+ worker.js | 101 +++++++++++++++++++++++-
+ 3 files changed, 257 insertions(+), 90 deletions(-)
+
+diff --git a/README.md b/README.md
+index c56d3cc..ed2d146 100644
+--- a/README.md
++++ b/README.md
+@@ -100,7 +100,19 @@ A hidden owner dashboard in Settings. To open it: click the **Account & sync** h
+ 
+ *This is a soft lock, not security.* The PIN lives in the script, which is public — anyone who reads the source sees `1029` — and every "admin-only" value sits in the same `localStorage` any visitor can open in DevTools. It keeps a casual user out of the dashboard; it does not protect anything. Don't put anything genuinely sensitive behind it.
+ 
+-*Seeing other people needs a server, and honesty.* Because `localStorage` is per-browser, the local log only ever shows *this* browser — your own opens. To see opens from other people's devices, the Usage tab has optional **cross-device telemetry**: point every copy at one shared JSONBin and opens collect there. It's off until you turn it on, and when it's on, anyone who opens the tool sees a one-time notice that usage is recorded (the profile name and open times — never what they type). That notice is deliberately not removable from the settings: logging people who know they're logged is analytics; logging people who don't is spyware, and the second one isn't something this builds. Note too that the shared bin's key has to ship inside the script, so those remote logs are low-security by nature — anyone with the tool can read or clear them.
++*Seeing other people is real now — through your worker.* Because `localStorage` is per-browser, the local log only shows *this* browser. To see everyone — including who's **active right now** — every instance sends a small heartbeat to your Cloudflare Worker's `/track` endpoint, and the Usage tab's **Live** view reads it back. This is proper analytics: the data lives server-side in your Worker's KV store, and the Worker only returns it to a request carrying your `ADMIN_TOKEN`, so the logs are genuinely owner-only and **no secret ships in the public script**. Setup is below. When telemetry is on, every user sees a one-time notice that usage is recorded (their profile name, open times, and coarse location — country/region from Cloudflare, never a raw IP or anything they type). That notice is deliberately not removable: logging people who know they're logged is analytics; logging people who don't is spyware, and the second one isn't something this builds. Turn it all off by setting `TELEMETRY_ENABLED = false` near the top of `script.js`.
++
++#### Setting up live telemetry
++
++In the Cloudflare dashboard, on the same Worker you deploy `worker.js` to:
++
++1. **Create a KV namespace.** Storage & Databases → KV → Create → name it anything (e.g. `agent_console_logs`).
++2. **Bind it to the Worker as `TELEMETRY`.** Worker → Settings → Variables and Secrets → KV Namespace Bindings → Add: variable name `TELEMETRY`, and pick the namespace you made. The name `TELEMETRY` must match exactly.
++3. **Set your admin secret.** Same Settings page → Environment Variables → add `ADMIN_TOKEN` with a long random value. Use "Encrypt" so it's a secret. This is the password that unlocks the Live view; keep it to yourself.
++4. **Deploy the updated `worker.js`.**
++5. In the admin console → Usage → Live, paste that same `ADMIN_TOKEN` value into the token field (it's stored only on your device) and press **Load live users**. Turn on Auto-refresh to watch it live.
++
++Until KV and `ADMIN_TOKEN` are set, `/track` just no-ops and the Live view tells you what's missing — the OpenAI proxy and everything else keep working regardless. Cloudflare's free tier covers a KV namespace and comfortably handles a personal-scale user base; heartbeats are throttled (presence refresh every 45s, all-time rollup only on open) to stay well inside the free write limits.
+ 
+ ### Browser
+ A plain iframe with a URL bar. It only loads sites that allow being embedded — banks, most social apps, and SoundCloud's own site set `X-Frame-Options` or CSP `frame-ancestors` to prevent it. That's a protection those sites deliberately set, and this script makes no attempt to circumvent it.
+@@ -133,6 +145,8 @@ An optional Cloudflare Worker that does two small things the browser can't do on
+ 
+ - **`/v1/*`** — forwards to `api.openai.com` and adds the CORS header. Direct browser → OpenAI calls are frequently blocked by ad blockers, antivirus shields, and network filters, which surface as confusing CORS errors. It also answers `OPTIONS` preflights itself, because forwarding those upstream returns a response that doesn't allow the `Authorization` header, which makes the browser block the real request.
+ - **`/read?url=…`** — fetches a page server-side and returns its HTML, so research mode can read sources the browser isn't allowed to fetch cross-origin. HTML and plain text only, capped at 3MB.
++- **`/track`** — receives usage heartbeats and stores them in the `TELEMETRY` KV namespace (a short-TTL session key for presence, a per-user rollup on open). No-ops if KV isn't bound.
++- **`/admin/summary`** and **`/admin/clear`** — return or wipe the usage logs, but only for a request whose `?token=` matches the Worker's `ADMIN_TOKEN` env var. This is where the owner-only access control actually lives.
+ 
+ ### Deploying it
+ 
+diff --git a/script.js b/script.js
+index 2b8df87..31ae3f8 100644
+--- a/script.js
++++ b/script.js
+@@ -97,6 +97,14 @@
+   // avoids that: it forwards to api.openai.com and adds the CORS header.
+   // Set to '' to call OpenAI directly.
+   const OPENAI_PROXY = 'https://donnajbe.viztrrx.workers.dev';
++  // ---- Usage telemetry ----
++  // Every instance sends a small heartbeat to the worker's /track endpoint so
++  // the owner can see who's active (admin console → Usage). The worker keeps
++  // the data and gates reads behind an ADMIN_TOKEN, so this stays owner-only.
++  // Set TELEMETRY_ENABLED to false to turn all of it off in a build you ship.
++  // When it's on, every user is shown a one-time notice that usage is recorded.
++  const TELEMETRY_ENABLED = true;
++  const TELEMETRY_ENDPOINT = OPENAI_PROXY; // same worker; blank disables tracking
+   const PROVIDER_KEY = 'gpa_ai_provider';
+   // Tells the AI what it is and what the console can do, so questions like
+   // "what can you do?" get a real answer. Injected into the chat-facing
+@@ -679,23 +687,24 @@
+             <div class="gpa-sub" style="margin:12px 0 4px;">Recent activity</div>
+             <div id="gpa-admin-log" class="gpa-admin-log"></div>
+ 
+-            <div class="gpa-sub" style="margin:16px 0 4px;">Cross-device telemetry (see other people, not just this browser)</div>
++            <div class="gpa-sub" style="margin:16px 0 4px;">🌐 Live — everyone using it right now (across all devices)</div>
+             <div class="gpa-admin-note">
+-              This is the only way to see opens from other people's devices. It needs a shared
+-              JSONBin the owner sets up, and — honestly — a key placed in a public script can't be
+-              kept owner-only, so treat these logs as low-security. When it's on, anyone who opens
+-              the tool sees a one-time notice that usage is recorded. It's off until you turn it on.
++              Reads from your worker, which only answers with your admin token — so these logs are
++              genuinely owner-only and no secret ships in the public script. Needs the worker set up
++              with a KV namespace and an ADMIN_TOKEN (see the README). Enter that token once below;
++              it's kept only on this device. Every user is shown a one-time notice that usage is recorded.
+             </div>
+             <div class="gpa-row" style="margin-top:6px;">
+-              <input id="gpa-tele-bin" class="gpa-input" placeholder="Shared Bin ID (logs)" autocomplete="off" />
++              <input id="gpa-tele-token" class="gpa-input" type="password" placeholder="Admin token (matches worker ADMIN_TOKEN)" autocomplete="off" />
+             </div>
+             <div class="gpa-row">
+-              <input id="gpa-tele-key" class="gpa-input" type="password" placeholder="X-Master-Key for that bin" autocomplete="off" />
++              <input id="gpa-tele-endpoint" class="gpa-input" placeholder="Worker URL (blank = default)" autocomplete="off" />
+             </div>
+             <div class="gpa-row" style="flex-wrap:wrap;">
+-              <button id="gpa-tele-toggle" class="gpa-btn" style="flex:1;">Telemetry: OFF</button>
+-              <button id="gpa-tele-pull" class="gpa-btn" style="flex:1;">⬇ Pull remote logs</button>
++              <button id="gpa-tele-refresh" class="gpa-btn primary" style="flex:1;">🔄 Load live users</button>
++              <button id="gpa-tele-auto" class="gpa-btn" style="flex:1;">▶ Auto-refresh: OFF</button>
+             </div>
++            <div id="gpa-tele-live" style="margin-top:8px;"></div>
+             <div id="gpa-tele-msg" class="gpa-sub" style="margin-top:4px;"></div>
+           </div>
+ 
+@@ -2203,9 +2212,8 @@
+     MAXCHARS: 'gpa_admin_maxchars',
+     TEMP: 'gpa_admin_temp',
+     LOGS: 'gpa_admin_logs',
+-    TELE_ON: 'gpa_admin_tele_on',
+-    TELE_BIN: 'gpa_admin_tele_bin',
+-    TELE_KEY: 'gpa_admin_tele_key',
++    TELE_TOKEN: 'gpa_admin_tele_token',      // admin secret (owner's device only)
++    TELE_ENDPOINT: 'gpa_admin_tele_endpoint', // worker base URL override
+     TELE_NOTICE_SEEN: 'gpa_tele_notice_seen'
+   };
+   function admGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+@@ -5035,7 +5043,7 @@
+   const NON_PROFILE_KEYS = [
+     SESSION_KEY, CLOUD_BIN_KEY, CLOUD_SECRET_KEY,
+     ADMIN_KEYS.MODEL, ADMIN_KEYS.SYSPREFIX, ADMIN_KEYS.MAXCHARS, ADMIN_KEYS.TEMP,
+-    ADMIN_KEYS.LOGS, ADMIN_KEYS.TELE_ON, ADMIN_KEYS.TELE_BIN, ADMIN_KEYS.TELE_KEY,
++    ADMIN_KEYS.LOGS, ADMIN_KEYS.TELE_TOKEN, ADMIN_KEYS.TELE_ENDPOINT,
+     ADMIN_KEYS.TELE_NOTICE_SEEN
+   ];
+ 
+@@ -5166,7 +5174,7 @@
+     // Record the open in the local usage log, and mirror it to the shared
+     // telemetry bin if the owner turned that on. Wrapped so a logging hiccup
+     // can never block a sign-in.
+-    try { logUsageEvent('open', user); } catch (e) { /* logging is best-effort */ }
++    try { logUsageEvent('open', user); startHeartbeat(); } catch (e) { /* logging is best-effort */ }
+     loginOverlay.style.display = 'none';
+     setLockedChrome(false);
+     refreshAccountUI();
+@@ -7594,36 +7602,52 @@
+     const arr = readLogs();
+     arr.push(entry);
+     writeLogs(arr);
+-    maybePushTelemetry(entry);
++    sendBeat(ev, entry.u);
+     maybeShowTelemetryNotice();
+   }
+ 
+-  // ---- Cross-device telemetry (opt-in, disclosed) ---------------------------
+-  // Sends each open to a shared JSONBin the owner configures, so opens from
+-  // OTHER people's devices land somewhere the owner can read. Read-modify-write
+-  // (JSONBin holds one record per bin). Fire-and-forget: a failed push must
+-  // never disrupt the person using the tool.
+-  function telemetryOn() { return admGet(ADMIN_KEYS.TELE_ON) === 'on'; }
+-  function telemetryCreds() {
+-    return { bin: (admGet(ADMIN_KEYS.TELE_BIN) || '').trim(), key: (admGet(ADMIN_KEYS.TELE_KEY) || '').trim() };
++  // ---- Cross-device telemetry (worker-backed) -------------------------------
++  // Each instance heartbeats to the worker's /track endpoint. The worker stores
++  // it in KV and only hands it back to a request bearing the ADMIN_TOKEN, so —
++  // unlike the old shared-key approach — the logs are genuinely owner-only and
++  // no secret ships in this public script. A per-load session id lets the
++  // worker show who is active right now. text/plain keeps the POST preflight-
++  // free. Fire-and-forget: a failed beat never surfaces to the user.
++  const TELE_SID = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
++  let heartbeatTimer = null;
++
++  function telemetryEndpoint() {
++    return ((admGet(ADMIN_KEYS.TELE_ENDPOINT) || '').trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
+   }
+-  async function maybePushTelemetry(entry) {
++  function telemetryOn() { return !!(TELEMETRY_ENABLED && telemetryEndpoint()); }
++
++  function sendBeat(event, user) {
+     if (!telemetryOn()) return;
+-    const { bin, key } = telemetryCreds();
+-    if (!bin || !key) return;
++    const payload = JSON.stringify({
++      sid: TELE_SID,
++      user: user || currentUser || 'anonymous',
++      host: location.hostname,
++      url: location.href.slice(0, 300),
++      event: event === 'open' ? 'open' : 'beat'
++    });
+     try {
+-      const cur = await fetch(`https://api.jsonbin.io/v3/b/${encodeURIComponent(bin)}/latest`, {
+-        headers: { 'X-Master-Key': key }
+-      }).then((r) => r.ok ? r.json() : null).catch(() => null);
+-      const rec = (cur && (cur.record || cur)) || {};
+-      const logs = Array.isArray(rec.logs) ? rec.logs : [];
+-      logs.push(entry);
+-      await fetch(`https://api.jsonbin.io/v3/b/${encodeURIComponent(bin)}`, {
+-        method: 'PUT',
+-        headers: { 'Content-Type': 'application/json', 'X-Master-Key': key },
+-        body: JSON.stringify({ logs: logs.slice(-2000) })
+-      });
+-    } catch (e) { /* telemetry is best-effort and must never surface to the user */ }
++      // text/plain = CORS-safelisted = no preflight. keepalive lets a beat
++      // sent as the tab closes still go out.
++      fetch(telemetryEndpoint() + '/track', {
++        method: 'POST',
++        headers: { 'Content-Type': 'text/plain' },
++        body: payload,
++        keepalive: true,
++        mode: 'cors'
++      }).catch(() => {});
++    } catch (e) { /* best-effort */ }
++  }
++
++  // While the tool is open and someone is signed in, refresh presence so the
++  // owner's "active now" list is live. Cleared if telemetry is off.
++  function startHeartbeat() {
++    if (heartbeatTimer || !telemetryOn()) return;
++    heartbeatTimer = setInterval(() => { if (currentUser) sendBeat('beat'); }, 45000);
+   }
+ 
+   // The disclosure the end user sees. Shown once per browser when telemetry is
+@@ -7756,61 +7780,91 @@
+       );
+     });
+ 
+-    // ---- Telemetry controls ----
+-    const teleBin = panel.querySelector('#gpa-tele-bin');
+-    const teleKey = panel.querySelector('#gpa-tele-key');
+-    const teleToggle = panel.querySelector('#gpa-tele-toggle');
++    // ---- Live users (worker telemetry) ----
++    const teleToken = panel.querySelector('#gpa-tele-token');
++    const teleEndpoint = panel.querySelector('#gpa-tele-endpoint');
+     const teleMsg = panel.querySelector('#gpa-tele-msg');
++    const teleLive = panel.querySelector('#gpa-tele-live');
++    const teleAutoBtn = panel.querySelector('#gpa-tele-auto');
++    let teleAutoTimer = null;
++
+     function loadTelemetryFields() {
+-      teleBin.value = admGet(ADMIN_KEYS.TELE_BIN) || '';
+-      teleKey.value = admGet(ADMIN_KEYS.TELE_KEY) || '';
+-      teleToggle.textContent = telemetryOn() ? 'Telemetry: ON' : 'Telemetry: OFF';
+-      teleToggle.classList.toggle('primary', telemetryOn());
+-    }
+-    function saveTeleCreds() {
+-      localStorage.setItem(ADMIN_KEYS.TELE_BIN, teleBin.value.trim());
+-      localStorage.setItem(ADMIN_KEYS.TELE_KEY, teleKey.value.trim());
+-    }
+-    teleBin.addEventListener('change', saveTeleCreds);
+-    teleKey.addEventListener('change', saveTeleCreds);
+-    teleToggle.addEventListener('click', () => {
+-      saveTeleCreds();
+-      const turningOn = !telemetryOn();
+-      if (turningOn && (!teleBin.value.trim() || !teleKey.value.trim())) {
+-        teleMsg.textContent = 'Add a shared Bin ID and its master key first.';
+-        return;
+-      }
+-      localStorage.setItem(ADMIN_KEYS.TELE_ON, turningOn ? 'on' : 'off');
+-      // Re-arm the end-user notice each time it's switched on, so people are
+-      // told again after any pause in collection.
+-      if (turningOn) localStorage.removeItem(ADMIN_KEYS.TELE_NOTICE_SEEN);
+-      loadTelemetryFields();
+-      teleMsg.textContent = turningOn
+-        ? 'On. Opens from every device pointed at this bin will collect here. Users see a one-time notice.'
+-        : 'Off. Only this browser is logged now.';
+-    });
+-    panel.querySelector('#gpa-tele-pull').addEventListener('click', async () => {
+-      saveTeleCreds();
+-      const bin = teleBin.value.trim(), key = teleKey.value.trim();
+-      if (!bin || !key) { teleMsg.textContent = 'Add a shared Bin ID and its master key first.'; return; }
+-      teleMsg.textContent = 'Pulling…';
++      teleToken.value = admGet(ADMIN_KEYS.TELE_TOKEN) || '';
++      teleEndpoint.value = admGet(ADMIN_KEYS.TELE_ENDPOINT) || '';
++      teleEndpoint.placeholder = 'Worker URL (blank = ' + (TELEMETRY_ENDPOINT || 'none') + ')';
++    }
++    function saveTeleFields() {
++      localStorage.setItem(ADMIN_KEYS.TELE_TOKEN, teleToken.value.trim());
++      localStorage.setItem(ADMIN_KEYS.TELE_ENDPOINT, teleEndpoint.value.trim());
++    }
++    teleToken.addEventListener('change', saveTeleFields);
++    teleEndpoint.addEventListener('change', saveTeleFields);
++
++    function ago(ms) {
++      const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
++      if (s < 60) return s + 's ago';
++      const m = Math.round(s / 60);
++      if (m < 60) return m + 'm ago';
++      const h = Math.round(m / 60);
++      return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
++    }
++    function renderLive(data) {
++      const active = data.active || [];
++      const users = data.users || [];
++      const dot = '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;margin-right:5px;box-shadow:0 0 6px #22c55e;"></span>';
++      const activeRows = active.map((s) => {
++        const where = [s.host, s.region, s.country].filter(Boolean).join(' · ');
++        return `<div class="gpa-admin-userrow">${dot}<b>${escapeHtml(s.user)}</b>`
++          + `<span>${escapeHtml(where)} · ${escapeHtml(ago(s.lastSeen))}</span></div>`;
++      }).join('');
++      const userRows = users.map((u) => {
++        const where = [u.country, u.region].filter(Boolean).join(' · ');
++        return `<div class="gpa-admin-userrow"><b>${escapeHtml(u.user)}</b>`
++          + `<span>${u.opens || 0}× · ${escapeHtml(where)} · last ${escapeHtml(ago(u.lastSeen))}</span></div>`;
++      }).join('');
++      teleLive.innerHTML =
++        `<div class="gpa-admin-statcard" style="margin-bottom:8px;"><span class="n">${data.activeCount || 0}</span><div class="l">active right now</div></div>`
++        + `<div class="gpa-sub" style="margin:4px 0;">Active now</div>`
++        + `<div class="gpa-admin-users">${activeRows || '<div class="gpa-sub">Nobody active in the last few minutes.</div>'}</div>`
++        + `<div class="gpa-sub" style="margin:10px 0 4px;">Everyone who has ever opened it (${users.length})</div>`
++        + `<div class="gpa-admin-users">${userRows || '<div class="gpa-sub">No users recorded yet.</div>'}</div>`;
++    }
++    async function loadLive() {
++      saveTeleFields();
++      const token = teleToken.value.trim();
++      const base = (teleEndpoint.value.trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
++      if (!base) { teleMsg.textContent = 'No worker URL configured.'; return; }
++      if (!token) { teleMsg.textContent = 'Enter your admin token (the worker\'s ADMIN_TOKEN).'; return; }
++      teleMsg.textContent = 'Loading…';
+       try {
+-        const json = await fetch(`https://api.jsonbin.io/v3/b/${encodeURIComponent(bin)}/latest`, {
+-          headers: { 'X-Master-Key': key }
+-        }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+-        const rec = (json && (json.record || json)) || {};
+-        const remote = Array.isArray(rec.logs) ? rec.logs : [];
+-        // Merge remote into the local view, de-duped by user+event+timestamp.
+-        const seen = new Set(readLogs().map((l) => l.u + '|' + l.ev + '|' + l.ts));
+-        const merged = readLogs();
+-        remote.forEach((l) => { const id = l.u + '|' + l.ev + '|' + l.ts; if (!seen.has(id)) { seen.add(id); merged.push(l); } });
+-        merged.sort((a, b) => a.ts - b.ts);
+-        writeLogs(merged);
+-        renderUsage();
+-        teleMsg.textContent = `Pulled ${remote.length} remote entr${remote.length === 1 ? 'y' : 'ies'}.`;
++        const res = await fetch(base + '/admin/summary?token=' + encodeURIComponent(token));
++        const data = await res.json().catch(() => ({}));
++        if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
++        renderLive(data);
++        teleMsg.textContent = `Updated ${new Date().toLocaleTimeString()} · ${data.activeCount || 0} active, ${(data.users || []).length} total.`;
+       } catch (e) {
+-        teleMsg.textContent = 'Pull failed: ' + e.message;
++        teleMsg.textContent = 'Could not load: ' + e.message
++          + (/unauthorized/i.test(e.message) ? ' (token doesn\'t match the worker\'s ADMIN_TOKEN)' : '')
++          + (/not set|not bound/i.test(e.message) ? ' — finish the worker setup in the README.' : '');
+       }
++    }
++    panel.querySelector('#gpa-tele-refresh').addEventListener('click', loadLive);
++    teleAutoBtn.addEventListener('click', () => {
++      if (teleAutoTimer) {
++        clearInterval(teleAutoTimer); teleAutoTimer = null;
++        teleAutoBtn.textContent = '▶ Auto-refresh: OFF';
++        teleAutoBtn.classList.remove('primary');
++      } else {
++        loadLive();
++        teleAutoTimer = setInterval(loadLive, 15000);
++        teleAutoBtn.textContent = '⏸ Auto-refresh: ON';
++        teleAutoBtn.classList.add('primary');
++      }
++    });
++    // Stop auto-refresh when the admin panel is locked, so it doesn't poll
++    // forever in the background.
++    panel.querySelector('#gpa-admin-lock').addEventListener('click', () => {
++      if (teleAutoTimer) { clearInterval(teleAutoTimer); teleAutoTimer = null; teleAutoBtn.textContent = '▶ Auto-refresh: OFF'; teleAutoBtn.classList.remove('primary'); }
+     });
+ 
+     // ---- Power tools ----
+diff --git a/worker.js b/worker.js
+index 18580da..ebfd1f8 100644
+--- a/worker.js
++++ b/worker.js
+@@ -13,13 +13,17 @@
+ //                        is not allowed to fetch (CORS). HTML/text only.
+ 
+ export default {
+-  async fetch(req) {
++  async fetch(req, env) {
+     const cors = {
+       'Access-Control-Allow-Origin': '*',
+       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+       'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key',
+       'Access-Control-Max-Age': '86400'
+     };
++    const json = (obj, status) => new Response(JSON.stringify(obj), {
++      status: status || 200,
++      headers: { ...cors, 'Content-Type': 'application/json' }
++    });
+ 
+     if (req.method === 'OPTIONS') {
+       return new Response(null, { status: 204, headers: cors });
+@@ -27,6 +31,101 @@ export default {
+ 
+     const url = new URL(req.url);
+ 
++    // ==== Usage telemetry (Cloudflare KV) ================================
++    //
++    // Backed by a KV namespace you bind as `TELEMETRY` in the Cloudflare
++    // dashboard, and an admin secret you set as the `ADMIN_TOKEN` variable.
++    // Neither the KV nor the token is ever exposed to the browser: users can
++    // only WRITE their own heartbeat (/track), and only a request bearing the
++    // ADMIN_TOKEN can READ the logs (/admin/*). That is real, server-side
++    // access control — unlike a key placed in the public script, which anyone
++    // could read. Presence ("active now") is a per-session KV key with a short
++    // TTL, so a user drops off the live list on their own ~2.5 min after their
++    // last heartbeat, with no cleanup job.
++    const SESSION_TTL = 150;        // seconds a session counts as "active"
++
++    if (url.pathname === '/track' && req.method === 'POST') {
++      const kv = env && env.TELEMETRY;
++      if (!kv) return json({ ok: false, error: 'telemetry KV not bound' }, 200);
++      // text/plain body so the browser sends no CORS preflight.
++      let body = {};
++      try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
++      const clip = (v, n) => String(v == null ? '' : v).slice(0, n);
++      const user = clip(body.user || 'anonymous', 80);
++      const sid = clip(body.sid, 60) || crypto.randomUUID();
++      const now = Date.now();
++      const cf = req.cf || {};
++      const rec = {
++        user,
++        host: clip(body.host, 120),
++        url: clip(body.url, 300),
++        country: cf.country || '??',
++        region: clip(cf.region || cf.city || '', 60),
++        lastSeen: now
++      };
++      try {
++        // Presence: expires on its own -> "active now" needs no cleanup.
++        await kv.put('session:' + sid, JSON.stringify(rec), { expirationTtl: SESSION_TTL });
++        // All-time rollup, refreshed on the "open" event (not every beat) to
++        // stay well inside KV's free-tier write budget.
++        if (body.event === 'open') {
++          const uKey = 'user:' + user.toLowerCase();
++          const prev = await kv.get(uKey, 'json');
++          await kv.put(uKey, JSON.stringify({
++            user,
++            host: rec.host,
++            country: rec.country,
++            region: rec.region,
++            firstSeen: (prev && prev.firstSeen) || now,
++            lastSeen: now,
++            opens: ((prev && prev.opens) || 0) + 1
++          }));
++        }
++      } catch (e) { return json({ ok: false }, 200); }
++      return new Response(null, { status: 204, headers: cors });
++    }
++
++    if (url.pathname === '/admin/summary' && req.method === 'GET') {
++      const kv = env && env.TELEMETRY;
++      const ADMIN = (env && env.ADMIN_TOKEN) || '';
++      if (!kv) return json({ error: 'telemetry KV not bound on the worker' }, 500);
++      if (!ADMIN) return json({ error: 'ADMIN_TOKEN not set on the worker' }, 500);
++      if ((url.searchParams.get('token') || '') !== ADMIN) return json({ error: 'unauthorized' }, 401);
++
++      const active = [];
++      const sess = await kv.list({ prefix: 'session:' });
++      for (const k of sess.keys) { const v = await kv.get(k.name, 'json'); if (v) active.push(v); }
++      const users = [];
++      const ul = await kv.list({ prefix: 'user:' });
++      for (const k of ul.keys) { const v = await kv.get(k.name, 'json'); if (v) users.push(v); }
++
++      // Collapse multiple live sessions from one user into a single presence.
++      const activeByUser = {};
++      active.forEach((s) => {
++        const u = activeByUser[s.user];
++        if (!u || s.lastSeen > u.lastSeen) activeByUser[s.user] = s;
++      });
++      return json({
++        now: Date.now(),
++        activeCount: Object.keys(activeByUser).length,
++        active: Object.values(activeByUser).sort((a, b) => b.lastSeen - a.lastSeen),
++        users: users.sort((a, b) => b.lastSeen - a.lastSeen)
++      });
++    }
++
++    if (url.pathname === '/admin/clear' && req.method === 'POST') {
++      const kv = env && env.TELEMETRY;
++      const ADMIN = (env && env.ADMIN_TOKEN) || '';
++      if (!kv) return json({ error: 'telemetry KV not bound' }, 500);
++      if (!ADMIN || (url.searchParams.get('token') || '') !== ADMIN) return json({ error: 'unauthorized' }, 401);
++      let deleted = 0;
++      for (const prefix of ['session:', 'user:']) {
++        const list = await kv.list({ prefix });
++        for (const k of list.keys) { await kv.delete(k.name); deleted++; }
++      }
++      return json({ ok: true, deleted });
++    }
++
+     // ---- /read?url=… : server-side page fetch for research mode ----
+     if (url.pathname === '/read') {
+       const target = url.searchParams.get('url');
+-- 
+2.43.0
+
+
+From e362e98a1f5a0c299b26e5d32bd249ea52be5cd2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 13 Sep 2026 20:52:21 +0000
+Subject: [PATCH 6/6] Add owner moderation: block, lock, kick +
+ blocked-by-owner page
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+From the admin Live view, each user row now has Block / Lock / Kick
+controls (with an optional message to show the user).
+
+Worker:
+- mod:<user> state in KV (active | blocked | locked + kickNonce + reason).
+- POST /admin/moderate (token-gated) sets it; GET /status?user= is a
+  read-only poll for clients; /track returns the caller's state on every
+  beat; /admin/summary stamps each user with their state.
+- The /v1 OpenAI proxy checks the caller's X-GPA-User against the block
+  list and returns 403 blocked_by_owner — the one piece of enforcement a
+  user can't edit out of their own browser.
+
+Client:
+- Polls /status every 15s (and reads it off each heartbeat). Blocked ->
+  full-screen "Blocked by the owner" overlay + local AI cut-off (so
+  Gemini, which bypasses the worker, is stopped too). Locked -> lighter
+  freeze overlay. Kick (nonce bump past this session's baseline) -> forced
+  sign-out with a message. Sends X-GPA-User on proxy calls.
+- explainError surfaces the block reason instead of a generic message.
+
+The honest limits are documented in the README and the panel: client-side
+controls can be edited out by a determined user; the server-side proxy
+gate is the real tooth, but can't cover Gemini or direct-mode/own-key use.
+
+Tested: worker moderation against a mock KV (state set/read, token gate,
+proxy 403 for blocked + pass-through for others, kick nonce, track/summary
+state) and the client in Chromium (block shows the page with reason and
+refuses AI, unblock clears it, kick signs out).
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019GqTQm8E1znRkM37YVj6K7
+---
+ README.md |  13 +++++
+ script.js | 165 ++++++++++++++++++++++++++++++++++++++++++++++++++----
+ worker.js |  75 +++++++++++++++++++++++--
+ 3 files changed, 237 insertions(+), 16 deletions(-)
+
+diff --git a/README.md b/README.md
+index ed2d146..45c40e1 100644
+--- a/README.md
++++ b/README.md
+@@ -114,6 +114,18 @@ In the Cloudflare dashboard, on the same Worker you deploy `worker.js` to:
+ 
+ Until KV and `ADMIN_TOKEN` are set, `/track` just no-ops and the Live view tells you what's missing — the OpenAI proxy and everything else keep working regardless. Cloudflare's free tier covers a KV namespace and comfortably handles a personal-scale user base; heartbeats are throttled (presence refresh every 45s, all-time rollup only on open) to stay well inside the free write limits.
+ 
++#### Moderating users
++
++Every row in the Live view has **Block**, **Lock**, and **Kick** buttons (Block and Lock flip to Unblock/Unlock once set). Each writes a moderation state to your Worker's KV against that username:
++
++- **Block** — the user gets a full-screen "Blocked by the owner" page with your optional message, and can't use the AI features. Persists until you unblock.
++- **Lock** — a lighter "Locked by the owner" overlay that freezes their panel; meant for a temporary pause.
++- **Kick** — forces a one-time sign-out. They can sign back in unless they're also blocked.
++
++Every client polls its own status every 15 seconds (and gets it on each heartbeat), so an action lands within about that long.
++
++**Be clear-eyed about what enforcement means here.** This is JavaScript running in someone else's browser, so the block page, the lock, and the kick are *client-side* — a technically capable user could edit them out of their own copy. The part that genuinely bites is server-side: your Worker refuses to proxy OpenAI requests for a blocked user (it checks the `X-GPA-User` the client sends against the block list and returns `403`). So a blocked user loses the OpenAI features for real. The gaps, stated plainly: it can't stop Gemini (the browser calls Google directly, not through your Worker) or someone running in direct mode with their own key, and a spoofed username sidesteps the proxy check. For a personal tool shared with friends and classmates this is plenty; it is not a hardened access-control system, and nothing client-side ever can be.
++
+ ### Browser
+ A plain iframe with a URL bar. It only loads sites that allow being embedded — banks, most social apps, and SoundCloud's own site set `X-Frame-Options` or CSP `frame-ancestors` to prevent it. That's a protection those sites deliberately set, and this script makes no attempt to circumvent it.
+ 
+@@ -147,6 +159,7 @@ An optional Cloudflare Worker that does two small things the browser can't do on
+ - **`/read?url=…`** — fetches a page server-side and returns its HTML, so research mode can read sources the browser isn't allowed to fetch cross-origin. HTML and plain text only, capped at 3MB.
+ - **`/track`** — receives usage heartbeats and stores them in the `TELEMETRY` KV namespace (a short-TTL session key for presence, a per-user rollup on open). No-ops if KV isn't bound.
+ - **`/admin/summary`** and **`/admin/clear`** — return or wipe the usage logs, but only for a request whose `?token=` matches the Worker's `ADMIN_TOKEN` env var. This is where the owner-only access control actually lives.
++- **`/status?user=`** — read-only current moderation state for one user; clients poll it. **`/admin/moderate`** — token-gated; sets a user's state to blocked / locked / active or bumps their kick counter. The `/v1/*` proxy also checks the caller's `X-GPA-User` against the block list and returns `403` for a blocked user.
+ 
+ ### Deploying it
+ 
+diff --git a/script.js b/script.js
+index 31ae3f8..631fe51 100644
+--- a/script.js
++++ b/script.js
+@@ -2461,6 +2461,10 @@
+     if (OPENAI_PROXY) {
+       headers['X-GPA-Key'] = key;
+       payload._gpa_key = key;
++      // Tells the worker who is asking, so it can refuse a blocked user. Only
++      // an identifier — never the key. Best-effort: a modified client could
++      // omit it, which is why blocking is "soft"; see the admin console note.
++      if (typeof currentUser !== 'undefined' && currentUser) headers['X-GPA-User'] = currentUser;
+     }
+     const endpoint = OPENAI_PROXY
+       ? `${OPENAI_PROXY}/v1/chat/completions`
+@@ -2520,6 +2524,7 @@
+ 
+   // Dispatches to whichever provider is selected in the Theme tab.
+   async function callAI(userText, systemText, imageDataUrls) {
++    if (aiBlocked) throw new Error('Access to this tool has been blocked by the owner.');
+     const provider = localStorage.getItem(PROVIDER_KEY) || 'gemini';
+     // Order matters: admin standing instructions, then saved context, then the
+     // caller's own system text LAST — the JSON-only rules several callers rely
+@@ -2556,6 +2561,7 @@
+     const statusMatch = msg.match(/\((\d{3})\)/);
+     const status = statusMatch ? statusMatch[1] : null;
+ 
++    if (/blocked by the owner|blocked_by_owner/i.test(msg)) return 'Your access to this tool has been blocked by the owner.';
+     if (/No .*API key provided/i.test(msg)) return 'No API key entered yet — try again and paste one when prompted.';
+     if (/cannot be sent in a request header|Invalid value|refused header/i.test(msg)) {
+       return 'Your saved API key has hidden characters in it — that happens when it is copied out of a styled page or document. Clear the key in Settings, then paste it again.';
+@@ -7615,6 +7621,10 @@
+   // free. Fire-and-forget: a failed beat never surfaces to the user.
+   const TELE_SID = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+   let heartbeatTimer = null;
++  // Set true while this user is blocked, so callAI refuses locally too — the
++  // worker already refuses the OpenAI proxy, but Gemini goes direct to Google
++  // and only this client-side guard stops it.
++  let aiBlocked = false;
+ 
+   function telemetryEndpoint() {
+     return ((admGet(ADMIN_KEYS.TELE_ENDPOINT) || '').trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
+@@ -7639,15 +7649,99 @@
+         body: payload,
+         keepalive: true,
+         mode: 'cors'
+-      }).catch(() => {});
++      }).then((r) => (r.ok ? r.json() : null)).then((s) => { if (s) applyModeration(s); }).catch(() => {});
+     } catch (e) { /* best-effort */ }
+   }
+ 
+   // While the tool is open and someone is signed in, refresh presence so the
+-  // owner's "active now" list is live. Cleared if telemetry is off.
++  // owner's "active now" list is live, and poll moderation status so a
++  // block/lock/kick reaches them quickly. Cleared if telemetry is off.
+   function startHeartbeat() {
+     if (heartbeatTimer || !telemetryOn()) return;
+     heartbeatTimer = setInterval(() => { if (currentUser) sendBeat('beat'); }, 45000);
++    startStatusPolling();
++  }
++
++  // ---- Owner moderation (block / lock / kick) enforcement -------------------
++  // The owner sets a user's state from the admin console; every client polls
++  // its own status and applies it. Honest limitation: this runs in the user's
++  // own browser, so a determined user could edit it out. The real, un-editable
++  // lever is the worker refusing to proxy AI for a blocked user (see worker).
++  let statusTimer = null;
++  let modBaselineKick = null;   // kick counter we've already acted on this load
++  let modOverlayEl = null;
++
++  function startStatusPolling() {
++    if (statusTimer || !telemetryOn()) return;
++    statusTimer = setInterval(pollStatus, 15000);
++    pollStatus();
++  }
++  async function pollStatus() {
++    if (!telemetryOn() || !currentUser) return;
++    try {
++      const res = await fetch(telemetryEndpoint() + '/status?user=' + encodeURIComponent(currentUser));
++      if (!res.ok) return;
++      applyModeration(await res.json());
++    } catch (e) { /* best-effort */ }
++  }
++
++  function applyModeration(s) {
++    if (!s || typeof s !== 'object') return;
++    if (typeof s.kickNonce === 'number') {
++      // Baseline on the first status we see, so an old kick doesn't fire on
++      // load — only a kick issued while this session is live boots them.
++      if (modBaselineKick === null) modBaselineKick = s.kickNonce;
++      else if (s.kickNonce > modBaselineKick) {
++        modBaselineKick = s.kickNonce;
++        doKick(s.reason);
++        return;
++      }
++    }
++    if (s.state === 'blocked') showModOverlay('blocked', s.reason);
++    else if (s.state === 'locked') showModOverlay('locked', s.reason);
++    else hideModOverlay();
++  }
++
++  function showModOverlay(kind, reason) {
++    const t = THEMES[theme] || THEMES.dark;
++    if (getComputedStyle(panel).position === 'static') panel.style.position = 'relative';
++    if (!modOverlayEl) {
++      modOverlayEl = document.createElement('div');
++      modOverlayEl.style.cssText = 'position:absolute;inset:0;z-index:2147483000;display:flex;'
++        + 'flex-direction:column;align-items:center;justify-content:center;text-align:center;'
++        + 'padding:24px;gap:10px;backdrop-filter:blur(3px);';
++      panel.appendChild(modOverlayEl);
++    }
++    const blocked = kind === 'blocked';
++    modOverlayEl.style.background = blocked ? 'rgba(20,4,4,0.94)' : 'rgba(10,10,16,0.92)';
++    modOverlayEl.style.border = `2px solid ${blocked ? '#e5453a' : t.accent}`;
++    modOverlayEl.innerHTML =
++      `<div style="font-size:40px;">${blocked ? '⛔' : '🔒'}</div>`
++      + `<div style="font:700 15px/1.3 ui-monospace,monospace;color:${blocked ? '#ff6b6b' : t.accent};">`
++      + `${blocked ? 'Blocked by the owner' : 'Locked by the owner'}</div>`
++      + `<div style="font:12px/1.5 ui-monospace,monospace;color:#e8e8ea;max-width:280px;">`
++      + `${reason ? escapeHtml(reason) : (blocked ? 'Your access to this tool has been turned off.' : 'This tool is temporarily locked. Check back later.')}</div>`;
++    modOverlayEl.style.display = 'flex';
++    // Blocking should also cut AI use immediately, not just cover the panel.
++    aiBlocked = blocked;
++  }
++  function hideModOverlay() {
++    aiBlocked = false;
++    if (modOverlayEl) modOverlayEl.style.display = 'none';
++  }
++  function doKick(reason) {
++    hideModOverlay();
++    try { if (typeof saveProgress === 'function') saveProgress(); } catch (e) { /* ignore */ }
++    currentUser = null;
++    try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
++    if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
++    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
++    if (typeof refreshAccountUI === 'function') refreshAccountUI();
++    if (loginOverlay) loginOverlay.style.display = 'flex';
++    if (typeof setLockedChrome === 'function') setLockedChrome(true);
++    if (typeof showLoginMsg === 'function') {
++      showLoginMsg('You were signed out by the owner.' + (reason ? ' ' + reason : ''), true);
++    }
+   }
+ 
+   // The disclosure the end user sees. Shown once per browser when telemetry is
+@@ -7808,20 +7902,38 @@
+       const h = Math.round(m / 60);
+       return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
+     }
++    function stateBadge(state) {
++      if (state === 'blocked') return '<span style="color:#ff6b6b;font-weight:700;">⛔ blocked</span>';
++      if (state === 'locked') return '<span style="color:#eab308;font-weight:700;">🔒 locked</span>';
++      return '';
++    }
++    // The moderation buttons for one user, keyed by username via data-attrs.
++    function modButtons(user, state) {
++      const b = (action, label, title) =>
++        `<button class="gpa-btn gpa-mod-btn" data-mod-user="${escapeHtml(user)}" data-mod-action="${action}" title="${title}"`
++        + ` style="font-size:9px;padding:2px 6px;">${label}</button>`;
++      const parts = [];
++      if (state === 'blocked') parts.push(b('unblock', '✅ Unblock', 'Restore access'));
++      else parts.push(b('block', '⛔ Block', 'Blocked-by-owner page + cut off AI'));
++      if (state === 'locked') parts.push(b('unlock', '🔓 Unlock', 'Remove the lock'));
++      else if (state !== 'blocked') parts.push(b('lock', '🔒 Lock', 'Temporarily freeze their panel'));
++      parts.push(b('kick', '👢 Kick', 'Force a one-time sign-out'));
++      return `<div class="gpa-row" style="gap:4px;margin-top:4px;flex-wrap:wrap;">${parts.join('')}</div>`;
++    }
+     function renderLive(data) {
+       const active = data.active || [];
+       const users = data.users || [];
+       const dot = '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;margin-right:5px;box-shadow:0 0 6px #22c55e;"></span>';
+-      const activeRows = active.map((s) => {
+-        const where = [s.host, s.region, s.country].filter(Boolean).join(' · ');
+-        return `<div class="gpa-admin-userrow">${dot}<b>${escapeHtml(s.user)}</b>`
+-          + `<span>${escapeHtml(where)} · ${escapeHtml(ago(s.lastSeen))}</span></div>`;
+-      }).join('');
+-      const userRows = users.map((u) => {
+-        const where = [u.country, u.region].filter(Boolean).join(' · ');
+-        return `<div class="gpa-admin-userrow"><b>${escapeHtml(u.user)}</b>`
+-          + `<span>${u.opens || 0}× · ${escapeHtml(where)} · last ${escapeHtml(ago(u.lastSeen))}</span></div>`;
+-      }).join('');
++      const row = (name, meta, state) =>
++        `<div class="gpa-admin-userrow" style="flex-direction:column;align-items:stretch;">`
++        + `<div class="gpa-row" style="justify-content:space-between;gap:8px;">`
++        + `<span>${dot}<b>${escapeHtml(name)}</b> ${stateBadge(state)}</span>`
++        + `<span style="opacity:0.8;">${escapeHtml(meta)}</span></div>`
++        + modButtons(name, state) + `</div>`;
++      const activeRows = active.map((s) =>
++        row(s.user, [s.host, s.region, s.country].filter(Boolean).join(' · ') + ' · ' + ago(s.lastSeen), s.state)).join('');
++      const userRows = users.map((u) =>
++        row(u.user, (u.opens || 0) + '× · ' + [u.country, u.region].filter(Boolean).join(' · ') + ' · last ' + ago(u.lastSeen), u.state)).join('');
+       teleLive.innerHTML =
+         `<div class="gpa-admin-statcard" style="margin-bottom:8px;"><span class="n">${data.activeCount || 0}</span><div class="l">active right now</div></div>`
+         + `<div class="gpa-sub" style="margin:4px 0;">Active now</div>`
+@@ -7829,6 +7941,35 @@
+         + `<div class="gpa-sub" style="margin:10px 0 4px;">Everyone who has ever opened it (${users.length})</div>`
+         + `<div class="gpa-admin-users">${userRows || '<div class="gpa-sub">No users recorded yet.</div>'}</div>`;
+     }
++
++    // One delegated handler for every moderation button.
++    async function moderate(user, action) {
++      const token = teleToken.value.trim();
++      const base = (teleEndpoint.value.trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
++      if (!token || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
++      let reason = '';
++      if (action === 'block' || action === 'lock' || action === 'kick') {
++        reason = prompt(`Message to show ${user} (optional):`, '') || '';
++      }
++      teleMsg.textContent = `${action} ${user}…`;
++      try {
++        const res = await fetch(base + '/admin/moderate?token=' + encodeURIComponent(token), {
++          method: 'POST', headers: { 'Content-Type': 'text/plain' },
++          body: JSON.stringify({ user, action, reason })
++        });
++        const data = await res.json().catch(() => ({}));
++        if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
++        teleMsg.textContent = `${user}: ${action} done.`;
++        loadLive();
++      } catch (e) {
++        teleMsg.textContent = 'Action failed: ' + e.message;
++      }
++    }
++    teleLive.addEventListener('click', (e) => {
++      const btn = e.target.closest('.gpa-mod-btn');
++      if (!btn) return;
++      moderate(btn.dataset.modUser, btn.dataset.modAction);
++    });
+     async function loadLive() {
+       saveTeleFields();
+       const token = teleToken.value.trim();
+diff --git a/worker.js b/worker.js
+index ebfd1f8..5e6c0ca 100644
+--- a/worker.js
++++ b/worker.js
+@@ -17,7 +17,7 @@ export default {
+     const cors = {
+       'Access-Control-Allow-Origin': '*',
+       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+-      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key',
++      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GPA-Key, X-GPA-User',
+       'Access-Control-Max-Age': '86400'
+     };
+     const json = (obj, status) => new Response(JSON.stringify(obj), {
+@@ -25,6 +25,15 @@ export default {
+       headers: { ...cors, 'Content-Type': 'application/json' }
+     });
+ 
++    // Moderation state for one user: active (default), blocked, or locked,
++    // plus a kick counter the client compares against to force a one-time
++    // sign-out. Read wherever we need to enforce or report it.
++    const getMod = async (kv, user) => {
++      if (!kv || !user) return { state: 'active', reason: '', kickNonce: 0 };
++      const m = await kv.get('mod:' + String(user).toLowerCase(), 'json');
++      return m || { state: 'active', reason: '', kickNonce: 0 };
++    };
++
+     if (req.method === 'OPTIONS') {
+       return new Response(null, { status: 204, headers: cors });
+     }
+@@ -82,7 +91,44 @@ export default {
+           }));
+         }
+       } catch (e) { return json({ ok: false }, 200); }
+-      return new Response(null, { status: 204, headers: cors });
++      // Hand the caller its own moderation state back on every beat, so a
++      // block/lock/kick reaches them within one heartbeat even without the
++      // separate /status poll.
++      const mod = await getMod(kv, user);
++      return json({ ok: true, state: mod.state || 'active', reason: mod.reason || '', kickNonce: mod.kickNonce || 0 });
++    }
++
++    // Read-only status for one user — the client polls this so a block takes
++    // effect fast without waiting for the next (write-costing) heartbeat.
++    if (url.pathname === '/status' && req.method === 'GET') {
++      const kv = env && env.TELEMETRY;
++      const mod = await getMod(kv, url.searchParams.get('user') || '');
++      return json({ state: mod.state || 'active', reason: mod.reason || '', kickNonce: mod.kickNonce || 0 });
++    }
++
++    // Owner sets a user's moderation state. Token-gated like the other admin
++    // routes, so only the owner can call it.
++    if (url.pathname === '/admin/moderate' && req.method === 'POST') {
++      const kv = env && env.TELEMETRY;
++      const ADMIN = (env && env.ADMIN_TOKEN) || '';
++      if (!kv) return json({ error: 'telemetry KV not bound' }, 500);
++      if (!ADMIN || (url.searchParams.get('token') || '') !== ADMIN) return json({ error: 'unauthorized' }, 401);
++      let body = {};
++      try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
++      const user = String(body.user || '').toLowerCase().slice(0, 80);
++      if (!user) return json({ error: 'no user' }, 400);
++      const key = 'mod:' + user;
++      const cur = (await kv.get(key, 'json')) || { state: 'active', reason: '', kickNonce: 0 };
++      const action = body.action;
++      if (action === 'block') cur.state = 'blocked';
++      else if (action === 'lock') cur.state = 'locked';
++      else if (action === 'unblock' || action === 'unlock' || action === 'reset') cur.state = 'active';
++      else if (action === 'kick') cur.kickNonce = (cur.kickNonce || 0) + 1;
++      else return json({ error: 'unknown action' }, 400);
++      cur.reason = String(body.reason || '').slice(0, 300);
++      cur.updatedAt = Date.now();
++      await kv.put(key, JSON.stringify(cur));
++      return json({ ok: true, user, mod: cur });
+     }
+ 
+     if (url.pathname === '/admin/summary' && req.method === 'GET') {
+@@ -99,17 +145,25 @@ export default {
+       const ul = await kv.list({ prefix: 'user:' });
+       for (const k of ul.keys) { const v = await kv.get(k.name, 'json'); if (v) users.push(v); }
+ 
++      // Moderation states, so the admin sees who's blocked/locked at a glance.
++      const mods = {};
++      const ml = await kv.list({ prefix: 'mod:' });
++      for (const k of ml.keys) { const v = await kv.get(k.name, 'json'); if (v) mods[k.name.slice(4)] = v; }
++      const stateOf = (u) => (mods[String(u).toLowerCase()] || {}).state || 'active';
++      const reasonOf = (u) => (mods[String(u).toLowerCase()] || {}).reason || '';
++
+       // Collapse multiple live sessions from one user into a single presence.
+       const activeByUser = {};
+       active.forEach((s) => {
+         const u = activeByUser[s.user];
+         if (!u || s.lastSeen > u.lastSeen) activeByUser[s.user] = s;
+       });
++      const stamp = (arr) => arr.map((x) => ({ ...x, state: stateOf(x.user), reason: reasonOf(x.user) }));
+       return json({
+         now: Date.now(),
+         activeCount: Object.keys(activeByUser).length,
+-        active: Object.values(activeByUser).sort((a, b) => b.lastSeen - a.lastSeen),
+-        users: users.sort((a, b) => b.lastSeen - a.lastSeen)
++        active: stamp(Object.values(activeByUser).sort((a, b) => b.lastSeen - a.lastSeen)),
++        users: stamp(users.sort((a, b) => b.lastSeen - a.lastSeen))
+       });
+     }
+ 
+@@ -163,6 +217,19 @@ export default {
+     }
+ 
+     // ---- /v1/* : forward to OpenAI ----
++    // Server-side moderation tooth: a blocked user is refused here, so blocking
++    // actually costs them the AI features rather than only hiding the panel.
++    // The client sends its signed-in name as X-GPA-User. (This can't gate
++    // Gemini, which the browser calls directly, or a user who supplies their
++    // own key in direct mode — those bypass the worker entirely.)
++    const modUser = req.headers.get('X-GPA-User');
++    if (modUser && env && env.TELEMETRY) {
++      const m = await getMod(env.TELEMETRY, modUser);
++      if (m.state === 'blocked') {
++        return json({ error: { message: 'Access to this tool has been blocked by the owner.' + (m.reason ? ' ' + m.reason : ''), type: 'blocked_by_owner' } }, 403);
++      }
++    }
++
+     // The key can arrive four ways, tried in this order:
+     //   1. a normal Authorization header
+     //   2. the X-GPA-Key header    — for pages that rewrite Authorization
+-- 
+2.43.0

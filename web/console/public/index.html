@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Saints Service">
+<meta name="application-name" content="Saints Service">
+<meta name="theme-color" content="#0b0c0f">
+<meta name="description" content="Saints Service as a full-screen app: Ask AI, Chat, Music, Games, Study, Notes, Eaglercraft and more.">
+<link rel="manifest" href="/console/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/console/icon-180.png">
+<link rel="icon" type="image/png" href="/console/icon-192.png">
+<link rel="stylesheet" href="/console/app.css">
+<title>Saints Service</title>
+<script src="/console/app.js" defer></script>
+</head>
+<body>
+<main class="boot" id="boot" aria-live="polite">
+  <img src="/console/icon-192.png" alt="" width="72" height="72">
+  <h1>Saints Service</h1>
+  <p id="boot-msg">Loading…</p>
+  <button id="boot-retry" type="button" hidden>Try again</button>
+  <section class="install" id="install" hidden>
+    <h2>Install on your iPhone</h2>
+    <ol>
+      <li>Open this page in <strong>Safari</strong>.</li>
+      <li>Tap the <strong>Share</strong> button.</li>
+      <li>Choose <strong>Add to Home Screen</strong>.</li>
+      <li>Keep <strong>Open as Web App</strong> on, then tap <strong>Add</strong>.</li>
+    </ol>
+    <button id="install-continue" type="button">Continue in the browser</button>
+  </section>
+</main>
+<noscript><p class="boot">Saints Service needs JavaScript.</p></noscript>
+</body>
+</html>

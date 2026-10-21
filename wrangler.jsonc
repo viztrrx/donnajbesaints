@@ -1,0 +1,56 @@
+// Cloudflare deployment for worker.js (the "donnajbe" Worker).
+// Cloudflare Workers Builds runs `npx wrangler deploy` on every push to main.
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "donnajbe",
+	"main": "worker.js",
+	"compatibility_date": "2026-09-01",
+	// Serves https://donnajbe.viztrrx.workers.dev (the URL script.js uses).
+	"workers_dev": true,
+	// Plain-text variables set in the dashboard (OWNER, EAGLER_CLIENT and the
+	// other EAGLER_* settings, ALLOW_QUERY_TOKEN) are kept on deploy instead of
+	// being wiped. Secrets (ADMIN_TOKEN, COADMIN_TOKEN, OWNER_CODE) are always
+	// kept by `wrangler deploy`; set them in the dashboard, never here.
+	"keep_vars": true,
+	// The owner's username. Set here (not only in the dashboard) so a deploy
+	// always uses it: a value here replaces the dashboard's OWNER on deploy.
+	// Changed from viztrrx to ivan on 2026-10-20 at the owner's request.
+	"vars": {
+		"OWNER": "ivan"
+	},
+	// Accounts, sessions, AI memory, chat, moderation, telemetry and the admin
+	// console all store their data here (env.TELEMETRY in worker.js). This is
+	// the existing namespace; a deploy without it would drop the binding.
+	"kv_namespaces": [
+		{
+			"binding": "TELEMETRY",
+			"id": "cebe1a618cba45278f6784bd53f0d59f"
+		}
+	],
+	"previews": {
+		"kv_namespaces": [
+			{
+				"binding": "TELEMETRY",
+				"id": "cebe1a618cba45278f6784bd53f0d59f"
+			}
+		]
+	},
+	"r2_buckets": [
+		{
+			"bucket_name": "donnajbe-eaglercraft-client",
+			"binding": "donnajbe_eaglercraft_client",
+			"remote": true
+		}
+	],
+	// ADMIN_MOBILE: Saints Command state. CHAT_ROOMS: one consistent log per
+	// chat room (chat/room.js), so messages sent at once can't erase each other.
+	"durable_objects": {"bindings": [{"name":"ADMIN_MOBILE","class_name":"AdminMobileState"},{"name":"CHAT_ROOMS","class_name":"ChatRoom"}]},
+	"migrations": [{"tag":"admin-mobile-v1","new_sqlite_classes":["AdminMobileState"]},{"tag":"chat-rooms-v1","new_sqlite_classes":["ChatRoom"]}],
+	// Cron triggers (worker.js `scheduled`). Listing them here replaces any set
+	// in the dashboard, so both are kept here:
+	//   "0 5 * * *"    daily jobs (chat cleanup, memory maintenance)
+	//   "*/5 * * * *"  the owner's "Who's online" notification notices people
+	//                  leaving (does nothing unless a phone turned it on), and
+	//                  the daily summary goes out at 12 PM New York time
+	"triggers": { "crons": ["0 5 * * *", "*/5 * * * *"] }
+}

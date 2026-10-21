@@ -1,0 +1,2613 @@
+{
+  "anvil_base": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "anvil_top_damaged_0": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "anvil_top_damaged_1": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "anvil_top_damaged_2": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "beacon": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "bed_feet_end": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "bed_feet_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "bed_feet_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "bed_head_end": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "bed_head_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "bed_head_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "bedrock": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "bookshelf": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "brewing_stand": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "brewing_stand_base": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "brick": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cactus_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cactus_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cactus_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cake_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cake_inner": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cake_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cake_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "carrots_stage_0": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "carrots_stage_1": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "carrots_stage_2": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "carrots_stage_3": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cauldron_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cauldron_inner": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cauldron_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cauldron_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "clay": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "coal_block": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "coal_ore": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "coarse_dirt": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cobblestone": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cobblestone_mossy": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cocoa_stage_0": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cocoa_stage_1": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "cocoa_stage_2": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "command_block": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "comparator_off": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "comparator_on": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "crafting_table_front": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "crafting_table_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "crafting_table_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "daylight_detector_inverted_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "daylight_detector_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "daylight_detector_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "deadbush": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "destroy_stage_0": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "destroy_stage_1": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "destroy_stage_2": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "destroy_stage_3": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "destroy_stage_4": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "destroy_stage_5": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "destroy_stage_6": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "destroy_stage_7": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "destroy_stage_8": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "destroy_stage_9": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "diamond_block": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "diamond_ore": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "dirt": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "dirt_podzol_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "dirt_podzol_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "dispenser_front_horizontal": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "dispenser_front_vertical": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_acacia_lower": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_acacia_upper": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_birch_lower": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_birch_upper": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_dark_oak_lower": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_dark_oak_upper": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_iron_lower": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_iron_upper": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_jungle_lower": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_jungle_upper": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_spruce_lower": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_spruce_upper": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_wood_lower": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "door_wood_upper": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_fern_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_fern_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_grass_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_grass_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_paeonia_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_paeonia_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_rose_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_rose_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_sunflower_back": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_sunflower_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_sunflower_front": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_sunflower_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_syringa_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "double_plant_syringa_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "dragon_egg": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "dropper_front_horizontal": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "dropper_front_vertical": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "emerald_block": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "emerald_ore": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "enchanting_table_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "enchanting_table_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "enchanting_table_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "end_stone": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "endframe_eye": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "endframe_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "endframe_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "farmland_dry": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "farmland_wet": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "fern": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "fire_layer_0": {
+    "animated": true,
+    "source_dimensions": [
+      16,
+      512
+    ]
+  },
+  "fire_layer_1": {
+    "animated": true,
+    "source_dimensions": [
+      16,
+      512
+    ]
+  },
+  "flower_allium": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_blue_orchid": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_dandelion": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_houstonia": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_oxeye_daisy": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_paeonia": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_pot": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_rose": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_tulip_orange": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_tulip_pink": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_tulip_red": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "flower_tulip_white": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "furnace_front_off": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "furnace_front_on": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "furnace_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "furnace_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_black": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_blue": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_brown": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_cyan": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_gray": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_green": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_light_blue": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_lime": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_magenta": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_orange": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_black": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_blue": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_brown": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_cyan": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_gray": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_green": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_light_blue": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_lime": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_magenta": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_orange": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_pink": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_purple": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_red": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_silver": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_white": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pane_top_yellow": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_pink": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_purple": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_red": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_silver": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_white": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glass_yellow": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "glowstone": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "gold_block": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "gold_ore": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "grass_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "grass_side_overlay": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "grass_side_snowed": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "grass_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "gravel": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_black": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_blue": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_brown": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_cyan": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_gray": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_green": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_light_blue": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_lime": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_magenta": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_orange": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_pink": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_purple": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_red": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_silver": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_white": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hardened_clay_stained_yellow": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hay_block_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hay_block_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hopper_inside": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hopper_outside": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "hopper_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "ice": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "ice_packed": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "iron_bars": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "iron_block": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "iron_ore": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "iron_trapdoor": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "itemframe_background": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "jukebox_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "jukebox_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "ladder": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "lapis_block": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "lapis_ore": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "lava_flow": {
+    "animated": true,
+    "source_dimensions": [
+      32,
+      512
+    ]
+  },
+  "lava_still": {
+    "animated": true,
+    "source_dimensions": [
+      16,
+      320
+    ]
+  },
+  "leaves_acacia": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "leaves_big_oak": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "leaves_birch": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "leaves_jungle": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "leaves_oak": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "leaves_spruce": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "lever": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_acacia": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_acacia_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_big_oak": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_big_oak_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_birch": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_birch_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_jungle": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_jungle_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_oak": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_oak_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_spruce": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "log_spruce_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "melon_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "melon_stem_connected": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "melon_stem_disconnected": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "melon_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "mob_spawner": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "mushroom_block_inside": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "mushroom_block_skin_brown": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "mushroom_block_skin_red": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "mushroom_block_skin_stem": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "mushroom_brown": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "mushroom_red": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "mycelium_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "mycelium_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "nether_brick": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "nether_wart_stage_0": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "nether_wart_stage_1": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "nether_wart_stage_2": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "netherrack": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "noteblock": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "obsidian": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "piston_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "piston_inner": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "piston_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "piston_top_normal": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "piston_top_sticky": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "planks_acacia": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "planks_big_oak": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "planks_birch": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "planks_jungle": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "planks_oak": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "planks_spruce": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "portal": {
+    "animated": true,
+    "source_dimensions": [
+      16,
+      512
+    ]
+  },
+  "potatoes_stage_0": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "potatoes_stage_1": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "potatoes_stage_2": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "potatoes_stage_3": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "prismarine_bricks": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "prismarine_dark": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "prismarine_rough": {
+    "animated": true,
+    "source_dimensions": [
+      16,
+      64
+    ]
+  },
+  "pumpkin_face_off": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "pumpkin_face_on": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "pumpkin_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "pumpkin_stem_connected": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "pumpkin_stem_disconnected": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "pumpkin_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "quartz_block_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "quartz_block_chiseled": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "quartz_block_chiseled_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "quartz_block_lines": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "quartz_block_lines_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "quartz_block_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "quartz_block_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "quartz_ore": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "rail_activator": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "rail_activator_powered": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "rail_detector": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "rail_detector_powered": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "rail_golden": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "rail_golden_powered": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "rail_normal": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "rail_normal_turned": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "red_sand": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "red_sandstone_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "red_sandstone_carved": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "red_sandstone_normal": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "red_sandstone_smooth": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "red_sandstone_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "redstone_block": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "redstone_dust_cross": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "redstone_dust_cross_overlay": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "redstone_dust_line": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "redstone_dust_line_overlay": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "redstone_lamp_off": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "redstone_lamp_on": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "redstone_ore": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "redstone_torch_off": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "redstone_torch_on": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "reeds": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "repeater_off": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "repeater_on": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sand": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sandstone_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sandstone_carved": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sandstone_normal": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sandstone_smooth": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sandstone_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sapling_acacia": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sapling_birch": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sapling_jungle": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sapling_oak": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sapling_roofed_oak": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sapling_spruce": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sea_lantern": {
+    "animated": true,
+    "source_dimensions": [
+      16,
+      80
+    ]
+  },
+  "slime": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "snow": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "soul_sand": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sponge": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "sponge_wet": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stone": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stone_andesite": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stone_andesite_smooth": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stone_diorite": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stone_diorite_smooth": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stone_granite": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stone_granite_smooth": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stone_slab_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stone_slab_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stonebrick": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stonebrick_carved": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stonebrick_cracked": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "stonebrick_mossy": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "tallgrass": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "tnt_bottom": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "tnt_side": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "tnt_top": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "torch_on": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "trapdoor": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "trip_wire": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "trip_wire_source": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "vine": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "water_flow": {
+    "animated": true,
+    "source_dimensions": [
+      32,
+      1024
+    ]
+  },
+  "water_still": {
+    "animated": true,
+    "source_dimensions": [
+      16,
+      512
+    ]
+  },
+  "waterlily": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "web": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wheat_stage_0": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wheat_stage_1": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wheat_stage_2": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wheat_stage_3": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wheat_stage_4": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wheat_stage_5": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wheat_stage_6": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wheat_stage_7": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_black": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_blue": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_brown": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_cyan": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_gray": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_green": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_light_blue": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_lime": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_magenta": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_orange": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_pink": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_purple": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_red": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_silver": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_white": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  },
+  "wool_colored_yellow": {
+    "animated": false,
+    "source_dimensions": [
+      16,
+      16
+    ]
+  }
+}

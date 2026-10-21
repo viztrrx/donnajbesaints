@@ -1,0 +1,54 @@
+{
+  "name": "work-service",
+  "version": "1.0.0",
+  "description": "Saints Service — an injectable floating AI assistant panel for any web page: reads the page, answers questions, explains quizzes, takes notes, plays music, and bundles seventeen games. No extension, no build step.",
+  "keywords": [
+    "ai",
+    "assistant",
+    "bookmarklet",
+    "browser",
+    "openai",
+    "cloudflare-worker",
+    "userscript",
+    "overlay",
+    "shadow-dom"
+  ],
+  "homepage": "https://github.com/viztrrx/work-service#readme",
+  "bugs": {
+    "url": "https://github.com/viztrrx/work-service/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/viztrrx/work-service.git"
+  },
+  "license": "MIT",
+  "author": "viztrrx",
+  "type": "module",
+  "main": "script.js",
+  "files": [
+    "script.js",
+    "worker.js",
+    "eaglercraft/loader/",
+    "eaglercraft/README.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "browser": "script.js",
+  "private": false,
+  "scripts": {
+    "start": "echo \"Paste the snippet from README.md into your browser console.\" && exit 0",
+    "test": "node --test tests/*.test.mjs",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler preview",
+    "build:eaglercraft": "bash scripts/build-eaglercraft.sh",
+    "build:web": "node web/scripts/build.mjs",
+    "test:runtime": "node tests/mobile-runtime.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@ffmpeg/core": "0.12.10",
+    "wrangler": "4.149.0"
+  }
+}

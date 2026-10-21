@@ -1,0 +1,23 @@
+# Your own EaglercraftX build, if you keep it in the repo folder. It contains
+# Mojang code and must not be committed (see eaglercraft/README.md).
+eaglercraft/client/
+node_modules/
+# Wrangler local state
+.wrangler/
+# Real EaglercraftX build (scripts/build-eaglercraft.sh): inputs, work files and
+# the generated client. Mojang-derived; never commit.
+build/
+# Default output folder of tests/browser/eaglercraft.e2e.mjs (screenshots, results)
+eagler-e2e-out/
+# Default output folder of tests/browser/console-app.mjs
+console-app-out/
+# Default output folder of tests/browser/announcements.mjs
+announcements-out/
+# Default output folder of tests/browser/notifications.mjs
+notifications-out/
+# Default output folder of tests/browser/allowlist.mjs
+allowlist-out/
+# Default output folder of tests/browser/access-requests.mjs
+access-requests-out/
+# Default output folder of tests/browser/music.mjs
+music-out/

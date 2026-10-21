@@ -1,0 +1,1333 @@
+[
+  {
+    "id": "user-setrole",
+    "section": "Users",
+    "title": "Change role",
+    "path": "/admin/user/action",
+    "permission": "owner",
+    "fields": [
+      {
+        "key": "u",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "key": "role",
+        "label": "Role",
+        "kind": "text",
+        "required": true,
+        "choices": [
+          "user",
+          "moderator",
+          "admin"
+        ]
+      }
+    ],
+    "fixed": {
+      "action": "setrole"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Target account changes take effect on the next request. Release deletes registration only; delete removes account, memory, moderation, telemetry and assigned key. The owner account is protected."
+  },
+  {
+    "id": "user-disable",
+    "section": "Users",
+    "title": "Disable account",
+    "path": "/admin/user/action",
+    "permission": "users.suspend",
+    "fields": [
+      {
+        "key": "u",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "disable"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Target account changes take effect on the next request. Release deletes registration only; delete removes account, memory, moderation, telemetry and assigned key. The owner account is protected."
+  },
+  {
+    "id": "user-enable",
+    "section": "Users",
+    "title": "Enable account",
+    "path": "/admin/user/action",
+    "permission": "users.suspend",
+    "fields": [
+      {
+        "key": "u",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "enable"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Target account changes take effect on the next request. Release deletes registration only; delete removes account, memory, moderation, telemetry and assigned key. The owner account is protected."
+  },
+  {
+    "id": "user-revokesessions",
+    "section": "Users",
+    "title": "Revoke account sessions",
+    "path": "/admin/user/action",
+    "permission": "users.manage",
+    "fields": [
+      {
+        "key": "u",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "revokesessions"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Target account changes take effect on the next request. Release deletes registration only; delete removes account, memory, moderation, telemetry and assigned key. The owner account is protected."
+  },
+  {
+    "id": "user-release",
+    "section": "Users",
+    "title": "Release account registration",
+    "path": "/admin/user/action",
+    "permission": "owner",
+    "fields": [
+      {
+        "key": "u",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "release"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Target account changes take effect on the next request. Release deletes registration only; delete removes account, memory, moderation, telemetry and assigned key. The owner account is protected."
+  },
+  {
+    "id": "user-delete",
+    "section": "Users",
+    "title": "Delete account",
+    "path": "/admin/user/action",
+    "permission": "users.delete",
+    "fields": [
+      {
+        "key": "u",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "key": "confirm",
+        "label": "Type the username to confirm",
+        "kind": "text",
+        "required": true
+      }
+    ],
+    "fixed": {
+      "action": "delete"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Target account changes take effect on the next request. Release deletes registration only; delete removes account, memory, moderation, telemetry and assigned key. The owner account is protected."
+  },
+  {
+    "id": "user-quota",
+    "section": "Users",
+    "title": "Set user quotas",
+    "path": "/admin/user/action",
+    "permission": "ai.manage",
+    "fields": [
+      {
+        "key": "u",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "key": "quotaDaily",
+        "label": "Daily requests",
+        "kind": "number",
+        "required": false
+      },
+      {
+        "key": "quotaMonthly",
+        "label": "Monthly requests",
+        "kind": "number",
+        "required": false
+      },
+      {
+        "key": "rpm",
+        "label": "Requests per minute",
+        "kind": "number",
+        "required": false
+      },
+      {
+        "key": "allowedModels",
+        "label": "Allowed models, comma separated",
+        "kind": "array",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "quota"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Target account changes take effect on the next request. Release deletes registration only; delete removes account, memory, moderation, telemetry and assigned key. The owner account is protected."
+  },
+  {
+    "id": "mod-block",
+    "section": "Moderation",
+    "title": "Block",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "block"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-unblock",
+    "section": "Moderation",
+    "title": "Unblock",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "unblock"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-lock",
+    "section": "Moderation",
+    "title": "Lock",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "lock"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-unlock",
+    "section": "Moderation",
+    "title": "Unlock",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "unlock"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-reset",
+    "section": "Moderation",
+    "title": "Reset",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "reset"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-kick",
+    "section": "Moderation",
+    "title": "Kick",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "kick"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-mute",
+    "section": "Moderation",
+    "title": "Mute",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "key": "hours",
+        "label": "Duration in hours",
+        "kind": "number",
+        "required": true
+      }
+    ],
+    "fixed": {
+      "action": "mute"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-unmute",
+    "section": "Moderation",
+    "title": "Unmute",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "unmute"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-warn",
+    "section": "Moderation",
+    "title": "Warn",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "warn"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-clearstrikes",
+    "section": "Moderation",
+    "title": "Clearstrikes",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "clearstrikes"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-approve",
+    "section": "Moderation",
+    "title": "Approve",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "approve"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-unapprove",
+    "section": "Moderation",
+    "title": "Unapprove",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "unapprove"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-freezeai",
+    "section": "Moderation",
+    "title": "Freeze Ai",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "freezeai"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-unfreezeai",
+    "section": "Moderation",
+    "title": "Unfreeze Ai",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "unfreezeai"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-shadowmute",
+    "section": "Moderation",
+    "title": "Shadowmute",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "shadowmute"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-unshadowmute",
+    "section": "Moderation",
+    "title": "Unshadowmute",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "unshadowmute"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "mod-setfeatures",
+    "section": "Moderation",
+    "title": "Setfeatures",
+    "path": "/admin/moderate",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "key": "features",
+        "label": "Feature overrides (JSON object)",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "fixed": {
+      "action": "setfeatures"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Moderates the selected username. Kick is a client sign-out nonce; lock/block affect server access. Three warnings trigger a 24-hour mute. Owner is immune."
+  },
+  {
+    "id": "unlock-code",
+    "section": "Moderation",
+    "title": "Generate one-time unlock code",
+    "path": "/admin/setunlock",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      }
+    ],
+    "fixed": {},
+    "confirmation": "CONFIRM",
+    "explanation": "Displays the code once. Share it deliberately; it releases this username when redeemed."
+  },
+  {
+    "id": "report-resolve",
+    "section": "Moderation",
+    "title": "Resolve report",
+    "path": "/admin/reports/action",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "id",
+        "label": "Report ID",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "note",
+        "label": "Resolution note",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "resolve"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "report-dismiss",
+    "section": "Moderation",
+    "title": "Dismiss report",
+    "path": "/admin/reports/action",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "id",
+        "label": "Report ID",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "note",
+        "label": "Resolution note",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "dismiss"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "report-delete_message",
+    "section": "Moderation",
+    "title": "Delete Message report",
+    "path": "/admin/reports/action",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "id",
+        "label": "Report ID",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "note",
+        "label": "Resolution note",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "delete_message"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "room-list",
+    "section": "Moderation",
+    "title": "List rooms",
+    "path": "/admin/rooms",
+    "permission": "moderation.manage",
+    "fields": [],
+    "fixed": {
+      "action": "list"
+    },
+    "confirmation": null,
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "room-create",
+    "section": "Moderation",
+    "title": "Create room",
+    "path": "/admin/rooms",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "name",
+        "label": "Room name",
+        "kind": "text",
+        "required": true
+      }
+    ],
+    "fixed": {
+      "action": "create"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "room-delete",
+    "section": "Moderation",
+    "title": "Delete room and messages",
+    "path": "/admin/rooms",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "id",
+        "label": "Room ID",
+        "kind": "text",
+        "required": true
+      }
+    ],
+    "fixed": {
+      "action": "delete"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "room-newcode",
+    "section": "Moderation",
+    "title": "Rotate room join code",
+    "path": "/admin/rooms",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "id",
+        "label": "Room ID",
+        "kind": "text",
+        "required": true
+      }
+    ],
+    "fixed": {
+      "action": "newcode"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "room-slowmode",
+    "section": "Moderation",
+    "title": "Set room slow mode",
+    "path": "/admin/rooms",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "id",
+        "label": "Room ID",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "seconds",
+        "label": "Seconds between messages",
+        "kind": "number",
+        "required": true
+      }
+    ],
+    "fixed": {
+      "action": "slowmode"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "room-banuser",
+    "section": "Moderation",
+    "title": "Ban user from room",
+    "path": "/admin/rooms",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "id",
+        "label": "Room ID",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      }
+    ],
+    "fixed": {
+      "action": "banuser"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "room-unbanuser",
+    "section": "Moderation",
+    "title": "Unban user from room",
+    "path": "/admin/rooms",
+    "permission": "moderation.manage",
+    "fields": [
+      {
+        "key": "id",
+        "label": "Room ID",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "user",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      }
+    ],
+    "fixed": {
+      "action": "unbanuser"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "clear-chat",
+    "section": "Content & Data",
+    "title": "Delete all chat messages",
+    "path": "/admin/clearchat",
+    "permission": "moderation.manage",
+    "fields": [],
+    "fixed": {},
+    "confirmation": "CLEAR CHAT",
+    "explanation": "Deletes stored messages across every room, preserving room codes."
+  },
+  {
+    "id": "assign-key",
+    "section": "AI & Usage",
+    "title": "Assign or remove OpenAI key",
+    "path": "/admin/assignkey",
+    "permission": "keys.manage",
+    "fields": [
+      {
+        "key": "users",
+        "label": "Usernames, comma separated",
+        "kind": "array",
+        "required": false
+      },
+      {
+        "key": "all",
+        "label": "Assign to everyone",
+        "kind": "bool",
+        "required": false
+      },
+      {
+        "key": "key",
+        "label": "New key (leave empty to remove)",
+        "kind": "secret",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "provider": "openai"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Owner only. The key is sent over HTTPS and stored only by the Worker. An empty key removes it. At least one username or everyone is required."
+  },
+  {
+    "id": "key-test",
+    "section": "AI & Usage",
+    "title": "Test assigned key",
+    "path": "/admin/keys/test",
+    "permission": "keys.manage",
+    "fields": [
+      {
+        "key": "target",
+        "label": "Username or *",
+        "kind": "text",
+        "required": true
+      }
+    ],
+    "fixed": {},
+    "confirmation": null,
+    "explanation": "Calls OpenAI /v1/models with the server-side key and returns status only."
+  },
+  {
+    "id": "config",
+    "section": "System",
+    "title": "Edit server configuration",
+    "path": "/admin/config",
+    "permission": "system.manage",
+    "fields": [
+      {
+        "key": "privateMode",
+        "label": "Private mode",
+        "kind": "bool",
+        "required": false
+      },
+      {
+        "key": "readOnly",
+        "label": "Owner-only chat",
+        "kind": "bool",
+        "required": false
+      },
+      {
+        "key": "approvalMode",
+        "label": "Require approval",
+        "kind": "bool",
+        "required": false
+      },
+      {
+        "key": "requireSessions",
+        "label": "Require signed sessions",
+        "kind": "bool",
+        "required": false
+      },
+      {
+        "key": "memoryEnabled",
+        "label": "Enable memory",
+        "kind": "bool",
+        "required": false
+      },
+      {
+        "key": "dailyQuota",
+        "label": "Daily quota",
+        "kind": "number",
+        "required": false
+      },
+      {
+        "key": "monthlyQuota",
+        "label": "Monthly quota",
+        "kind": "number",
+        "required": false
+      },
+      {
+        "key": "rpm",
+        "label": "Requests per minute",
+        "kind": "number",
+        "required": false
+      },
+      {
+        "key": "maxTokens",
+        "label": "Maximum output tokens",
+        "kind": "number",
+        "required": false
+      },
+      {
+        "key": "allowedModels",
+        "label": "Allowed model IDs, comma separated",
+        "kind": "array",
+        "required": false
+      },
+      {
+        "key": "blockedCountries",
+        "label": "Blocked country codes, comma separated",
+        "kind": "array",
+        "required": false
+      },
+      {
+        "key": "allowedOrigins",
+        "label": "Allowed origins, comma separated",
+        "kind": "array",
+        "required": false
+      },
+      {
+        "key": "brandName",
+        "label": "Brand name",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "key": "defaultTheme",
+        "label": "Default theme",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "key": "features",
+        "label": "Global feature switches (JSON object)",
+        "kind": "json",
+        "required": false
+      },
+      {
+        "key": "bumpReload",
+        "label": "Force clients to reload",
+        "kind": "bool",
+        "required": false
+      }
+    ],
+    "fixed": {},
+    "confirmation": "CONFIRM",
+    "explanation": "Only entered fields are sent. Choose Unchanged for switches you do not intend to edit. Quotas of zero mean unlimited. Model defaults remain gpt-4.1-mini and gpt-5."
+  },
+  {
+    "id": "broadcast",
+    "section": "Content & Data",
+    "title": "Set broadcast banner",
+    "path": "/admin/config",
+    "permission": "system.manage",
+    "fields": [
+      {
+        "key": "broadcast",
+        "label": "Broadcast text",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {},
+    "confirmation": "CONFIRM",
+    "explanation": "An empty text removes the current banner."
+  },
+  {
+    "id": "announcement",
+    "section": "Content & Data",
+    "title": "Publish announcement",
+    "path": "/admin/config",
+    "permission": "system.manage",
+    "fields": [
+      {
+        "key": "announcement",
+        "label": "Announcement JSON: title and text, or null to clear",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "fixed": {},
+    "confirmation": "CONFIRM",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "memory-view",
+    "section": "Memory",
+    "title": "Inspect user memory with a reason",
+    "path": "/admin/memory/user",
+    "permission": "memory.content",
+    "fields": [
+      {
+        "key": "u",
+        "label": "Username",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Reason (at least five characters)",
+        "kind": "text",
+        "required": true
+      }
+    ],
+    "fixed": {},
+    "confirmation": "CONFIRM",
+    "explanation": "Owner only. Reads private memory records and writes the reason to the audit trail."
+  },
+  {
+    "id": "job-chat-cleanup",
+    "section": "Automation",
+    "title": "Run chat-cleanup",
+    "path": "/admin/jobs/run",
+    "permission": "automation.run",
+    "fields": [],
+    "fixed": {
+      "id": "chat-cleanup"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Chat cleanup deletes all messages. Memory maintenance expires temporary records and prunes stale unconfirmed inferences."
+  },
+  {
+    "id": "job-memory-maintenance",
+    "section": "Automation",
+    "title": "Run memory-maintenance",
+    "path": "/admin/jobs/run",
+    "permission": "automation.run",
+    "fields": [],
+    "fixed": {
+      "id": "memory-maintenance"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "Chat cleanup deletes all messages. Memory maintenance expires temporary records and prunes stale unconfirmed inferences."
+  },
+  {
+    "id": "diagnostics",
+    "section": "Developer",
+    "title": "Run diagnostics",
+    "path": "/admin/diagnostics",
+    "permission": "system.view",
+    "fields": [
+      {
+        "key": "write",
+        "label": "Include temporary storage write check",
+        "kind": "bool",
+        "required": false
+      }
+    ],
+    "fixed": {},
+    "confirmation": null,
+    "explanation": "Checks KV, OpenAI key status, session setup and cron. Never returns secret values."
+  },
+  {
+    "id": "danger-revoke_all_sessions",
+    "section": "Danger Zone",
+    "title": "Revoke All Sessions",
+    "path": "/admin/danger",
+    "permission": "danger.execute",
+    "fields": [],
+    "fixed": {
+      "action": "revoke_all_sessions"
+    },
+    "confirmation": "REVOKE ALL SESSIONS",
+    "explanation": "High-impact server operation. Revoking all sessions also revokes every paired iPhone. Purge removes memory permanently. Telemetry cleanup preserves accounts and keys."
+  },
+  {
+    "id": "danger-maintenance_on",
+    "section": "Danger Zone",
+    "title": "Maintenance On",
+    "path": "/admin/danger",
+    "permission": "danger.execute",
+    "fields": [
+      {
+        "key": "message",
+        "label": "Maintenance message",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "maintenance_on"
+    },
+    "confirmation": "MAINTENANCE",
+    "explanation": "High-impact server operation. Revoking all sessions also revokes every paired iPhone. Purge removes memory permanently. Telemetry cleanup preserves accounts and keys."
+  },
+  {
+    "id": "danger-maintenance_off",
+    "section": "Danger Zone",
+    "title": "Maintenance Off",
+    "path": "/admin/danger",
+    "permission": "danger.execute",
+    "fields": [],
+    "fixed": {
+      "action": "maintenance_off"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "High-impact server operation. Revoking all sessions also revokes every paired iPhone. Purge removes memory permanently. Telemetry cleanup preserves accounts and keys."
+  },
+  {
+    "id": "danger-purge_memory",
+    "section": "Danger Zone",
+    "title": "Purge Memory",
+    "path": "/admin/danger",
+    "permission": "danger.execute",
+    "fields": [
+      {
+        "key": "u",
+        "label": "Username (empty means ALL users)",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "fixed": {
+      "action": "purge_memory"
+    },
+    "confirmation": "DELETE MEMORY",
+    "explanation": "High-impact server operation. Revoking all sessions also revokes every paired iPhone. Purge removes memory permanently. Telemetry cleanup preserves accounts and keys."
+  },
+  {
+    "id": "danger-clear_telemetry",
+    "section": "Danger Zone",
+    "title": "Clear Telemetry",
+    "path": "/admin/danger",
+    "permission": "danger.execute",
+    "fields": [],
+    "fixed": {
+      "action": "clear_telemetry"
+    },
+    "confirmation": "CLEAR TELEMETRY",
+    "explanation": "High-impact server operation. Revoking all sessions also revokes every paired iPhone. Purge removes memory permanently. Telemetry cleanup preserves accounts and keys."
+  },
+  {
+    "id": "danger-disable_memory",
+    "section": "Danger Zone",
+    "title": "Disable Memory",
+    "path": "/admin/danger",
+    "permission": "danger.execute",
+    "fields": [],
+    "fixed": {
+      "action": "disable_memory"
+    },
+    "confirmation": "DISABLE MEMORY",
+    "explanation": "High-impact server operation. Revoking all sessions also revokes every paired iPhone. Purge removes memory permanently. Telemetry cleanup preserves accounts and keys."
+  },
+  {
+    "id": "danger-enable_memory",
+    "section": "Danger Zone",
+    "title": "Enable Memory",
+    "path": "/admin/danger",
+    "permission": "danger.execute",
+    "fields": [],
+    "fixed": {
+      "action": "enable_memory"
+    },
+    "confirmation": "CONFIRM",
+    "explanation": "High-impact server operation. Revoking all sessions also revokes every paired iPhone. Purge removes memory permanently. Telemetry cleanup preserves accounts and keys."
+  },
+  {
+    "id": "legacy-clear",
+    "section": "Danger Zone",
+    "title": "Clear telemetry (legacy endpoint)",
+    "path": "/admin/clear",
+    "permission": "danger.execute",
+    "fields": [],
+    "fixed": {},
+    "confirmation": "CLEAR TELEMETRY",
+    "explanation": "Applies to the selected server target. The server verifies your permission and records the action."
+  },
+  {
+    "id": "restore",
+    "section": "Content & Data",
+    "title": "Restore backup",
+    "path": "/admin/restore",
+    "permission": "danger.execute",
+    "fields": [
+      {
+        "key": "backup",
+        "label": "Backup JSON",
+        "kind": "json",
+        "required": true
+      }
+    ],
+    "fixed": {},
+    "confirmation": "RESTORE",
+    "explanation": "Additive overwrite of config, moderation, rooms and audit only. Does not restore accounts, API keys, usage, or memory. Review the file before restoring."
+  }
+]
