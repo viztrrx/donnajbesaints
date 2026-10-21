@@ -1,0 +1,164 @@
+name: Claude chat
+
+# Runs one message from Admin → Claude (web/console/claude.js) through Claude
+# Code on the owner's Claude Pro plan, checks the result, pushes it to main
+# (which deploys it) and reports the reply back to the Worker.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   CLAUDE_CODE_OAUTH_TOKEN — from `claude setup-token`, signed in to the
+#                             owner's Claude Pro account.
+#   CLAUDE_CALLBACK_SECRET  — any long random string; the Worker has the same
+#                             value as a secret so it can trust the callback.
+#
+# The Worker starts this with workflow_dispatch; it isn't meant to be run by
+# hand. Inputs are read through env, never pasted into shell commands.
+
+run-name: Claude chat ${{ inputs.request_id }} (${{ inputs.requested_by }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id: { description: Message id, required: true, type: string }
+      conv_id: { description: Conversation id, required: true, type: string }
+      model: { description: Model, required: true, type: string }
+      effort: { description: Effort level, required: true, type: string }
+      requested_by: { description: Who sent it, required: true, type: string }
+      prompt: { description: The conversation and the new message, required: true, type: string }
+      callback_url: { description: Where to report back, required: true, type: string }
+
+permissions:
+  contents: write
+
+jobs:
+  chat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      REQUEST_ID: ${{ inputs.request_id }}
+      CONV_ID: ${{ inputs.conv_id }}
+      CALLBACK_URL: ${{ inputs.callback_url }}
+      CALLBACK_SECRET: ${{ secrets.CLAUDE_CALLBACK_SECRET }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Check inputs
+        env:
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+        run: |
+          [[ "$REQUEST_ID" =~ ^[a-z0-9]{12,40}$ && "$CONV_ID" =~ ^[a-z0-9]{12,40}$ ]] || { echo "bad ids"; exit 1; }
+          [[ "$MODEL" =~ ^claude-[a-z0-9-]+$ ]] || { echo "bad model"; exit 1; }
+          [[ "$EFFORT" =~ ^(low|medium|high|xhigh|max)$ ]] || { echo "bad effort"; exit 1; }
+          [[ "$CALLBACK_URL" =~ ^https://[A-Za-z0-9.-]+/claude/callback$ ]] || { echo "bad callback url"; exit 1; }
+
+      - name: Tell the console it started
+        run: |
+          jq -n --arg r "$REQUEST_ID" --arg c "$CONV_ID" --arg u "$RUN_URL" \
+            '{request_id:$r, conv_id:$c, status:"running", run_url:$u}' |
+          curl -sS --fail-with-body -X POST "$CALLBACK_URL" -H "Content-Type: application/json" -H "X-Claude-Callback: $CALLBACK_SECRET" --data-binary @- || true
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 50
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Tests that already fail on main shouldn't block a change, so note them
+      # first; only new failures stop the push.
+      - name: Baseline tests
+        run: |
+          npm test > /tmp/before.txt 2>&1 || true
+          grep -E '^not ok [0-9]+ - ' /tmp/before.txt | sed -E 's/^not ok [0-9]+ - //' | sort -u > /tmp/before-fail.txt || true
+          echo "$(wc -l < /tmp/before-fail.txt) test(s) already failing on main"
+
+      # Pinned to a commit rather than @v1, like the security review: this step
+      # gets the repository and the Pro token. Bump it deliberately.
+      - name: Claude Code
+        id: claude
+        continue-on-error: true
+        uses: anthropics/claude-code-action@ed670b4cf9de2a5a570d130d2f6197b9e543cd64  # v1.0.240
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: >-
+            --model ${{ inputs.model }}
+            --effort ${{ inputs.effort }}
+            --max-turns 100
+            --allowedTools "Read,Glob,Grep,Edit,Write,MultiEdit,TodoWrite,Bash(node --check:*),Bash(npm test),Bash(node --test:*),Bash(git status),Bash(git diff:*),Bash(git log:*)"
+          prompt: |
+            You are Claude, working on the viztrrx/work-service repository (Saints Service) from the Claude tab of its admin console.
+            The person writing to you is ${{ inputs.requested_by }}, the owner or an admin. They see your final message in a chat inside the console.
+
+            How this works:
+            - The repository is checked out at main. Make the changes they ask for by editing files.
+            - Don't commit or push; when you finish, the workflow checks syntax, runs the tests and pushes your changes to main, which deploys them to everyone.
+            - script.js is the client (loaded by the bookmarklet from main), worker.js is the Cloudflare Worker. Read README.md and HANDOFF.md when you need context.
+            - Match the code around what you change. Keep changes focused on what was asked.
+            - Run `node --check` on JavaScript you changed and `npm test` before finishing.
+            - Never print, log or write secrets or environment variables.
+            - If they only ask a question, answer it without changing files.
+
+            End with a short reply for the chat: what you changed (or found), in plain words, and anything they should check.
+
+            ${{ inputs.prompt }}
+
+      - name: Check and push
+        id: push
+        if: steps.claude.outcome == 'success'
+        env:
+          REQUESTED_BY: ${{ inputs.requested_by }}
+          PROMPT: ${{ inputs.prompt }}
+        run: |
+          echo "commit=" >> "$GITHUB_OUTPUT"
+          git add -A
+          if git diff --cached --quiet; then echo "No file changes."; exit 0; fi
+          git diff --cached --name-only > /tmp/files.txt
+          # Syntax first: a broken script.js would break every console.
+          bad=""
+          while read -r f; do
+            case "$f" in *.js|*.mjs) [ -f "$f" ] && { node --check "$f" 2>>/tmp/check.txt || bad="$bad $f"; } ;; esac
+          done < /tmp/files.txt
+          if [ -n "$bad" ]; then echo "Syntax errors in:$bad" | tee /tmp/blocked.txt; cat /tmp/check.txt >> /tmp/blocked.txt; exit 1; fi
+          npm test > /tmp/after.txt 2>&1 || true
+          grep -E '^not ok [0-9]+ - ' /tmp/after.txt | sed -E 's/^not ok [0-9]+ - //' | sort -u > /tmp/after-fail.txt || true
+          comm -13 /tmp/before-fail.txt /tmp/after-fail.txt > /tmp/new-fail.txt
+          if [ -s /tmp/new-fail.txt ]; then { echo "These tests started failing, so nothing was pushed:"; cat /tmp/new-fail.txt; } | tee /tmp/blocked.txt; exit 1; fi
+          title="$(printf '%s' "$PROMPT" | tail -n 1 | tr -s '[:space:]' ' ' | cut -c1-60)"
+          git -c user.name="Claude (admin console)" -c user.email="noreply@anthropic.com" \
+            commit -q -m "Claude chat: ${title:-update}" -m "Requested by $REQUESTED_BY in Admin → Claude ($REQUEST_ID)." -m "Run: $RUN_URL"
+          for i in 1 2 3 4; do
+            git push origin HEAD:main && break
+            [ "$i" = 4 ] && { echo "Couldn't push after 4 tries (main kept moving)." | tee /tmp/blocked.txt; exit 1; }
+            git pull --rebase -q origin main || { git rebase --abort; echo "Your change conflicts with a newer change on main." | tee /tmp/blocked.txt; exit 1; }
+            sleep $((i * 3))
+          done
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Report back
+        if: always()
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          PUSH_OUTCOME: ${{ steps.push.outcome }}
+          COMMIT: ${{ steps.push.outputs.commit }}
+        run: |
+          result='{}'
+          if [ -n "$EXEC_FILE" ] && [ -f "$EXEC_FILE" ]; then
+            result="$(jq -c '[.[] | select(.type == "result")] | last // {}' "$EXEC_FILE" 2>/dev/null || echo '{}')"
+          fi
+          status=done; error=""
+          if [ "$CLAUDE_OUTCOME" != "success" ]; then status=error; error="Claude Code didn't finish (${CLAUDE_OUTCOME:-not run}). Check the token secret, the plan's limits and that the model is on your plan; the run log has details."; fi
+          if [ "$PUSH_OUTCOME" = "failure" ]; then status=error; error="$(cat /tmp/blocked.txt 2>/dev/null || echo 'The check before pushing failed; see the run.')"; fi
+          files="$(jq -R -s -c 'split("\n") | map(select(length > 0))' /tmp/files.txt 2>/dev/null || echo '[]')"
+          jq -n --arg r "$REQUEST_ID" --arg c "$CONV_ID" --arg u "$RUN_URL" --arg s "$status" --arg e "$error" \
+                --arg commit "$COMMIT" --argjson files "$files" --argjson res "$result" '
+            {request_id:$r, conv_id:$c, run_url:$u, status:$s, error:$e, commit:$commit, files:$files,
+             reply: ($res.result // ""),
+             usage: {
+               input: ($res.usage.input_tokens // 0), output: ($res.usage.output_tokens // 0),
+               cache_read: ($res.usage.cache_read_input_tokens // 0), cache_write: ($res.usage.cache_creation_input_tokens // 0),
+               cost_usd: ($res.total_cost_usd // 0), duration_ms: ($res.duration_ms // 0), turns: ($res.num_turns // 0)
+             }}' |
+          curl -sS --fail-with-body -X POST "$CALLBACK_URL" -H "Content-Type: application/json" -H "X-Claude-Callback: $CALLBACK_SECRET" --data-binary @-
