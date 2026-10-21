@@ -1,0 +1,29 @@
+name: Saints Extension Tests
+on:
+  push:
+    branches: [main, feature/saints-chrome-extension]
+  pull_request:
+    paths:
+      - 'extension/**'
+      - 'tests/extension.test.mjs'
+      - 'script.js'
+      - 'worker.js'
+      - '.github/workflows/saints-extension-tests.yml'
+permissions:
+  contents: read
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate syntax
+        run: |
+          node --check script.js
+          node --check worker.js
+          node --check extension/package.js
+          node --check extension/routes.js
+      - name: Run extension security and ZIP tests
+        run: node --test tests/extension.test.mjs

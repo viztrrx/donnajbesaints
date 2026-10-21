@@ -1,5 +1,6 @@
 import { webApp } from './web/handler.js';
 import { consoleApp } from './web/console/handler.js';
+import { extensionRoute } from './extension/routes.js';
 import { policyPage, POLICY_PAGES } from './web/policies.js';
 import { subscribePage, subscribeReady, priceCents, displayCents, stripe, checkoutParams, contributionParams, CHECKOUT_TTL_S, contribCents, isContribution, periodEndMs, invoiceSubscription, stripeSignatureOk, SUB_NAME_RE, SESSION_RE, ATTEMPT_RE, supportEmail, SCHOOL_DOMAIN, OWNER_CONTRIB_MIN_CENTS, money } from './web/subscribe.js';
 import { parseYouTubeLink, videoDetails, rightsNote } from './web/mp3.js';
@@ -2299,6 +2300,15 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     const readJson = async () => { try { return JSON.parse(await req.text()); } catch (e) { return {}; } };
     const kvMain = env && env.TELEMETRY;
     const USERNAME_RE = /^[^\x00-\x1f\x7f<>"'`\\]{1,40}$/;
+
+    // Extension downloads are identity-checked independently of /admin/*:
+    // the owner may grant specific regular accounts download-only access.
+    if (url.pathname.startsWith('/extension/')) {
+      return extensionRoute(req, url, env, {
+        principal: await resolvePrincipal(), kv: kvMain, json,
+        audit: logAudit, ownerName: OWNER, usernamePattern: USERNAME_RE
+      });
+    }
 
     // ---- /auth/* : server accounts ----
     // ---- Texting (Telnyx; see web/sms.js) ------------------------------------
