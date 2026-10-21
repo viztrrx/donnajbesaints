@@ -23,12 +23,12 @@ jobs:
         run: |
           set -euo pipefail
           git clone --depth=1 --branch main https://github.com/viztrrx/work-service.git "$RUNNER_TEMP/work-service-source"
-          rsync --archive --delete --exclude='.git/' "$RUNNER_TEMP/work-service-source/" "$GITHUB_WORKSPACE/"
+          rsync --archive --delete --exclude='.git/' --exclude='.github/workflows/' "$RUNNER_TEMP/work-service-source/" "$GITHUB_WORKSPACE/"
           test -s script.js
           test -f worker.js
           test -f proxy-worker/index.js
-          diff --recursive --brief --exclude=.git "$RUNNER_TEMP/work-service-source" "$GITHUB_WORKSPACE"
-          echo "Source and destination files match exactly."
+          diff --recursive --brief --exclude=.git --exclude=.github "$RUNNER_TEMP/work-service-source" "$GITHUB_WORKSPACE"
+          echo "Source and destination non-workflow files match exactly."
 
       - name: Commit source snapshot to destination main
         shell: bash
