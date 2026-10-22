@@ -5,7 +5,9 @@
 // tests/browser/proxy.mjs, in workerd).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import worker from '../proxy-worker/index.js';
+import { NAV_REPORT, NAV_REPORT_JS, NAV_REPORT_HASH } from '../proxy-worker/nav.js';
 
 const W = 'https://saints-proxy-test.viztrrx.workers.dev';
 const env = { TARGET_ORIGINS: 'https://example.com, https://docs.example.org' };
@@ -21,7 +23,8 @@ function stubUpstream(handler) {
 // Minimal HTMLRewriter stand-in: for each `tag[attr]` selector, finds those
 // tags and runs the handler with getAttribute/setAttribute on that attribute.
 class FakeRewriter {
-  constructor() { this.rules = []; }
+  constructor() { this.rules = []; this.ends = []; }
+  onDocument(handler) { if (handler.end) this.ends.push(handler.end); return this; }
   on(selector, handler) { const m = /^(\w+)\[(\w+)\]$/.exec(selector); this.rules.push({ tag: m[1], attr: m[2], handler }); return this; }
   transform(res) {
     const rules = this.rules;
@@ -37,7 +40,7 @@ class FakeRewriter {
         out = out.replace(re, (_a, p1, _p2, p3) => p1 + val + p3);
       }
       return '<' + tag + out + '>';
-    }));
+    })).then((html) => { let tail = ''; for (const end of this.ends) end({ append: (c) => { tail += c; } }); return html + tail; });
     return body.then((b) => new Response(b, { status: res.status, headers: res.headers }));
   }
 }
@@ -61,10 +64,15 @@ test('proxy: health lists every approved site (CORS); preview links them; config
   assert.equal(hb.invalid, 13);
   const none = await call('/health', {}, { TARGET_ORIGINS: 'https://localhost' });
   assert.equal(none.status, 500);
-  // The preview lists the approved sites as /site/<host>/ links, no scripts.
+  // The preview lists the approved sites as /site/<host>/ links, with no
+  // scripts but the address report the CSP allows by its exact hash.
   const pv = await call('/preview');
   assert.match(pv.headers.get('content-security-policy'), /default-src 'none'/);
+  assert.equal(NAV_REPORT_HASH, "'sha256-" + createHash('sha256').update(NAV_REPORT_JS).digest('base64') + "'");
+  assert.ok(pv.headers.get('content-security-policy').includes("script-src " + NAV_REPORT_HASH + ";"));
   const pvHtml = await pv.text();
+  assert.equal(pvHtml.split('<script').length - 1, 1);
+  assert.ok(pvHtml.includes(NAV_REPORT + '</body>'));
   assert.match(pvHtml, /href="\/site\/example\.com\/"/);
   assert.match(pvHtml, /href="\/site\/docs\.example\.org\/"/);
   // /site/ alone goes to the first approved site.
@@ -196,6 +204,8 @@ test('proxy: links, images, srcset and scripts on approved sites go through /sit
     has('href="#frag"');
     has('href="javascript:alert(1)"');
     has('href="mailto:a@b.c"');
+    // The page reports its own address to the Proxy tab (for Back / Forward).
+    assert.ok(out.endsWith(NAV_REPORT), 'the address report is appended');
   } finally { up.restore(); delete globalThis.HTMLRewriter; }
 });
 

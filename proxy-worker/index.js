@@ -25,9 +25,10 @@
  * are rejected at config time and per request; redirects must land on an
  * approved origin; response size and upstream time are capped; cookies and
  * request credentials are never forwarded; the Worker's own pages carry a
- * no-scripts CSP.
+ * CSP that allows no scripts but the one-line address report (nav.js).
  */
 import { youtubeMode, youtubeResponse } from "./youtube.js";
+import { NAV_REPORT, NAV_REPORT_HASH } from "./nav.js";
 
 const DEFAULT_ORIGINS = "https://example.com";
 const MAX_BYTES = 12 * 1024 * 1024;      // cap on a proxied response body
@@ -78,7 +79,8 @@ function allowedOrigins(env) {
   return { map, bad };
 }
 
-const OWN_PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'";
+// No scripts, except the one-line address report (by hash; see nav.js).
+const OWN_PAGE_CSP = "default-src 'none'; script-src " + NAV_REPORT_HASH + "; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'";
 
 function page(html, status = 200, extraHeaders = {}) {
   return new Response(html, {
@@ -111,7 +113,7 @@ function shell(title, bodyHtml, status = 200, extraHeaders = {}) {
     a { color:#a9c4ff; } ul { padding-left:18px; } li { margin:4px 0; }
   </style>
 </head>
-<body><main>${bodyHtml}</main></body>
+<body><main>${bodyHtml}</main>${NAV_REPORT}</body>
 </html>`, status, extraHeaders);
 }
 
@@ -173,6 +175,7 @@ function rewriteDocument(response, workerUrl, target, allowed, key) {
       },
     });
   }
+  rw.onDocument({ end(end) { end.append(NAV_REPORT, { html: true }); } });
   return rw.transform(new Response(response.body, { status: response.status, headers }));
 }
 

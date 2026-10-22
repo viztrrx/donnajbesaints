@@ -842,7 +842,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-20T23:30:00-04:00', commit: '', title: 'Claude in the admin console', parts: {
       'admin#claude': ['added'], admin: ['feature', 'Admin → Claude (owner and admins): chat with Claude Code about the console and have it change the code, with model and effort pickers, usage and the pushed commit; runs on the owner’s Claude Pro plan through GitHub Actions'] } },
     { at: '2026-10-22T12:00:00-04:00', commit: '', title: 'Proxy launches in fullscreen, in the tab or an about:blank window', parts: {
-      browser: ['feature', 'The Proxy tab works like Eaglercraft: nothing loads until it’s launched, and it only launches while the console is fullscreen, either here or in an about:blank window with its own fullscreen gate; leaving fullscreen hides it until fullscreen is back, and Close Proxy unloads it'] } }
+      browser: ['feature', 'The Proxy tab works like Eaglercraft: nothing loads until it’s launched, and it only launches while the console is fullscreen, either here or in an about:blank window with its own fullscreen gate; leaving fullscreen hides it until fullscreen is back, and Close Proxy unloads it'] } },
+    { at: '2026-10-22T18:00:00-04:00', commit: '', title: 'Proxy: no address shown; Back and Forward', parts: {
+      browser: ['redesign', 'The Proxy bar no longer shows the site’s address (no address field, and the status just says Loaded): it has Back and Forward, which follow links clicked inside the page, Reload, and Home, which goes to the main page of the site you’re on'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -979,6 +981,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     music: gpsSvg('<path d="M9 17.5V5.5l10.5-2v12"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17" cy="15.5" r="2.5"/>'),
     pause: gpsSvg('<path d="M8 5.5v13M16 5.5v13"/>'),
     prev: gpsSvg('<path d="M6 5.5v13M18.5 5.5L9 12l9.5 6.5z"/>'),
+    back: gpsSvg('<path d="M15 5.5L8.5 12l6.5 6.5"/>'),
+    forward: gpsSvg('<path d="M9 5.5l6.5 6.5L9 18.5"/>'),
     next: gpsSvg('<path d="M18 5.5v13M5.5 5.5L15 12l-9.5 6.5z"/>'),
     volume: gpsSvg('<path d="M4.5 9.5h3.5L13 5v14l-5-4.5H4.5z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'),
     folder: gpsSvg('<path d="M3.5 6.5h6l2 2.5h9v10H3.5z"/>'),
@@ -1361,10 +1365,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpx-browser-bar { display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--gpa-panel); border-bottom: 1px solid var(--gpa-border); }
       .gpx-browser-nav { display: flex; gap: 4px; }
-      .gpx-address { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 999px; background: var(--gpa-field); border: 1px solid var(--gpa-border); color: var(--gpa-sub); }
-      .gpx-address:focus-within { border-color: var(--gpa-accent); }
-      .gpx-address svg { width: 16px; height: 16px; }
-      .gpx-address .gpa-input { border: none; background: transparent; padding-left: 0; box-shadow: none; }
+      .gpx-browser-spacer { flex: 1; }
       .gpx-loadbar { height: 2px; background: transparent; overflow: hidden; position: relative; }
       .gpx-room[data-proxy="connecting"] .gpx-loadbar::after {
         content: ''; position: absolute; top: 0; bottom: 0; width: 35%; background: linear-gradient(90deg, transparent, var(--gpa-accent), transparent);
@@ -1383,7 +1384,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-field-hint { margin: 6px 0 0; font-size: 12px; }
       .gpx-browser-view { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
       /* iOS Safari zooms the page when a field under 16px is focused. */
-      @supports (-webkit-touch-callout: none) { #gpa-proxy-url, #gpa-proxy-server, #gpa-proxy-key { font-size: 16px; } }
+      @supports (-webkit-touch-callout: none) { #gpa-proxy-server, #gpa-proxy-key { font-size: 16px; } }
       .gpx-browser-view { position: relative; flex: 1; min-height: 280px; display: flex; }
       .gpx-browser-view .gpa-iframe { flex: 1; border: none; border-radius: 0; min-height: 280px; height: auto; background: var(--gpa-bg); }
       .gpx-browser .gpx-details { border: none; border-top: 1px solid var(--gpa-border); border-radius: 0; background: transparent; }
@@ -1686,7 +1687,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         .gpx-tool-feature .gpx-tool-ic { width: 40px; height: 40px; }
         .gpx-games { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
         .gpx-browser-bar { flex-wrap: wrap; }
-        .gpx-address { order: 5; flex-basis: 100%; }
         .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-hero,
         .gpx-room-convo:has(.gpa-chat-msg) .gpx-hero { grid-template-columns: 56px minmax(0, 1fr); }
         .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-visual,
@@ -3938,15 +3938,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <section id="gpa-proxy-stage" class="gpx-browser" style="display:none;">
             <div class="gpx-browser-bar">
               <div class="gpx-browser-nav">
+                <button id="gpa-proxy-back" class="gpa-btn gpx-icon-btn" title="Back" aria-label="Back" disabled>${GPS_ICONS.back}</button>
+                <button id="gpa-proxy-forward" class="gpa-btn gpx-icon-btn" title="Forward" aria-label="Forward" disabled>${GPS_ICONS.forward}</button>
                 <button id="gpa-proxy-reload" class="gpa-btn gpx-icon-btn" title="Reload" aria-label="Reload">${GPS_ICONS.refresh}</button>
-                <button id="gpa-proxy-home" class="gpa-btn gpx-icon-btn" title="Proxy home" aria-label="Proxy home">${GPS_ICONS.home}</button>
+                <button id="gpa-proxy-home" class="gpa-btn gpx-icon-btn" title="This site’s main page" aria-label="This site’s main page">${GPS_ICONS.home}</button>
               </div>
-              <div class="gpx-address">
-                ${GPS_ICONS.globe}
-                <input id="gpa-proxy-url" class="gpa-input" placeholder="Enter a website or URL…" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url" enterkeyhint="go" list="gpa-proxy-sites" aria-label="Address" />
-                <datalist id="gpa-proxy-sites"></datalist>
-              </div>
-              <button id="gpa-proxy-go" class="gpa-btn primary">Go</button>
+              <span class="gpx-browser-spacer"></span>
               <button id="gpa-proxy-close" class="gpa-btn gpx-icon-btn" title="Close the proxy" aria-label="Close the proxy">${GPS_ICONS.x}</button>
             </div>
             <div class="gpx-loadbar" aria-hidden="true"></div>
@@ -12276,8 +12273,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const PROXY_KEY_KEY = 'gpa_proxy_key';
   const PROXY_LOAD_TIMEOUT_MS = 15000;
 
-  const proxyUrlInput = panel.querySelector('#gpa-proxy-url');
-  const proxyGoBtn = panel.querySelector('#gpa-proxy-go');
+  const proxyBackBtn = panel.querySelector('#gpa-proxy-back');
+  const proxyForwardBtn = panel.querySelector('#gpa-proxy-forward');
   const proxyFrame = panel.querySelector('#gpa-proxy-frame');
   const proxyReloadBtn = panel.querySelector('#gpa-proxy-reload');
   const proxyHomeBtn = panel.querySelector('#gpa-proxy-home');
@@ -12285,7 +12282,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const proxyServerInput = panel.querySelector('#gpa-proxy-server');
   const proxyServerHint = panel.querySelector('#gpa-proxy-server-hint');
   const proxyKeyInput = panel.querySelector('#gpa-proxy-key');
-  const proxySitesList = panel.querySelector('#gpa-proxy-sites');
   const proxyErrorEl = panel.querySelector('#gpa-proxy-error');
 
   // An https:// origin, or http:// on this computer (local testing only).
@@ -12306,6 +12302,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const proxy = { targets: DEFAULT_PROXY_TARGETS.slice(), current: '', pending: null, timer: 0, cspTimer: 0, blocked: false };
   // The launched proxy, or null: { mode: 'here' | 'blank', child, cleanups }.
   let px = null;
+  // Back / forward: the tab's own list of pages the frame has shown. The
+  // frame is another origin, so its history can't be driven directly, and
+  // the window's history.back() could walk past it into the host page.
+  // expect: the page the tab just opened, until that page reports in.
+  const proxyNav = { list: [], i: -1, expect: '' };
   const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
   function proxyKey() { try { return localStorage.getItem(PROXY_KEY_KEY) || ''; } catch (e) { return ''; } }
   // Adds the access key to a Worker /site/ or /status/ URL (if one is set).
@@ -12426,6 +12427,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     hideProxyError();
     proxy.blocked = false;
     proxy.current = frameUrl;
+    proxyNav.expect = frameUrl;
+    proxyNavRecord(frameUrl, false);
     setProxyFramePermissions(frameUrl);
     proxy.pending = { url: frameUrl, at: Date.now() };
     setProxyStatus('Connecting…');
@@ -12465,7 +12468,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         setProxyStatus('Load failed', true);
         showProxyError('Can’t reach the proxy Worker' + (h.timedOut ? ' (no answer in 8 seconds)' : '') + '. It may be down, the address in Connection settings may be wrong, or this network may block it.', [['Retry', retryProxy], ['Open in a new tab', openProxyTab]]);
       }
-      updateProxyPlaceholder();
       if (h.reached && h.ok && /\/site\//.test(frameUrl)) proxySiteStatus(frameUrl);
     });
   }
@@ -12498,9 +12500,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // page; only a load of the URL we asked for counts, and "Loaded" means
     // only that the frame finished loading (it's another site's page, which
     // this page can't look inside).
-    if (!proxy.pending || proxy.blocked || proxyFrame.getAttribute('src') !== proxy.pending.url) return;
+    if (!proxy.pending) { proxyNav.expect = ''; return; }   // a page the frame moved to itself
+    if (proxy.blocked || proxyFrame.getAttribute('src') !== proxy.pending.url) return;
     finishProxyLoad();
-    setProxyStatus(/\/site\//.test(proxy.current) ? 'Loaded · ' + proxyDisplay(proxy.current) : 'Connected · connection test');
+    // A page that never reports (a site whose CSP refuses the report, or the
+    // YouTube player page): stop waiting for it soon after it has loaded, so
+    // the next page the frame moves to counts as new.
+    const expected = proxyNav.expect;
+    setTimeout(() => { if (proxyNav.expect === expected) proxyNav.expect = ''; }, 1500);
+    setProxyStatus(/\/site\//.test(proxy.current) ? 'Loaded' : 'Connected · connection test');
   });
   proxyFrame.addEventListener('error', () => {
     if (!proxy.pending) return;
@@ -12509,10 +12517,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     showProxyError('Unable to load the proxy. Check the proxy Worker address in Connection settings, then try again.', [['Retry', retryProxy], ['Open in a new tab', openProxyTab]]);
   });
 
-  // Address bar ⇄ Worker URL. Only approved hosts map to /site/<host>/…
+  // Address ⇄ Worker URL. Only approved hosts map to /site/<host>/…
   const proxyPreviewUrl = () => proxyServerUrl() + '/preview';
   const approvedList = () => proxy.targets.join(', ');
-  // The site the frame is on now (for "/path" typed in the bar).
+  // The site the frame is on now.
   function currentProxyHost() {
     try { const m = /^\/site\/([^/]+)/.exec(new URL(proxy.current).pathname); if (m && proxy.targets.includes(m[1])) return m[1]; } catch (e) { /* none */ }
     return proxy.targets[0] || '';
@@ -12549,33 +12557,72 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     return { frameUrl: withKey(base + '/site/' + host + (u.pathname || '/') + u.search + u.hash), display: 'https://' + host + (u.pathname || '/') + u.search + u.hash };
   }
-  function updateProxyPlaceholder() {
-    const first = proxy.targets[0];
-    proxyUrlInput.placeholder = first ? 'Try ' + first + (proxy.targets.length > 1 ? ' or another approved site' : ' (the approved site)') + '…' : 'No sites approved on the proxy yet';
-    // Suggestions in the address bar: the approved sites.
-    if (proxySitesList) {
-      proxySitesList.textContent = '';
-      proxy.targets.forEach((h) => { const o = document.createElement('option'); o.value = 'https://' + h + '/'; proxySitesList.appendChild(o); });
-    }
+  // Same page? (The access key in the address doesn't count.)
+  function proxyNavKey(u) {
+    try { const x = new URL(u); x.searchParams.delete('k'); return x.href; } catch (e) { return String(u || ''); }
   }
-  function loadProxyUrl() {
-    const r = proxyRoute(proxyUrlInput.value);
-    if (r.error) {
-      // The frame keeps what it was showing; offer the approved sites.
-      showProxyError(r.error, proxy.targets.slice(0, 4).map((h) => ['Open ' + h, () => { proxyUrlInput.value = 'https://' + h + '/'; loadProxyUrl(); }]));
+  // A page the frame now shows: one the tab opened, or one the frame
+  // reported (a link clicked inside it). replace: where the tab's own load
+  // landed after a redirect, which takes that load's entry instead of adding
+  // one (otherwise Back would land on the redirect and bounce forward again).
+  function proxyNavRecord(u, replace) {
+    const k = proxyNavKey(u);
+    const cur = proxyNav.list[proxyNav.i];
+    if (cur && proxyNavKey(cur) === k) { proxyNavSync(); return; }
+    if (replace && cur) proxyNav.list[proxyNav.i] = u;
+    else {
+      proxyNav.list = proxyNav.list.slice(0, proxyNav.i + 1).concat(u).slice(-50);
+      proxyNav.i = proxyNav.list.length - 1;
+    }
+    try { localStorage.setItem(PROXY_LAST_DEST_KEY, proxyDisplay(u)); } catch (e) { /* best-effort */ }
+    proxyNavSync();
+  }
+  function proxyNavSync() {
+    proxyBackBtn.disabled = proxyNav.i <= 0;
+    proxyForwardBtn.disabled = proxyNav.i >= proxyNav.list.length - 1;
+  }
+  function proxyNavGo(delta) {
+    const j = proxyNav.i + delta;
+    if (j < 0 || j >= proxyNav.list.length) return;
+    proxyNav.i = j;
+    proxyLoad(proxyNav.list[j], { force: true });
+  }
+  // The proxy Worker adds a one-line script to the pages it serves that
+  // tells this tab which address the frame is on (proxy-worker/index.js).
+  // Only a Worker address on an approved site (or its connection test) is
+  // taken, and only from this frame.
+  function proxyOnMessage(e) {
+    const d = e.data;
+    if (!px || !d || d.saintsProxy !== 1 || d.type !== 'nav' || typeof d.url !== 'string' || e.source !== proxyFrame.contentWindow) return;
+    let u;
+    try { u = new URL(d.url); } catch (err) { return; }
+    if (u.origin !== proxyServerUrl()) return;
+    const m = /^\/site\/([^/]+)\//.exec(u.pathname);
+    if (!(u.pathname === '/preview' || (m && proxy.targets.includes(m[1])))) return;
+    // The first report after the tab opens a page is that page (perhaps
+    // after a redirect), whether it arrives before or after the frame's load
+    // event; nothing can be clicked in it before it has reported.
+    if (proxyNav.expect) {
+      proxyNav.expect = '';
+      proxyNavRecord(u.href, true);
       return;
     }
-    proxyUrlInput.value = r.display || '';   // .value, never innerHTML
-    try { localStorage.setItem(PROXY_LAST_DEST_KEY, r.display || ''); } catch (e) { /* best-effort */ }
-    proxyLoad(r.frameUrl, { force: true });
+    // A link clicked inside the page: Reload and Home follow it.
+    proxyNavRecord(u.href, false);
+    proxy.current = u.href;
+    hideProxyError();
+    setProxyStatus(m ? 'Loaded' : 'Connected · connection test');
   }
-  proxyGoBtn.addEventListener('click', loadProxyUrl);
-  proxyUrlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadProxyUrl(); });
+  onWin('message', proxyOnMessage);
+
+  proxyBackBtn.addEventListener('click', () => proxyNavGo(-1));
+  proxyForwardBtn.addEventListener('click', () => proxyNavGo(1));
   proxyReloadBtn.addEventListener('click', retryProxy);
+  // Home: the main page of the site that's showing (the connection test
+  // when no site is open).
   proxyHomeBtn.addEventListener('click', () => {
-    proxyUrlInput.value = '';
-    try { localStorage.setItem(PROXY_LAST_DEST_KEY, ''); } catch (e) { /* best-effort */ }
-    proxyLoad(proxyPreviewUrl(), { force: true });
+    const m = /^\/site\/([^/]+)/.exec((() => { try { return new URL(proxy.current).pathname; } catch (e) { return ''; } })());
+    proxyLoad(m && proxy.targets.includes(m[1]) ? withKey(proxyServerUrl() + '/site/' + m[1] + '/') : proxyPreviewUrl(), { force: true });
   });
   panel.querySelector('#gpa-proxy-close').addEventListener('click', () => closeProxy('The proxy was closed.'));
 
@@ -12592,7 +12639,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     try { localStorage.setItem(PROXY_SERVER_KEY, v === DEFAULT_PROXY_SERVER ? '' : v); } catch (e) { /* best-effort */ }
     proxyServerInput.value = v;
     proxy.targets = DEFAULT_PROXY_TARGETS.slice();
-    proxyUrlInput.value = '';
     proxyLoad(proxyPreviewUrl(), { force: true });
   });
 
@@ -12611,20 +12657,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     pxSync();
     if (proxyPaneInitialized) return;
     proxyPaneInitialized = true;
-    updateProxyPlaceholder();
   }
   // A launch: the connection test, or the last page opened on an approved site.
   function proxyStart() {
-    updateProxyPlaceholder();
     let lastDest = '';
     try { lastDest = localStorage.getItem(PROXY_LAST_DEST_KEY) || ''; } catch (e) { /* ignore */ }
     if (!lastDest) { proxyLoad(proxyPreviewUrl()); return; }
     // Learn the approved list first, so a last page on any approved site comes back.
     proxyHealth().then(() => {
-      updateProxyPlaceholder();
       const r = proxyRoute(lastDest);
       if (!px) return;   // closed while the list was loading
-      if (r && r.frameUrl && !r.error) { proxyUrlInput.value = r.display || ''; proxyLoad(r.frameUrl); }
+      if (r && r.frameUrl && !r.error) proxyLoad(r.frameUrl);
       else proxyLoad(proxyPreviewUrl());
     });
   }
@@ -12636,6 +12679,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     proxy.current = '';
     proxy.blocked = false;
     proxyFrame.src = 'about:blank';
+    proxyNav.list = []; proxyNav.i = -1; proxyNav.expect = '';
+    proxyNavSync();
     setProxyStatus('Not connected');
   }
 
@@ -12799,6 +12844,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     d.addEventListener('webkitfullscreenchange', onFsChange);
     // This page's CSP (inherited by about:blank) can refuse the frame there too.
     d.addEventListener('securitypolicyviolation', onProxyCsp, true);
+    // The frame's address reports arrive at this window, not ours.
+    win.addEventListener('message', proxyOnMessage);
     // Closing the window closes the proxy. pagehide covers a normal close;
     // the poll covers anything that skips it.
     const onGone = () => { if (px && px.child === child) closeProxy('The about:blank window was closed.'); };

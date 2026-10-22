@@ -84,7 +84,8 @@ identification requirement. No YouTube account credentials are proxied.
 - **Redirects** are followed only to an approved origin (rewritten to `/site/<host>/…`); anything else gets a 403 page. 304/300 pass through unchanged.
 - **No credentials** go to sites: only `accept`, `accept-language`, `if-none-match`, `if-modified-since` and `range` are forwarded. `Set-Cookie` and `Strict-Transport-Security` are removed from responses. Upstream `Content-Security-Policy` and framing headers are **kept** (not bypassed).
 - **Limits:** GET/HEAD only; 12 s upstream timeout (504 page); 12 MB response cap (413 or the stream stops); soft per-IP rate limit (Cache API, best-effort across Cloudflare's isolates).
-- **Own pages** (preview, errors) have a no-scripts CSP and HTML-escaped text.
+- **Own pages** (preview, errors) have HTML-escaped text and a CSP that allows no scripts except the one-line address report below, by its exact hash.
+- **Address report** (`nav.js`): every page the Worker serves (except the script-free YouTube player page) ends with a one-line script that posts its own proxy address to the frame's parent, so the Proxy tab's Back / Forward follow links clicked inside the page. It sends nothing else; the tab only accepts it from its own frame and only for the Worker's address on an approved site.
 - **In Saints Service** the frame is sandboxed **without `allow-same-origin`**. Every proxied page runs in its own opaque origin, so approved sites can't read each other's (or the Worker's) storage or cookies. It is also sandboxed without top-navigation, so a page can't take over the website around the console. No referrer is sent.
 
 ## Compatibility (what works, what doesn't)
@@ -109,7 +110,7 @@ Tested with local fixtures in the real Workers runtime (`tests/browser/proxy.mjs
 | WebSockets | Not implemented |
 | Resources on other hosts (CDNs, fonts, analytics) | Loaded directly from those hosts (not proxied) unless you approve them too |
 | Sites that forbid framing (`X-Frame-Options`, `frame-ancestors`) | Kept as the site intends, so they show the browser's "refused to connect" page; use **Open in a new tab** |
-| The tab's address bar after clicking links inside the page | It shows the last address you opened from the bar (the page is another origin and can't be observed) |
+| Back / Forward after clicking links on a site whose CSP blocks inline scripts | That site can't report its address, so those clicks aren't added to the tab's history |
 
 **Compared with full browser-rewriting proxies** (e.g. Scramjet, Ultraviolet): those run a service worker in your browser and rewrite JavaScript, so they can handle SPAs, `fetch`, cookies and WebSockets for many sites. That is a much larger system with its own server, licensing and security model. This Worker deliberately stays small, server-side and allowlist-only. If you adopt one of those projects, check its license and documentation in its own repository first (this build container couldn't reach GitHub to verify them).
 

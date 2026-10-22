@@ -3,20 +3,22 @@
 // injected on a website. Two approved fake sites are served over HTTPS from
 // 127.0.0.1:443 under real-looking names (tests/browser/fixtures/proxy-sites/
 // setup.sh: throwaway CA + /etc/hosts, test containers only), plus a third
-// approved name that has no server:
-//   1. tab order; the Worker's connection test lists the approved sites
-//   2. an approved site loads through /site/<host>/: CSS, images, scripts,
-//      relative links, query + fragment, in-frame link clicks
-//   3. a second approved site; redirects between approved sites; a redirect
+// approved name that has no server. The bar has no address field: Back,
+// Forward, Reload and Home (this site's main page); pages are reached through
+// links, and a saved last page is reopened on launch.
+//   1. tab order; launching (only while fullscreen); the connection test
+//      lists the approved sites; the bar shows no address
+//   2. an approved site opened from the connection test: CSS, images,
+//      scripts, relative links, query + fragment, in-frame link clicks
+//   3. Back / Forward follow in-page links; Home = the site's main page
+//   4. redirects between approved sites (Back doesn't bounce); a redirect
 //      elsewhere is refused; HTTP 404; website down; website timeout
-//   4. other sites / look-alikes / javascript: explained, page kept
 //   5. isolation: proxied pages get no storage (opaque origin per page)
-//   6. tab switching keeps the page; reload/home; the last page comes back
+//   6. tab switching keeps the page; reload; the last page comes back
 //   7. Worker down / Worker 500 / a website whose CSP forbids framing
 //   8. default address = deployed Worker; old localhost:4141 migrates;
 //      phone width; light/dark themes
-//   9. launching: nothing loads until launched, only while fullscreen;
-//      leaving fullscreen hides it; the about:blank window (its own
+//   9. leaving fullscreen hides it; Close; the about:blank window (its own
 //      fullscreen gate, the browser moves in and back out)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -114,28 +116,41 @@ async function signIn(page, user) {
   return R(page, (r) => r.querySelector('#gpa-login').style.display === 'none');
 }
 const tab = (page, t) => R(page, (r, x) => { const n = r.querySelector(`.gpa-dropdown-item[data-tab="${x}"]`); n.style.display = ''; n.click(); }, t);
-const state = (page) => R(page, (r) => ({ src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), status: r.querySelector('#gpa-proxy-status').textContent, error: r.querySelector('#gpa-proxy-error').style.display === 'none' ? '' : r.querySelector('#gpa-proxy-error').textContent, proxy: r.querySelector('.gpa-pane[data-pane="browser"] .gpx-room').dataset.proxy || '', addr: r.querySelector('#gpa-proxy-url').value }));
+const state = (page) => R(page, (r) => ({ src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), status: r.querySelector('#gpa-proxy-status').textContent, error: r.querySelector('#gpa-proxy-error').style.display === 'none' ? '' : r.querySelector('#gpa-proxy-error').textContent, proxy: r.querySelector('.gpa-pane[data-pane="browser"] .gpx-room').dataset.proxy || '', back: !r.querySelector('#gpa-proxy-back').disabled, fwd: !r.querySelector('#gpa-proxy-forward').disabled }));
 const frameFor = (page, prefix) => page.frames().find((x) => x.url().startsWith(prefix));
 const frameText = async (page, prefix) => { const f = frameFor(page, prefix); return f ? (await f.textContent('body').catch(() => '')).replace(/\s+/g, ' ').trim() : ''; };
-async function go(page, addr, settle = /Loaded|Website|HTTP|Redirect|failed|Not supported|timed out/) {
-  await page.fill(sr('#gpa-proxy-url'), addr);
-  await page.click(sr('#gpa-proxy-go'));
+const SETTLE = /Loaded|Connected ·|Website|HTTP|Redirect|failed|Not supported|timed out/;
+async function settle(page, re = SETTLE) {
   await page.waitForTimeout(300);
-  await waitFor(page, (r, re) => new RegExp(re).test(r.querySelector('#gpa-proxy-status').textContent) || r.querySelector('#gpa-proxy-error').style.display !== 'none', settle.source, 25000);
+  await waitFor(page, (r, x) => new RegExp(x).test(r.querySelector('#gpa-proxy-status').textContent) || r.querySelector('#gpa-proxy-error').style.display !== 'none', re.source, 25000);
   await page.waitForTimeout(700);   // the /status/ check lands just after the load
   return state(page);
 }
-
 // The proxy only launches while the console is fullscreen (like Eaglercraft).
 async function launchHere(page) {
   if (!(await R(page, (r) => !!r.fullscreenElement))) await page.click(sr('#gpa-proxy-fs'));
   await waitFor(page, (r) => !r.querySelector('#gpa-proxy-launch-here').disabled, null, 5000);
   await page.click(sr('#gpa-proxy-launch-here'));
 }
+// There's no address field: a page is reached by reopening the proxy with it
+// saved as the last page (the same path a returning visitor takes).
+async function openVia(page, addr, re) {
+  if (await R(page, (r) => r.querySelector('#gpa-proxy-stage').style.display !== 'none')) await page.click(sr('#gpa-proxy-close'));
+  await page.evaluate((x) => localStorage.setItem('gpa_proxy_last_destination', x), addr);
+  await launchHere(page);
+  return settle(page, re);
+}
+// A link clicked inside the proxied page; the page reports where it went.
+async function clickIn(page, prefix, sel, expectSrcPrefix) {
+  await frameFor(page, prefix).click(sel);
+  await page.waitForTimeout(1200);
+  return state(page).then((st) => ({ ...st, frame: (frameFor(page, expectSrcPrefix) || { url: () => '' }).url() }));
+}
+const btn = (page, id) => page.click(sr('#' + id));
 
-let a, b, c, d, e, f2, g;
+let a, b, c, d, e, f2;
 try {
-  // 1: the tab, in its place; the connection test lists the approved sites.
+  // 1: the tab, in its place; launching; the connection test; no address shown.
   a = await computer({ server: PROXY });
   check('signs in', await signIn(a.page, 'px' + run));
   const order = await R(a.page, (r) => [...r.querySelectorAll('.gpa-dropdown-item[data-tab]')].map((x) => x.dataset.tab));
@@ -150,21 +165,21 @@ try {
   check('A forced launch while not fullscreen opens nothing', !(await R(a.page, (r) => r.querySelector('#gpa-proxy-frame').getAttribute('src'))) && /Enter fullscreen first/.test(await R(a.page, (r) => r.querySelector('#gpa-proxy-launch-error').textContent)));
   await launchHere(a.page);
   check('Launch Here: the console is fullscreen and the browser replaces the launcher', await R(a.page, (r) => !!r.fullscreenElement && r.querySelector('#gpa-proxy-stage').style.display === '' && !r.querySelector('.gpx-proxy-launcher').offsetParent));
-  await waitFor(a.page, (r) => /Connected/.test(r.querySelector('#gpa-proxy-status').textContent), null, 20000);
-  let st = await state(a.page);
-  check('Opening Proxy shows the Worker’s connection test: “Connected · connection test”', st.src === PROXY + '/preview' && /Connected · connection test/.test(st.status) && st.proxy === 'connected' && !st.error, JSON.stringify(st));
+  let st = await settle(a.page);
+  check('Launching shows the Worker’s connection test: “Connected · connection test”', st.src === PROXY + '/preview' && /Connected · connection test/.test(st.status) && st.proxy === 'connected' && !st.error, JSON.stringify(st));
   const pv = await frameText(a.page, PROXY + '/preview');
   check('…which lists the approved sites', pv.includes(FX) && pv.includes(DOCS), pv.slice(0, 160));
-  const sugg = await R(a.page, (r) => ({ ph: r.querySelector('#gpa-proxy-url').placeholder, opts: [...r.querySelectorAll('#gpa-proxy-sites option')].map((o) => o.value) }));
-  check('The address bar suggests the approved sites', /Try fixture\.saints-test\.dev or another approved site/.test(sugg.ph) && sugg.opts.join(' ') === `https://${FX}/ https://${DOCS}/ https://${DOWN}/`, JSON.stringify(sugg));
+  const bar = await R(a.page, (r) => { const b2 = r.querySelector('#gpa-proxy-stage .gpx-browser-bar'); return { inputs: b2.querySelectorAll('input').length, buttons: [...b2.querySelectorAll('button')].map((x) => x.id), text: b2.textContent.trim() }; });
+  check('The bar shows no address: only Back, Forward, Reload, Home (and Close)', bar.inputs === 0 && bar.buttons.join(',') === 'gpa-proxy-back,gpa-proxy-forward,gpa-proxy-reload,gpa-proxy-home,gpa-proxy-close' && !bar.text, JSON.stringify(bar));
+  check('Back and Forward start disabled', !st.back && !st.fwd, JSON.stringify(st));
   const attrs = await R(a.page, (r) => { const fr = r.querySelector('#gpa-proxy-frame'); return { sandbox: fr.getAttribute('sandbox'), allow: fr.getAttribute('allow'), ref: fr.getAttribute('referrerpolicy') }; });
   check('The frame is sandboxed: no allow-same-origin (isolation), no top-navigation, no camera/mic/location, no referrer', !/allow-same-origin/.test(attrs.sandbox) && !/allow-top-navigation/.test(attrs.sandbox) && /allow-scripts/.test(attrs.sandbox) && !/camera|microphone|geolocation/.test(attrs.allow) && attrs.ref === 'no-referrer', JSON.stringify(attrs));
   await a.page.screenshot({ path: path.join(OUT, '01-connected.png') });
 
-  // 2: an approved site, with its CSS, image, script and links, through the Worker.
+  // 2: an approved site, opened from the connection test, through the Worker.
   hits.length = 0;
-  st = await go(a.page, FX);
-  check(`“${FX}”: the frame goes to /site/${FX}/, “Loaded · https://${FX}/”`, st.src === S(FX) && st.addr === `https://${FX}/` && /Loaded · https:\/\/fixture\.saints-test\.dev\//.test(st.status) && !st.error, JSON.stringify(st));
+  st = await clickIn(a.page, PROXY + '/preview', `a[href="/site/${FX}/"]`, S(FX));
+  check(`Clicking ${FX} on the connection test opens it: “Loaded”, the domain shown nowhere, Back enabled`, st.frame === S(FX) && st.status === 'Loaded' && st.back && !st.fwd && !st.error, JSON.stringify(st));
   const fr = frameFor(a.page, S(FX));
   await fr.waitForFunction(() => document.getElementById('js') && document.getElementById('js').textContent === 'JS ran', null, { timeout: 10000 }).catch(() => {});
   const page1 = await fr.evaluate(() => ({ h1: document.querySelector('h1').textContent, bg: getComputedStyle(document.body).backgroundColor, img: document.getElementById('dot').naturalWidth, imgSrc: document.getElementById('dot').src, js: document.getElementById('js').textContent, store: document.getElementById('store').textContent, rel: document.getElementById('rel').href, docs: document.getElementById('docs').href, ext: document.getElementById('ext').href, origin: (() => { try { return String(window.origin); } catch (x) { return 'err'; } })() }));
@@ -175,46 +190,50 @@ try {
   check('Links: relative (with query + fragment) → /site/<same host>; the other approved site → its /site/; other websites left alone', page1.rel === S(FX, '/page2?x=1#sec') && page1.docs === S(DOCS, '/welcome') && page1.ext === 'https://www.iana.org/', JSON.stringify({ rel: page1.rel, docs: page1.docs, ext: page1.ext }));
   check('Isolation: the proxied page runs in its own opaque origin and gets no storage', page1.origin === 'null' && page1.store === 'storage: blocked', JSON.stringify({ origin: page1.origin, store: page1.store }));
   await a.page.screenshot({ path: path.join(OUT, '02-approved-site.png') });
-  await fr.click('#rel');
-  await a.page.waitForTimeout(1500);
+
+  // 3: Back / Forward follow links clicked inside the page; Home is the site's main page.
+  st = await clickIn(a.page, S(FX), '#rel', S(FX, '/page2'));
   const p2 = frameFor(a.page, S(FX, '/page2'));
   check('Clicking a link inside the page works (page two, query x=1 kept)', !!p2 && /Page two/.test(await p2.textContent('h1')) && (await p2.textContent('#q')) === 'x=1', p2 ? p2.url() : 'no frame');
+  check('…the tab follows it: Back enabled, Forward not', st.back && !st.fwd && st.status === 'Loaded', JSON.stringify(st));
+  check('The last page is saved for next time (the page clicked to)', await a.page.evaluate(() => localStorage.getItem('gpa_proxy_last_destination')) === `https://${FX}/page2?x=1#sec`);
+  await btn(a.page, 'gpa-proxy-back');
+  st = await settle(a.page);
+  check('Back: the previous page (the site’s home), Forward now enabled', st.src === S(FX) && /Fixture home/.test(await frameText(a.page, S(FX))) && st.back && st.fwd, JSON.stringify(st));
+  await btn(a.page, 'gpa-proxy-back');
+  st = await settle(a.page);
+  check('Back again: the connection test, Back disabled', st.src === PROXY + '/preview' && !st.back && st.fwd, JSON.stringify(st));
+  await btn(a.page, 'gpa-proxy-forward');
+  st = await settle(a.page);
+  await btn(a.page, 'gpa-proxy-forward');
+  st = await settle(a.page);
+  check('Forward twice: back on page two, Forward disabled', st.src === S(FX, '/page2?x=1#sec') && /Page two/.test(await frameText(a.page, S(FX, '/page2'))) && st.back && !st.fwd, JSON.stringify(st));
+  await btn(a.page, 'gpa-proxy-home');
+  st = await settle(a.page);
+  check('Home: the main page of the site that’s showing', st.src === S(FX) && /Fixture home/.test(await frameText(a.page, S(FX))) && st.back && !st.fwd, JSON.stringify(st));
+  st = await clickIn(a.page, S(FX), '#docs', S(DOCS, '/welcome'));
+  check('A link to the second approved site opens it', /Docs welcome/.test(await frameText(a.page, S(DOCS))) && st.status === 'Loaded', JSON.stringify(st));
+  await a.page.screenshot({ path: path.join(OUT, '03-back-forward.png') });
 
-  // 3: the second approved site, redirects, errors.
-  st = await go(a.page, `${DOCS}/welcome`);
-  check(`A second approved site: “${DOCS}/welcome”`, st.src === S(DOCS, '/welcome') && /Loaded · https:\/\/docs\.saints-test\.dev\/welcome/.test(st.status) && /Docs welcome/.test(await frameText(a.page, S(DOCS))), JSON.stringify(st));
-  st = await go(a.page, `${FX}/go-docs`);
+  // 4: redirects and errors (pages reopened as the last page).
+  st = await openVia(a.page, `https://${FX}/go-docs`);
   await a.page.waitForTimeout(800);
-  check('A redirect to another approved site is followed (through the proxy)', !st.error && !!frameFor(a.page, S(DOCS, '/welcome')), JSON.stringify(st) + ' frames: ' + a.page.frames().map((x) => x.url()).join(' '));
-  st = await go(a.page, `${FX}/go-evil`);
+  st = await state(a.page);
+  check('A redirect to another approved site is followed (through the proxy); Back doesn’t bounce into it', !st.error && !!frameFor(a.page, S(DOCS, '/welcome')) && !st.back, JSON.stringify(st) + ' frames: ' + a.page.frames().map((x) => x.url()).join(' '));
+  st = await openVia(a.page, `https://${FX}/go-evil`);
   check('A redirect to an unapproved site is refused: “Redirect not permitted”', /Redirect not permitted/.test(st.status) && /isn’t approved/.test(st.error) && /Redirect not permitted/.test(await frameText(a.page, S(FX, '/go-evil'))), JSON.stringify(st));
-  await go(a.page, FX);
-  st = await go(a.page, '/missing');
-  check('HTTP errors are named: “/missing” on the current site → “HTTP 404 … (page not found)”', st.src === S(FX, '/missing') && /HTTP 404/.test(st.status) && /page not found/.test(st.error), JSON.stringify(st));
-  await a.page.screenshot({ path: path.join(OUT, '03-http-404.png') });
-  st = await go(a.page, DOWN);
+  st = await openVia(a.page, `https://${FX}/missing`);
+  check('HTTP errors are named: “HTTP 404 … (page not found)”', st.src === S(FX, '/missing') && /HTTP 404/.test(st.status) && /page not found/.test(st.error), JSON.stringify(st));
+  await a.page.screenshot({ path: path.join(OUT, '04-http-404.png') });
+  st = await openVia(a.page, `https://${DOWN}/`);
   check('An approved site that’s down: “Website unavailable” (and the Worker is fine)', /Website unavailable/.test(st.status) && /proxy Worker is fine/.test(st.error), JSON.stringify(st));
-  await a.page.screenshot({ path: path.join(OUT, '04-website-down.png') });
-
-  // 4: anything else is explained, and the page stays.
-  await go(a.page, FX);
-  for (const inp of ['google.com', `https://${FX}.evil.test/`, `https://${FX}:8443/`, `https://user@${FX}/`, 'javascript:alert(1)', 'https://127.0.0.1/', 'localhost']) {
-    await a.page.fill(sr('#gpa-proxy-url'), inp);
-    await a.page.click(sr('#gpa-proxy-go'));
-    await a.page.waitForTimeout(300);
-    const s2 = await state(a.page);
-    check(`“${inp}” is refused with an explanation; the page stays`, s2.src === S(FX) && /isn’t supported|isn’t a web address|Only web addresses/.test(s2.error), JSON.stringify(s2));
-  }
-  await a.page.fill(sr('#gpa-proxy-url'), 'google.com');
-  await a.page.click(sr('#gpa-proxy-go'));
-  await a.page.waitForTimeout(300);
-  check('…the message names the approved sites and offers them', await R(a.page, (r) => /only opens its approved sites \(fixture\.saints-test\.dev, docs\.saints-test\.dev, down\.saints-test\.dev\)/.test(r.querySelector('#gpa-proxy-error').textContent) && [...r.querySelectorAll('#gpa-proxy-error button')].some((x) => /Open docs\.saints-test\.dev/.test(x.textContent))));
-  await a.page.screenshot({ path: path.join(OUT, '05-other-site-explained.png') });
-  st = await go(a.page, `http://${DOCS}/welcome`);
+  st = await openVia(a.page, `http://${DOCS}/welcome`);
   check('http:// on an approved site is upgraded to https', st.src === S(DOCS, '/welcome'), JSON.stringify(st));
+  st = await openVia(a.page, 'https://google.com/');
+  check('A saved page that isn’t approved falls back to the connection test', st.src === PROXY + '/preview', JSON.stringify(st));
 
-  // 6: tab switching keeps the page; reload; home; last page remembered.
-  await go(a.page, FX);
+  // 6: tab switching keeps the page; reload.
+  st = await openVia(a.page, `https://${FX}/`);
   await R(a.page, (r) => { r.querySelector('#gpa-proxy-frame').__mark = 'same'; });
   let navs = 0;
   const onNav = (x) => { if (x.url().startsWith(PROXY)) navs++; };
@@ -224,16 +243,10 @@ try {
   await tab(a.page, 'browser'); await a.page.waitForTimeout(800);
   st = await state(a.page);
   check('Away to Chat and Music and back: the same frame, same page, not reloaded', (await R(a.page, (r) => r.querySelector('#gpa-proxy-frame').__mark)) === 'same' && st.src === S(FX) && navs === 0 && /Loaded/.test(st.status), JSON.stringify({ navs, ...st }));
-  await R(a.page, (r) => r.querySelector('#gpa-proxy-reload').click());
+  await btn(a.page, 'gpa-proxy-reload');
   await waitFor(a.page, (r) => /Loaded/.test(r.querySelector('#gpa-proxy-status').textContent), null, 20000);
   check('Reload loads the same page again', navs >= 1 && (await state(a.page)).src === S(FX), String(navs));
   a.page.off('framenavigated', onNav);
-  await R(a.page, (r) => r.querySelector('#gpa-proxy-home').click());
-  await waitFor(a.page, (r) => /Connected/.test(r.querySelector('#gpa-proxy-status').textContent), null, 20000);
-  st = await state(a.page);
-  check('Home goes back to the connection test and clears the bar', st.src === PROXY + '/preview' && st.addr === '', JSON.stringify(st));
-  await go(a.page, `${DOCS}/welcome`);
-  check('The last page is saved for next time', await a.page.evaluate(() => localStorage.getItem('gpa_proxy_last_destination')) === `https://${DOCS}/welcome`);
 
   // 8b: themes.
   for (const th of ['white', 'dark']) {
@@ -246,37 +259,42 @@ try {
     check(`Theme “${th}”: the Proxy tab uses the theme (bar ${look.bar})`, look.shown && !!look.bar, JSON.stringify(look));
     await a.page.screenshot({ path: path.join(OUT, `08-theme-${th}.png`) });
   }
+
   // 9: leaving fullscreen hides the proxy; fullscreen brings the same page back; Close unloads.
   await a.page.evaluate(() => document.exitFullscreen());
   await a.page.waitForTimeout(500);
   let hid = await R(a.page, (r) => ({ stage: r.querySelector('#gpa-proxy-stage').style.display, src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), btn: r.querySelector('#gpa-proxy-launch-here').textContent, gate: r.querySelector('#gpa-proxy-gate').textContent }));
-  check('Leaving fullscreen hides the proxy (page kept) and offers “Enter Fullscreen to Resume”', hid.stage === 'none' && hid.src === S(DOCS, '/welcome') && /Enter Fullscreen to Resume/.test(hid.btn) && /left fullscreen/.test(hid.gate), JSON.stringify(hid));
-  await a.page.click(sr('#gpa-proxy-launch-here'));
+  check('Leaving fullscreen hides the proxy (page kept) and offers “Enter Fullscreen to Resume”', hid.stage === 'none' && hid.src === S(FX) && /Enter Fullscreen to Resume/.test(hid.btn) && /left fullscreen/.test(hid.gate), JSON.stringify(hid));
+  await btn(a.page, 'gpa-proxy-launch-here');
   await a.page.waitForTimeout(500);
   hid = await R(a.page, (r) => ({ fs: !!r.fullscreenElement, stage: r.querySelector('#gpa-proxy-stage').style.display, src: r.querySelector('#gpa-proxy-frame').getAttribute('src') }));
-  check('…Resume goes fullscreen and shows the same page again', hid.fs && hid.stage === '' && hid.src === S(DOCS, '/welcome'), JSON.stringify(hid));
-  await a.page.click(sr('#gpa-proxy-close'));
+  check('…Resume goes fullscreen and shows the same page again', hid.fs && hid.stage === '' && hid.src === S(FX), JSON.stringify(hid));
+  await btn(a.page, 'gpa-proxy-close');
   await a.page.waitForTimeout(400);
-  hid = await R(a.page, (r) => ({ stage: r.querySelector('#gpa-proxy-stage').style.display, src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), status: r.querySelector('#gpa-proxy-status').textContent, gate: r.querySelector('#gpa-proxy-gate').textContent }));
-  check('Close unloads the page and shows the launcher', hid.stage === 'none' && hid.src === 'about:blank' && hid.status === 'Not connected' && /proxy was closed/.test(hid.gate), JSON.stringify(hid));
+  hid = await R(a.page, (r) => ({ stage: r.querySelector('#gpa-proxy-stage').style.display, src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), status: r.querySelector('#gpa-proxy-status').textContent, gate: r.querySelector('#gpa-proxy-gate').textContent, back: r.querySelector('#gpa-proxy-back').disabled }));
+  check('Close unloads the page, clears Back/Forward and shows the launcher', hid.stage === 'none' && hid.src === 'about:blank' && hid.status === 'Not connected' && hid.back && /proxy was closed/.test(hid.gate), JSON.stringify(hid));
 
   // 9b: about:blank — its own fullscreen gate; the browser moves in, and back out on close.
+  await a.page.evaluate((x) => localStorage.setItem('gpa_proxy_last_destination', x), `https://${FX}/`);
   await waitFor(a.page, (r) => !r.querySelector('#gpa-proxy-launch-blank').disabled, null, 5000);
-  const [pop] = await Promise.all([a.ctx.waitForEvent('page', { timeout: 8000 }), a.page.click(sr('#gpa-proxy-launch-blank'))]);
+  const [pop] = await Promise.all([a.ctx.waitForEvent('page', { timeout: 8000 }), btn(a.page, 'gpa-proxy-launch-blank')]);
   await a.page.waitForTimeout(500);
   const P = (fn) => pop.evaluate((f) => (0, eval)(f)(document.body.firstElementChild.shadowRoot), String(fn));
-  let pw1 = await P((r) => ({ gate: (r.querySelector('.gpx-empty-title') || {}).textContent, url: location.href, hasBar: !!r.querySelector('#gpa-proxy-url'), src: r.querySelector('#gpa-proxy-frame').getAttribute('src') }));
+  let pw1 = await P((r) => ({ gate: (r.querySelector('.gpx-empty-title') || {}).textContent, url: location.href, hasBar: !!r.querySelector('#gpa-proxy-home'), src: r.querySelector('#gpa-proxy-frame').getAttribute('src') }));
   check('Launch in about:blank: an about:blank window with the browser in it, behind its own fullscreen gate', pw1.url === 'about:blank' && pw1.hasBar && /requires fullscreen/.test(pw1.gate || '') && pw1.src === 'about:blank', JSON.stringify(pw1));
   const mainNow = await R(a.page, (r) => ({ inTab: !!r.querySelector('#gpa-proxy-stage'), gate: r.querySelector('#gpa-proxy-gate').textContent, btn: r.querySelector('#gpa-proxy-launch-blank').textContent }));
   check('…the console says it’s in the about:blank window', !mainNow.inTab && /about:blank window/.test(mainNow.gate) && /Show the about:blank window/.test(mainNow.btn), JSON.stringify(mainNow));
   await pop.click('[data-act="enter"]');
-  await pop.waitForFunction(() => /Connected|Loaded/.test(document.body.firstElementChild.shadowRoot.querySelector('#gpa-proxy-status').textContent), null, { timeout: 20000 }).catch(() => {});
-  pw1 = await P((r) => ({ fs: !!r.fullscreenElement, cover: !!r.querySelector('.gpx-eag-cover'), status: r.querySelector('#gpa-proxy-status').textContent, dot: r.querySelector('.gpx-room').dataset.proxy }));
-  check('…fullscreen in that window opens the proxy there', pw1.fs && !pw1.cover && /Connected|Loaded/.test(pw1.status) && pw1.dot === 'connected', JSON.stringify(pw1));
-  await pop.fill('#gpa-proxy-url', FX);
-  await pop.click('#gpa-proxy-go');
   await pop.waitForFunction(() => /Loaded/.test(document.body.firstElementChild.shadowRoot.querySelector('#gpa-proxy-status').textContent), null, { timeout: 20000 }).catch(() => {});
-  check('…the address bar works in the window (an approved site loads)', /Loaded · https:\/\/fixture/.test(await P((r) => r.querySelector('#gpa-proxy-status').textContent)) && pop.frames().some((x) => x.url().startsWith(S(FX))));
+  pw1 = await P((r) => ({ fs: !!r.fullscreenElement, cover: !!r.querySelector('.gpx-eag-cover'), status: r.querySelector('#gpa-proxy-status').textContent, dot: r.querySelector('.gpx-room').dataset.proxy }));
+  check('…fullscreen in that window opens the proxy there (the last page)', pw1.fs && !pw1.cover && pw1.status === 'Loaded' && pw1.dot === 'connected' && pop.frames().some((x) => x.url() === S(FX)), JSON.stringify(pw1));
+  await pop.frames().find((x) => x.url() === S(FX)).click('#rel');
+  await pop.waitForTimeout(1200);
+  pw1 = await P((r) => ({ back: !r.querySelector('#gpa-proxy-back').disabled }));
+  check('…links inside the page are followed there too (Back enabled)', pw1.back && pop.frames().some((x) => x.url().startsWith(S(FX, '/page2'))), JSON.stringify(pw1));
+  await pop.click('#gpa-proxy-back');
+  await pop.waitForTimeout(1500);
+  check('…and Back works in the window', pop.frames().some((x) => x.url() === S(FX)) && /Loaded/.test(await P((r) => r.querySelector('#gpa-proxy-status').textContent)));
   await pop.screenshot({ path: path.join(OUT, '09-about-blank.png') });
   await pop.evaluate(() => document.exitFullscreen());
   await pop.waitForTimeout(400);
@@ -285,9 +303,8 @@ try {
   await a.page.waitForTimeout(1500);
   hid = await R(a.page, (r) => ({ back: !!r.querySelector('#gpa-proxy-stage'), stage: (r.querySelector('#gpa-proxy-stage') || {}).style?.display, src: (r.querySelector('#gpa-proxy-frame') || { getAttribute: () => 'gone' }).getAttribute('src'), gate: r.querySelector('#gpa-proxy-gate').textContent }));
   check('Closing the window brings the browser back to the tab, unloaded', hid.back && hid.stage === 'none' && hid.src === 'about:blank' && /about:blank window was closed/.test(hid.gate), JSON.stringify(hid));
-  await launchHere(a.page);
-  st = await go(a.page, FX);
-  check('…and it still works here afterwards', /Loaded/.test(st.status) && st.src === S(FX), JSON.stringify(st));
+  st = await openVia(a.page, `https://${FX}/`);
+  check('…and it still works here afterwards', st.status === 'Loaded' && st.src === S(FX), JSON.stringify(st));
   check('No page errors (computer)', a.page._errors.length === 0, a.page._errors.slice(0, 2).join(' | '));
 
   // 6b: a new visit restores the last page on the SECOND approved site.
@@ -298,10 +315,10 @@ try {
   await launchHere(f2.page);
   await waitFor(f2.page, (r) => /Loaded/.test(r.querySelector('#gpa-proxy-status').textContent), null, 20000);
   st = await state(f2.page);
-  check('Next visit: the last page (on the second approved site) comes back', st.src === S(DOCS, '/welcome') && st.addr === `https://${DOCS}/welcome`, JSON.stringify(st));
+  check('Next visit: the last page (on the second approved site) comes back', st.src === S(DOCS, '/welcome'), JSON.stringify(st));
 
-  // 3b: a site that's too slow: the Worker gives up at 12 s → “Website timed out”.
-  st = await go(f2.page, `${FX}/slow`, /timed out|Loaded|failed/);
+  // 4b: a site that's too slow: the Worker gives up at 12 s → “Website timed out”.
+  await openVia(f2.page, `https://${FX}/slow`, /timed out|Loaded|failed/);
   await waitFor(f2.page, (r) => /timed out/.test(r.querySelector('#gpa-proxy-status').textContent), null, 30000);
   st = await state(f2.page);
   check('A site that’s too slow: “Website timed out”', /Website timed out/.test(st.status) && /took too long/.test(st.error), JSON.stringify(st));
@@ -351,8 +368,8 @@ try {
   await e.page.waitForTimeout(800);
   const def = await R(e.page, (r) => ({ src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), setting: r.querySelector('#gpa-proxy-server').value }));
   check('Default: the deployed Worker (' + DEPLOYED + '/preview); an old saved localhost:4141 moves to it', def.src === DEPLOYED + '/preview' && def.setting === DEPLOYED, JSON.stringify(def));
-  const fit = await R(e.page, (r) => { const bar = r.querySelector('.gpx-browser-bar'), p = r.querySelector('.gpa-panel'); const inp = r.querySelector('#gpa-proxy-url'); return { fits: bar.scrollWidth <= bar.clientWidth + 1, inside: bar.getBoundingClientRect().right <= p.getBoundingClientRect().right + 1, go: !!r.querySelector('#gpa-proxy-go').offsetParent, inputmode: inp.getAttribute('inputmode'), enter: inp.getAttribute('enterkeyhint') }; });
-  check('Phone width: the bar fits, Go is there; the keyboard is a URL keyboard with “go”', fit.fits && fit.inside && fit.go && fit.inputmode === 'url' && fit.enter === 'go', JSON.stringify(fit));
+  const fit = await R(e.page, (r) => { const bar = r.querySelector('.gpx-browser-bar'), p = r.querySelector('.gpa-panel'); return { fits: bar.scrollWidth <= bar.clientWidth + 1, inside: bar.getBoundingClientRect().right <= p.getBoundingClientRect().right + 1, nav: ['back', 'forward', 'reload', 'home'].every((x) => !!r.querySelector('#gpa-proxy-' + x).offsetParent) }; });
+  check('Phone width: the bar fits, with Back, Forward, Reload and Home', fit.fits && fit.inside && fit.nav, JSON.stringify(fit));
   for (const [n, p] of [['worker down', b], ['worker error', c], ['strict website', d], ['phone', e], ['restore', f2]]) check(`No page errors (${n})`, p.page._errors.length === 0, p.page._errors.slice(0, 2).join(' | '));
 } finally {
   await browser.close();

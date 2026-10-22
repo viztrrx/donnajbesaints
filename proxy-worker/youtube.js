@@ -35,7 +35,7 @@ export function youtubeResponse(mode, method = "GET") {
          allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
        <p>Playback depends on YouTube allowing this video to be embedded and on your browser's frame settings.</p>`
     : `<p>The full YouTube website uses features that this lightweight proxy cannot reproduce. The old “Connect to the internet” message was misleading; your Wi-Fi may be working normally.</p>
-       <p>For an individual public video, paste its YouTube watch link into the Saints Service Proxy address bar to try YouTube's official embedded player.</p>`;
+       <p>An individual public video (a YouTube watch link) opens in YouTube's official embedded player.</p>`;
   const html = `<!doctype html><html lang="en"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>YouTube — Saints Service</title>
