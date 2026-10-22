@@ -12517,6 +12517,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (e.source !== proxyFrame.contentWindow) return;
     // The toolbar's Close and Fullscreen buttons (it replaced the console's bar).
     if (d.type === 'close') { closeProxy('The proxy was closed.'); return; }
+    // Saints Search blocked an AI site: close it and open Ask AI instead.
+    if (d.type === 'open-ai') {
+      closeProxy('AI sites can\u2019t be used in the proxy. Use Ask AI here instead.');
+      const ask = panel.querySelector('.gpa-dropdown-item[data-tab="ask"]');
+      if (ask) ask.click();
+      return;
+    }
+    // Saints Search asking who is signed in (for its saved sessions).
+    if (d.type === 'account?') { proxySendAccount(); return; }
     if (d.type === 'fullscreen') { if (px.toggleFs) px.toggleFs(); return; }
     if (d.type !== 'nav' || typeof d.url !== 'string') return;
     // Each page of Saints Search is told which window buttons to show.
@@ -12548,7 +12557,24 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     try {
       if (proxyFrame.contentWindow) proxyFrame.contentWindow.postMessage({ saintsProxy: 1, type: 'chrome', close: true, fullscreen: !!fs, fullscreenOn: !!(fs && fs.on) }, proxyServerUrl());
     } catch (err) { /* frame gone */ }
+    proxySendAccount();
   }
+  // Saints Search lists the signed-in account's saved proxy sessions (sign-ins
+  // to sites opened through the proxy, kept by the frontend Worker in R2). It
+  // gets the account name and sign-in token, which it only sends to its own
+  // /sessions API; the Worker checks the token with this Worker's /auth/me.
+  // Addressed to the frontend's origin only, so no other page can read it.
+  function proxySendAccount() {
+    if (!px) return;
+    let token = '';
+    try { token = sessionToken(); } catch (err) { /* accounts not ready yet */ }
+    try {
+      if (proxyFrame.contentWindow) proxyFrame.contentWindow.postMessage({ saintsProxy: 1, type: 'account', user: token ? String(currentUser || '') : '', token }, proxyServerUrl());
+    } catch (err) { /* frame gone */ }
+  }
+  // Sign-in, sign-out and token renewals (the account code is set up further
+  // down this file, so this registers once the script has finished loading).
+  setTimeout(() => { try { onSessionChange(proxySendAccount); } catch (err) { /* accounts unavailable */ } }, 0);
 
 
   // Opening the tab loads nothing: the proxy only starts once it's launched
