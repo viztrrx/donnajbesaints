@@ -27,8 +27,15 @@ const { devices } = req('playwright');
 const FE_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Scramjet (fake)</title></head>
 <body><h1>Scramjet</h1>
 <button id="go-tiktok">tiktok</button><button id="go-wiki">wiki</button><button id="home">home</button>
+<button id="search-cats">type funny cats</button><button id="exit">close</button><button id="fsbtn">fullscreen</button>
 <script>
 function post(msg){ try { if (parent && parent !== window) parent.postMessage(Object.assign({ saintsProxy: 1, type: "nav" }, msg), "*"); } catch (e) {} }
+// Like Saints Search's toolbar: Close / Fullscreen go to the console, and the
+// console says which of those buttons to show.
+window.__chrome = [];
+document.getElementById("exit").onclick = function(){ parent.postMessage({ saintsProxy: 1, type: "close" }, "*"); };
+document.getElementById("fsbtn").onclick = function(){ parent.postMessage({ saintsProxy: 1, type: "fullscreen" }, "*"); };
+document.getElementById("search-cats").onclick = function(){ post({ url: "https://www.google.com/search?q=funny%20cats", query: "funny cats" }); };
 post({ url: "" });
 document.getElementById("go-tiktok").onclick = function(){ post({ url: "https://www.tiktok.com/@someone?x=1" }); };
 document.getElementById("go-wiki").onclick = function(){ post({ url: "https://en.wikipedia.org/wiki/Proxy" }); };
@@ -37,6 +44,7 @@ document.getElementById("home").onclick = function(){ post({ url: "" }); };
 // site, plain words become a search (reported with the words).
 window.addEventListener("message", function(e){
   var d = e.data;
+  if (d && d.saintsProxy === 1 && d.type === "chrome") { window.__chrome.push(d); return; }
   if (!d || d.saintsProxy !== 1 || d.type !== "navigate" || typeof d.query !== "string") return;
   var q = d.query.trim();
   var looksUrl = false;
@@ -129,15 +137,19 @@ try {
   await feFrame(a.page).click('#go-tiktok');
   await waitFor(a.page, (r) => /Browsing/.test(r.querySelector('#gpa-proxy-status').textContent), null, 8000);
   check('A site opened in the proxy is reported: status becomes Browsing', /Browsing/.test((await stat(a.page)).status));
-  // The address bar appears over the frame once a site is open (hidden on the start page).
-  const addr1 = await R(a.page, (r) => ({ hidden: r.querySelector('#gpa-proxy-addr').hidden, ph: r.querySelector('#gpa-proxy-url').placeholder, val: r.querySelector('#gpa-proxy-url').value }));
-  check('The address bar shows over the frame after a site opens, empty, with the site host as placeholder', !addr1.hidden && addr1.val === '' && /tiktok\.com/.test(addr1.ph), JSON.stringify(addr1));
-  // Typing plain words in the bar drives the proxy to search, and logs the words.
-  await a.page.fill(sr('#gpa-proxy-url'), 'funny cats');
-  await a.page.press(sr('#gpa-proxy-url'), 'Enter');
+  // No console bar over the page: Saints Search's own toolbar is the only one.
+  const layout = await R(a.page, (r) => {
+    const stage = r.querySelector('#gpa-proxy-stage').getBoundingClientRect();
+    const frame = r.querySelector('#gpa-proxy-frame').getBoundingClientRect();
+    return { gap: Math.round(frame.top - stage.top), bottom: Math.round(stage.bottom - frame.bottom), bars: r.querySelectorAll('#gpa-proxy-stage .gpx-browser-bar, #gpa-proxy-url, #gpa-proxy-close').length };
+  });
+  check('The console draws no bar over or above the page: the frame fills the stage', layout.bars === 0 && layout.gap <= 3 && layout.bottom <= 1, JSON.stringify(layout));
+  const chrome1 = await feFrame(a.page).evaluate(() => window.__chrome.slice(-1)[0] || null);
+  check('…Saints Search is told to show Close (no Fullscreen: this tab already is)', !!chrome1 && chrome1.close === true && chrome1.fullscreen === false, JSON.stringify(chrome1));
+  // Typing words in Saints Search's address bar: a search, logged by the words.
+  await feFrame(a.page).click('#search-cats');
   await waitFor(a.page, (r) => /Searching/.test(r.querySelector('#gpa-proxy-status').textContent), null, 8000);
-  const addr2 = await R(a.page, (r) => ({ ph: r.querySelector('#gpa-proxy-url').placeholder, val: r.querySelector('#gpa-proxy-url').value }));
-  check('Typing a search term navigates the proxy and keeps the words as the placeholder (Safari-style)', addr2.val === '' && addr2.ph === 'funny cats', JSON.stringify(addr2));
+  check('A search typed in Saints Search reaches the console as Searching', /Searching/.test((await stat(a.page)).status));
   await feFrame(a.page).click('#go-wiki');
   await a.page.waitForTimeout(600);
   await feFrame(a.page).click('#home');
@@ -165,6 +177,12 @@ try {
   const hist = await R(a.page, (r) => r.querySelector('#gac-pm-detail').textContent.replace(/\s+/g, ' '));
   check('…pressing their name shows today’s history (launches, the sites proxied and the search)', hist.includes(U) && /Proxied tiktok\.com\/@someone/.test(hist) && /Searched .funny cats./.test(hist) && /Launched/.test(hist), hist.slice(0, 200));
   await a.page.screenshot({ path: path.join(OUT, '01-proxy-monitor.png') });
+  // The toolbar's Close (in Saints Search) closes the proxy.
+  await tab(a.page, 'browser');
+  await a.page.waitForTimeout(300);
+  if (feFrame(a.page)) await feFrame(a.page).click('#exit');
+  await a.page.waitForTimeout(800);
+  check('Close in Saints Search’s toolbar closes the proxy and shows the launcher', await R(a.page, (r) => r.querySelector('#gpa-proxy-stage').style.display === 'none' && !r.querySelector('#gpa-proxy-frame').getAttribute('src').startsWith('http')));
   check('No page errors (main computer)', a.page._errors.length === 0, a.page._errors.slice(0, 2).join(' | '));
 
   // 5: about:blank launches without fullscreen and frames the frontend.
@@ -180,9 +198,12 @@ try {
   check('Launch in about:blank (not fullscreen): the window opens and frames the Scramjet frontend', pop.url() === 'about:blank' && !!inWin, pop.url() + ' frames ' + pop.frames().map((x) => x.url()).join(','));
   const mainNow = await R(b.page, (r) => ({ gate: r.querySelector('#gpa-proxy-gate').textContent, btn: r.querySelector('#gpa-proxy-launch-blank').textContent }));
   check('…the console says it’s in the about:blank window', /about:blank window/.test(mainNow.gate) && /Show window/.test(mainNow.btn), JSON.stringify(mainNow));
-  // Exactly one toolbar in the about:blank window (not the old doubled bar).
-  const bars = await pop.evaluate(() => { const root = document.body.firstElementChild; const sr = root && root.shadowRoot; return sr ? sr.querySelectorAll('.gpx-browser-bar').length : -1; });
-  check('The about:blank window shows a single proxy bar (no duplicate)', bars === 1, 'bars=' + bars);
+  // No console bar in the window either: Saints Search's toolbar is the only one.
+  const bars = await pop.evaluate(() => { const root = document.body.firstElementChild; const sr = root && root.shadowRoot; return sr ? sr.querySelectorAll('.gpx-browser-bar, .gpx-browser-status').length : -1; });
+  check('The about:blank window has no console bar over the page', bars === 0, 'bars=' + bars);
+  await pop.waitForTimeout(500);
+  const chrome2 = inWin ? await inWin.evaluate(() => window.__chrome.slice(-1)[0] || null) : null;
+  check('…Saints Search is told to show Close and Fullscreen there', !!chrome2 && chrome2.close === true && chrome2.fullscreen === true, JSON.stringify(chrome2));
   await pop.screenshot({ path: path.join(OUT, '03-about-blank-onebar.png') });
   if (inWin) { await inWin.click('#go-wiki'); await b.page.waitForTimeout(800); }
   const blankProf = await (await fetch(`${env.workerUrl}/admin/proxy`, { headers: { Authorization: 'Bearer ' + ADMIN } })).json();

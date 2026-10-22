@@ -1396,6 +1396,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-room[data-proxy="connecting"] .gpx-dot { background: var(--gpa-accent); animation: gpx-ping 1.2s ease-out infinite; }
       .gpx-room[data-proxy="error"] .gpx-dot { background: var(--gpx-err); }
       #gpa-proxy-status { color: var(--gpa-text) !important; }
+      .gpa-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
       .gpx-browser .gpx-inline-error { margin: 8px; }
       .gpx-proxy-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
       .gpx-proxy-actions .gpa-btn { min-height: 30px; font-size: 12.5px; }
@@ -4052,18 +4053,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             </div>
           </section>
           <section id="gpa-proxy-stage" class="gpx-browser" style="display:none;">
-            <div class="gpx-browser-bar">
-              <div class="gpx-pxw-title">${GPS_ICONS.globe}<span>Proxy</span></div>
-              <div id="gpa-proxy-addr" class="gpx-address" hidden>
-                ${GPS_ICONS.search}
-                <input id="gpa-proxy-url" class="gpa-input" placeholder="Search or enter website" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url" enterkeyhint="go" aria-label="Search or enter a website to proxy" />
-              </div>
-              <span class="gpx-browser-spacer"></span>
-              <button id="gpa-proxy-win-fs" class="gpa-btn gpx-icon-btn" title="Fullscreen" aria-label="Fullscreen" hidden>${GPS_ICONS.maximize}</button>
-              <button id="gpa-proxy-close" class="gpa-btn gpx-icon-btn" title="Close the proxy" aria-label="Close the proxy">${GPS_ICONS.x}</button>
-            </div>
+            <!-- No bar of the console's own here: Saints Search draws a browser
+                 toolbar (back, forward, reload, address, Close, Fullscreen)
+                 above its page, so nothing sits over the site. The status is
+                 kept for screen readers and the launcher. -->
             <div class="gpx-loadbar" aria-hidden="true"></div>
-            <div class="gpx-browser-status"><span class="gpx-dot"></span><span id="gpa-proxy-status" class="gpa-sub">Not connected</span></div>
+            <span id="gpa-proxy-status" class="gpa-sr-only" role="status">Not connected</span>
             <div id="gpa-proxy-error" class="gpx-inline-error" style="display:none;"></div>
             <div class="gpx-browser-view">
               <iframe id="gpa-proxy-frame" class="gpa-iframe" title="Proxy" allow="fullscreen; clipboard-read; clipboard-write; autoplay; cross-origin-isolated"></iframe>
@@ -12363,9 +12358,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const proxyFrame = panel.querySelector('#gpa-proxy-frame');
   const proxyStatusEl = panel.querySelector('#gpa-proxy-status');
   const proxyErrorEl = panel.querySelector('#gpa-proxy-error');
-  const proxyAddrBox = panel.querySelector('#gpa-proxy-addr');
-  const proxyUrlInput = panel.querySelector('#gpa-proxy-url');
-  const proxyWinFsBtn = panel.querySelector('#gpa-proxy-win-fs');
 
   function cleanProxyServer(v) {
     let u;
@@ -12397,6 +12389,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // The inline message under the bar, with optional actions (built with
   // textContent: nothing here is ever parsed as markup).
   function showProxyError(text, actions) {
+    // Saints Search's toolbar (with its Close) isn't there when it didn't
+    // load, so the message always offers a way out.
+    actions = [...(actions || []), ['Close', () => closeProxy('The proxy was closed.')]];
     proxyErrorEl.textContent = '';
     proxyErrorEl.appendChild(document.createTextNode(text));
     if (actions && actions.length) {
@@ -12469,6 +12464,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!proxyPending || proxyBlocked) return;
     finishProxyLoad();
     if (!proxyCurrentSite) setProxyStatus('Connected');
+    proxySendChrome();
   });
   proxyFrame.addEventListener('error', () => {
     if (!proxyPending) return;
@@ -12517,8 +12513,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // start page). Only from this tab's frame, and only web addresses.
   function proxyOnMessage(e) {
     const d = e.data;
-    if (!px || !d || d.saintsProxy !== 1 || d.type !== 'nav' || typeof d.url !== 'string') return;
+    if (!px || !d || d.saintsProxy !== 1) return;
     if (e.source !== proxyFrame.contentWindow) return;
+    // The toolbar's Close and Fullscreen buttons (it replaced the console's bar).
+    if (d.type === 'close') { closeProxy('The proxy was closed.'); return; }
+    if (d.type === 'fullscreen') { if (px.toggleFs) px.toggleFs(); return; }
+    if (d.type !== 'nav' || typeof d.url !== 'string') return;
+    // Each page of Saints Search is told which window buttons to show.
+    if (!d.url) proxySendChrome();
     let site = '';
     if (d.url) {
       let u;
@@ -12533,35 +12535,21 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     hideProxyError();
     if (proxyPending) finishProxyLoad();
     setProxyStatus(site ? (query ? 'Searching' : 'Browsing') : 'Connected');
-    proxySyncAddr();
     if (site) proxyLogVisit(site, query); else proxyBeat();
   }
   onWin('message', proxyOnMessage);
 
-  // The address bar over the frame: hidden on the start page (the Scramjet
-  // search box is in the page itself there), shown once a site is open, like
-  // a browser. It stays empty with the last thing typed, or the site's host,
-  // as its placeholder (the proxy's own address never shows).
-  function proxySyncAddr() {
-    const open = !!px && !!proxyCurrentSite;
-    if (!open && proxyAddrBox.contains(document.activeElement)) proxyUrlInput.blur();
-    proxyAddrBox.hidden = !open;
-    let host = '';
-    try { host = proxyCurrentSite ? new URL(proxyCurrentSite).hostname.replace(/^www\./, '') : ''; } catch (err) { /* none */ }
-    proxyUrlInput.placeholder = proxyCurrentQuery || host || 'Search or enter website';
+  // Tells Saints Search which window buttons to put in its toolbar: Close
+  // always; Fullscreen in the about:blank window when the browser allows it
+  // (in this tab the proxy is already fullscreen).
+  function proxySendChrome() {
+    if (!px) return;
+    const fs = px.fsState ? px.fsState() : null;
+    try {
+      if (proxyFrame.contentWindow) proxyFrame.contentWindow.postMessage({ saintsProxy: 1, type: 'chrome', close: true, fullscreen: !!fs, fullscreenOn: !!(fs && fs.on) }, proxyServerUrl());
+    } catch (err) { /* frame gone */ }
   }
-  // Enter in the bar: ask the Scramjet frame to open it (a site, or a search
-  // for plain words). The frame reports back what it opened, which is logged.
-  function proxyNavigate(raw) {
-    const text = String(raw || '').trim().slice(0, 500);
-    if (!text) return;
-    try { if (proxyFrame.contentWindow) proxyFrame.contentWindow.postMessage({ saintsProxy: 1, type: 'navigate', query: text }, proxyServerUrl()); } catch (err) { /* frame gone */ }
-    proxyUrlInput.value = '';
-    proxyUrlInput.blur();
-  }
-  proxyUrlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); proxyNavigate(proxyUrlInput.value); } });
 
-  panel.querySelector('#gpa-proxy-close').addEventListener('click', () => closeProxy('The proxy was closed.'));
 
   // Opening the tab loads nothing: the proxy only starts once it's launched
   // (below), and only while fullscreen (or in an about:blank window).
@@ -12582,9 +12570,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     proxyCurrentQuery = '';
     proxyBlocked = false;
     proxyLastLogged = '';
-    proxyUrlInput.value = '';
     proxyFrame.src = 'about:blank';
-    proxySyncAddr();
     setProxyStatus('Not connected');
   }
 
@@ -12743,12 +12729,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const req = shell.requestFullscreen || shell.webkitRequestFullscreen;
       if (req) { try { Promise.resolve(req.call(shell)).catch(() => {}); } catch (e) { /* not allowed here */ } }
     };
+    // Saints Search's toolbar asks for it (its Fullscreen button).
     const fsSupported = !!(d.fullscreenEnabled || d.webkitFullscreenEnabled);
-    proxyWinFsBtn.hidden = !fsSupported;
-    const onWinFs = () => toggleFs();
-    proxyWinFsBtn.addEventListener('click', onWinFs);
-    px.cleanups.push(() => { proxyWinFsBtn.hidden = true; proxyWinFsBtn.removeEventListener('click', onWinFs); });
-    const onFsChange = () => { proxyWinFsBtn.title = childFs() ? 'Exit fullscreen' : 'Fullscreen'; };
+    px.toggleFs = fsSupported ? toggleFs : null;
+    px.fsState = fsSupported ? () => ({ on: childFs() }) : null;
+    const onFsChange = () => proxySendChrome();
     d.addEventListener('fullscreenchange', onFsChange);
     d.addEventListener('webkitfullscreenchange', onFsChange);
     // This page's CSP (inherited by about:blank) can refuse the frame there too.
