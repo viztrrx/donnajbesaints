@@ -1454,7 +1454,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-eag-window.gpx-room { gap: 0; }
       .gpx-pxw-body { position: relative; flex: 1; min-height: 0; display: flex; }
       .gpx-pxw-body > .gpx-browser { flex: 1; min-height: 0; border: none; border-radius: 0; box-shadow: none; }
-      .gpx-pxw-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--gpa-text); }
+      .gpx-pxw-title { flex: 0 0 auto; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--gpa-text); }
       .gpx-pxw-title svg { width: 16px; height: 16px; }
 
       /* ---- Eaglercraft (reuses the Proxy stage; the game draws itself) ---- */
@@ -4060,6 +4060,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 <input id="gpa-proxy-url" class="gpa-input" placeholder="Search or enter website" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url" enterkeyhint="go" aria-label="Search or enter a website to proxy" />
               </div>
               <span class="gpx-browser-spacer"></span>
+              <button id="gpa-proxy-win-fs" class="gpa-btn gpx-icon-btn" title="Fullscreen" aria-label="Fullscreen" hidden>${GPS_ICONS.maximize}</button>
               <button id="gpa-proxy-close" class="gpa-btn gpx-icon-btn" title="Close the proxy" aria-label="Close the proxy">${GPS_ICONS.x}</button>
             </div>
             <div class="gpx-loadbar" aria-hidden="true"></div>
@@ -12361,6 +12362,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const proxyErrorEl = panel.querySelector('#gpa-proxy-error');
   const proxyAddrBox = panel.querySelector('#gpa-proxy-addr');
   const proxyUrlInput = panel.querySelector('#gpa-proxy-url');
+  const proxyWinFsBtn = panel.querySelector('#gpa-proxy-win-fs');
 
   function cleanProxyServer(v) {
     let u;
@@ -12713,10 +12715,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const w = gpxBlankShell(win, 'Proxy', 'gpa-panel gpx-eag-window gpx-room');
     px.cleanups.push(w.dispose);
     const { d, sr, shell } = w;
-    shell.innerHTML = `<div class="gpx-browser-bar"><div class="gpx-pxw-title">${GPS_ICONS.globe}<span>Proxy</span></div>`
-      + `<button class="gpa-btn" data-act="fs">${gpxLbl('maximize', 'Fullscreen')}</button>`
-      + `<button class="gpa-btn" data-act="close">${gpxLbl('x', 'Close Proxy')}</button></div>`
-      + `<div class="gpx-pxw-body"></div>`;
+    // No bar of its own: the proxy stage (adopted below) already has the bar
+    // with the title, address and Close, so the window shows just one bar.
+    shell.innerHTML = `<div class="gpx-pxw-body"></div>`;
     const body = shell.querySelector('.gpx-pxw-body');
     body.appendChild(pxStage);   // adopted into the window's document, handlers and all
     pxStage.style.display = '';
@@ -12731,20 +12732,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     connMo.observe(proxyStatusEl, { childList: true, characterData: true, subtree: true });
     px.cleanups.push(() => connMo.disconnect());
     syncConn();
-    // Fullscreen in the window is optional.
+    // Fullscreen in the window is optional, driven by the bar's own button
+    // (shown only while the stage lives in this window).
     const childFs = () => { const el = sr.fullscreenElement || null; return !!el && (el === shell || shell.contains(el)); };
-    const onAct = (act) => {
-      if (act === 'close') { closeProxy('Closed from the about:blank window.'); return; }
-      if (act === 'fs') {
-        if (childFs()) { d.exitFullscreen().catch(() => {}); return; }
-        const req = shell.requestFullscreen || shell.webkitRequestFullscreen;
-        if (req) { try { Promise.resolve(req.call(shell)).catch(() => {}); } catch (e) { /* not allowed here */ } }
-      }
+    const toggleFs = () => {
+      if (childFs()) { d.exitFullscreen().catch(() => {}); return; }
+      const req = shell.requestFullscreen || shell.webkitRequestFullscreen;
+      if (req) { try { Promise.resolve(req.call(shell)).catch(() => {}); } catch (e) { /* not allowed here */ } }
     };
-    shell.querySelectorAll(':scope > .gpx-browser-bar [data-act]').forEach((b) => b.addEventListener('click', () => onAct(b.dataset.act)));
-    const fsBtn = shell.querySelector('[data-act="fs"]');
-    if (!(d.fullscreenEnabled || d.webkitFullscreenEnabled)) fsBtn.hidden = true;
-    const onFsChange = () => eagLabel(fsBtn, childFs() ? 'Exit Fullscreen' : 'Fullscreen');
+    const fsSupported = !!(d.fullscreenEnabled || d.webkitFullscreenEnabled);
+    proxyWinFsBtn.hidden = !fsSupported;
+    const onWinFs = () => toggleFs();
+    proxyWinFsBtn.addEventListener('click', onWinFs);
+    px.cleanups.push(() => { proxyWinFsBtn.hidden = true; proxyWinFsBtn.removeEventListener('click', onWinFs); });
+    const onFsChange = () => { proxyWinFsBtn.title = childFs() ? 'Exit fullscreen' : 'Fullscreen'; };
     d.addEventListener('fullscreenchange', onFsChange);
     d.addEventListener('webkitfullscreenchange', onFsChange);
     // This page's CSP (inherited by about:blank) can refuse the frame there too.

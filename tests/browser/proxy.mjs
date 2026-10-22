@@ -180,6 +180,10 @@ try {
   check('Launch in about:blank (not fullscreen): the window opens and frames the Scramjet frontend', pop.url() === 'about:blank' && !!inWin, pop.url() + ' frames ' + pop.frames().map((x) => x.url()).join(','));
   const mainNow = await R(b.page, (r) => ({ gate: r.querySelector('#gpa-proxy-gate').textContent, btn: r.querySelector('#gpa-proxy-launch-blank').textContent }));
   check('…the console says it’s in the about:blank window', /about:blank window/.test(mainNow.gate) && /Show window/.test(mainNow.btn), JSON.stringify(mainNow));
+  // Exactly one toolbar in the about:blank window (not the old doubled bar).
+  const bars = await pop.evaluate(() => { const root = document.body.firstElementChild; const sr = root && root.shadowRoot; return sr ? sr.querySelectorAll('.gpx-browser-bar').length : -1; });
+  check('The about:blank window shows a single proxy bar (no duplicate)', bars === 1, 'bars=' + bars);
+  await pop.screenshot({ path: path.join(OUT, '03-about-blank-onebar.png') });
   if (inWin) { await inWin.click('#go-wiki'); await b.page.waitForTimeout(800); }
   const blankProf = await (await fetch(`${env.workerUrl}/admin/proxy`, { headers: { Authorization: 'Bearer ' + ADMIN } })).json();
   const bme = (blankProf.users || []).find((u) => u.user.toLowerCase() === 'pb' + run);
