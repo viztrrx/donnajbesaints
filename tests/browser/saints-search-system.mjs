@@ -169,6 +169,7 @@ try {
   await ss.waitForSelector('#sj-address', { timeout: 30000 });
 
   await step('toolbar', async () => {
+    await ss.waitForSelector('.sb-tab', { timeout: 15000 });
     const ui = await ss.evaluate(() => ({ home: !!document.getElementById('sj-home-btn').offsetParent, address: document.getElementById('sj-address').value, tabs: document.querySelectorAll('.sb-tab').length }));
     check('Saints Search shows its Chrome-style toolbar (tabs, Home, address saints://home)', ui.home && ui.address === 'saints://home' && ui.tabs === 1, JSON.stringify(ui));
   });
