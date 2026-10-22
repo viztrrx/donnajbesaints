@@ -129,7 +129,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     'Its features: PAGE INSIGHTS — reads the current page\'s text and/or a screenshot, summarizes, analyzes, answers questions about the page, solves quizzes and multiple-choice questions found on the page (answer grid with highlights on the page), auto-fills form fields with mock values, extracts tables to CSV, watches the page for changes the user cares about, and follows natural-language page commands like "click the third link".',
     'ASK AI — general chat like this conversation, with voice input and spoken answers.',
     'MUSIC — plays songs via YouTube search, SoundCloud links, or a local audio library.',
-    'BROWSER — embeds other sites in a frame, plus research mode that reads sources automatically and writes a cited brief.',
+    'PROXY — browses the owner-approved sites through the Saints proxy, launched in the tab or in an about:blank window while the console is fullscreen, plus research mode that reads sources automatically and writes a cited brief.',
     'EAGLERCRAFT — Minecraft 1.8 (EaglercraftX) in the console: singleplayer, servers and Shared Worlds with friends, launched in the tab or in an about:blank window. The console has to be fullscreen to play.',
     'STUDY — generates flashcard decks from the current page with spaced practice.',
     'NOTES — the user pastes a passage; the AI reads it, researches it across the web, writes organized study notes, and then remembers the passage, notes and research so follow-up questions about the text are answered with full context.',
@@ -840,7 +840,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       music: ['feature', 'My music: change a song’s name, artist and file name (✎), and download it under that name (⬇); after uploading one song its rename form opens. Fixed: the owner’s uploads said “Sign in to keep your own music” while Admin was connected'],
       chat: ['feature', 'Pop-up notifications on Chrome and Chromebooks for messages, mentions and @everyone (or every chat message), wherever Saints Service is open, shown once even with several tabs; turned on from the bell strip or Settings → Account'] } },
     { at: '2026-10-20T23:30:00-04:00', commit: '', title: 'Claude in the admin console', parts: {
-      'admin#claude': ['added'], admin: ['feature', 'Admin → Claude (owner and admins): chat with Claude Code about the console and have it change the code, with model and effort pickers, usage and the pushed commit; runs on the owner’s Claude Pro plan through GitHub Actions'] } }
+      'admin#claude': ['added'], admin: ['feature', 'Admin → Claude (owner and admins): chat with Claude Code about the console and have it change the code, with model and effort pickers, usage and the pushed commit; runs on the owner’s Claude Pro plan through GitHub Actions'] } },
+    { at: '2026-10-22T12:00:00-04:00', commit: '', title: 'Proxy launches in fullscreen, in the tab or an about:blank window', parts: {
+      browser: ['feature', 'The Proxy tab works like Eaglercraft: nothing loads until it’s launched, and it only launches while the console is fullscreen, either here or in an about:blank window with its own fullscreen gate; leaving fullscreen hides it until fullscreen is back, and Close Proxy unloads it'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1385,6 +1387,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-browser-view { position: relative; flex: 1; min-height: 280px; display: flex; }
       .gpx-browser-view .gpa-iframe { flex: 1; border: none; border-radius: 0; min-height: 280px; height: auto; background: var(--gpa-bg); }
       .gpx-browser .gpx-details { border: none; border-top: 1px solid var(--gpa-border); border-radius: 0; background: transparent; }
+
+      /* Proxy launched here: the browser takes the launcher's place. */
+      .gpx-room[data-px="here"] > .gpx-proxy-launcher { display: none; }
+      /* The proxy's about:blank window: the browser moved into it, under a
+         bar of its own, with room for the fullscreen gate to cover it all. */
+      .gpx-eag-window.gpx-room { gap: 0; }
+      .gpx-pxw-body { position: relative; flex: 1; min-height: 0; display: flex; }
+      .gpx-pxw-body > .gpx-browser { flex: 1; min-height: 0; border: none; border-radius: 0; box-shadow: none; }
+      .gpx-pxw-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--gpa-text); }
+      .gpx-pxw-title svg { width: 16px; height: 16px; }
 
       /* ---- Eaglercraft (reuses the Proxy stage; the game draws itself) ---- */
       .gpx-eag-state { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 12px; color: var(--gpa-text); }
@@ -3911,8 +3923,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       <div class="gpa-pane" data-pane="browser">
         <div class="gpx-room">
           ${gpxHero({ room: 'browser', title: 'Proxy', status: 'Not connected',
-            desc: 'Browse through the Saints proxy on Cloudflare. It opens only the sites approved on the proxy (set by the owner) and nothing else.' })}
-          <section class="gpx-browser">
+            desc: 'Browse through the Saints proxy on Cloudflare. It opens only the sites approved on the proxy (set by the owner) and nothing else, and the console has to be fullscreen to use it.',
+            actions: `<button id="gpa-proxy-fs" class="gpa-btn primary">${gpxLbl('maximize', 'Enter Fullscreen')}</button>` })}
+          <section class="gpa-card gpx-card gpx-proxy-launcher">
+            <div class="gpx-card-head">${GPS_ICONS.globe}<div class="gpa-card-title">Browse</div><span id="gpa-proxy-fs-chip" class="gpx-chip">Fullscreen off</span></div>
+            <p id="gpa-proxy-gate" class="gpa-sub">The proxy requires fullscreen mode. Enter fullscreen, then launch.</p>
+            <div class="gpa-row">
+              <button id="gpa-proxy-launch-here" class="gpa-btn primary" disabled>${gpxLbl('globe', 'Launch Proxy Here')}</button>
+              <button id="gpa-proxy-launch-blank" class="gpa-btn" disabled>${gpxLbl('external', 'Launch in about:blank')}</button>
+              <button id="gpa-proxy-end" class="gpa-btn" style="display:none;">${gpxLbl('x', 'Close Proxy')}</button>
+            </div>
+            <div id="gpa-proxy-launch-error" class="gpx-inline-error" role="alert" style="display:none;"></div>
+          </section>
+          <section id="gpa-proxy-stage" class="gpx-browser" style="display:none;">
             <div class="gpx-browser-bar">
               <div class="gpx-browser-nav">
                 <button id="gpa-proxy-reload" class="gpa-btn gpx-icon-btn" title="Reload" aria-label="Reload">${GPS_ICONS.refresh}</button>
@@ -3924,7 +3947,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 <datalist id="gpa-proxy-sites"></datalist>
               </div>
               <button id="gpa-proxy-go" class="gpa-btn primary">Go</button>
-              <button id="gpa-proxy-popout" class="gpa-btn gpx-icon-btn" title="Open this page in a new tab" aria-label="Open in a new tab">${GPS_ICONS.external}</button>
+              <button id="gpa-proxy-close" class="gpa-btn gpx-icon-btn" title="Close the proxy" aria-label="Close the proxy">${GPS_ICONS.x}</button>
             </div>
             <div class="gpx-loadbar" aria-hidden="true"></div>
             <div class="gpx-browser-status"><span class="gpx-dot"></span><span id="gpa-proxy-status" class="gpa-sub">Not connected</span></div>
@@ -12258,7 +12281,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const proxyFrame = panel.querySelector('#gpa-proxy-frame');
   const proxyReloadBtn = panel.querySelector('#gpa-proxy-reload');
   const proxyHomeBtn = panel.querySelector('#gpa-proxy-home');
-  const proxyPopoutBtn = panel.querySelector('#gpa-proxy-popout');
   const proxyStatusEl = panel.querySelector('#gpa-proxy-status');
   const proxyServerInput = panel.querySelector('#gpa-proxy-server');
   const proxyServerHint = panel.querySelector('#gpa-proxy-server-hint');
@@ -12282,6 +12304,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   }
   const proxyOrigin = () => proxyServerUrl();
   const proxy = { targets: DEFAULT_PROXY_TARGETS.slice(), current: '', pending: null, timer: 0, cspTimer: 0, blocked: false };
+  // The launched proxy, or null: { mode: 'here' | 'blank', child, cleanups }.
+  let px = null;
   const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
   function proxyKey() { try { return localStorage.getItem(PROXY_KEY_KEY) || ''; } catch (e) { return ''; } }
   // Adds the access key to a Worker /site/ or /status/ URL (if one is set).
@@ -12314,7 +12338,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     proxyErrorEl.style.display = '';
   }
   const hideProxyError = () => { proxyErrorEl.style.display = 'none'; proxyErrorEl.textContent = ''; };
-  const openProxyTab = () => { window.open(proxy.current || (proxyServerUrl() + '/preview'), '_blank', 'noopener,noreferrer'); };
+  const proxyWin = () => proxyFrame.ownerDocument.defaultView || window;
+  const openProxyTab = () => { proxyWin().open(proxy.current || (proxyServerUrl() + '/preview'), '_blank', 'noopener,noreferrer'); };
   const retryProxy = () => proxyLoad(proxy.current || (proxyServerUrl() + '/preview'), { force: true });
 
   // Is the Worker up, and which destination does it allow? (Its /health is
@@ -12412,9 +12437,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       showProxyError('The proxy didn’t respond in ' + Math.round(PROXY_LOAD_TIMEOUT_MS / 1000) + ' seconds. Check your connection and try again.', [['Retry', retryProxy], ['Open in a new tab', openProxyTab]]);
     }, PROXY_LOAD_TIMEOUT_MS);
     if (force && proxyFrame.getAttribute('src') === frameUrl) {
-      // Same URL: blank it first so the browser really loads it again.
+      // Same URL: blank it first so the browser really loads it again. (The
+      // frame's own window: this tab is in the background while the proxy
+      // is in its about:blank window.)
       proxyFrame.src = 'about:blank';
-      requestAnimationFrame(() => { if (proxy.current === frameUrl) proxyFrame.src = frameUrl; });
+      proxyWin().requestAnimationFrame(() => { if (proxy.current === frameUrl) proxyFrame.src = frameUrl; });
     } else {
       proxyFrame.src = frameUrl;
     }
@@ -12550,7 +12577,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     try { localStorage.setItem(PROXY_LAST_DEST_KEY, ''); } catch (e) { /* best-effort */ }
     proxyLoad(proxyPreviewUrl(), { force: true });
   });
-  proxyPopoutBtn.addEventListener('click', openProxyTab);
+  panel.querySelector('#gpa-proxy-close').addEventListener('click', () => closeProxy('The proxy was closed.'));
 
   // Connection settings: the Worker address (default: the Saints proxy).
   try { proxyServerInput.value = proxyServerUrl(); proxyServerInput.placeholder = DEFAULT_PROXY_SERVER; } catch (e) { /* ignore */ }
@@ -12577,12 +12604,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     });
   }
 
-  // First visit to the tab: the connection test (or the last page opened on
-  // an approved site). Coming back later keeps whatever is showing.
+  // Opening the tab loads nothing: the proxy only starts once it's launched
+  // (below), and only while fullscreen.
   let proxyPaneInitialized = false;
   function activateProxyPane() {
+    pxSync();
     if (proxyPaneInitialized) return;
     proxyPaneInitialized = true;
+    updateProxyPlaceholder();
+  }
+  // A launch: the connection test, or the last page opened on an approved site.
+  function proxyStart() {
     updateProxyPlaceholder();
     let lastDest = '';
     try { lastDest = localStorage.getItem(PROXY_LAST_DEST_KEY) || ''; } catch (e) { /* ignore */ }
@@ -12591,10 +12623,227 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     proxyHealth().then(() => {
       updateProxyPlaceholder();
       const r = proxyRoute(lastDest);
+      if (!px) return;   // closed while the list was loading
       if (r && r.frameUrl && !r.error) { proxyUrlInput.value = r.display || ''; proxyLoad(r.frameUrl); }
       else proxyLoad(proxyPreviewUrl());
     });
   }
+  // Closing: the frame lets go of the page and the tab is back to nothing loaded.
+  function proxyUnload() {
+    finishProxyLoad();
+    stopProxyCsp();
+    hideProxyError();
+    proxy.current = '';
+    proxy.blocked = false;
+    proxyFrame.src = 'about:blank';
+    setProxyStatus('Not connected');
+  }
+
+  // ---- Proxy launcher: fullscreen only, here or in about:blank -------------
+  // The same idea as the Eaglercraft tab. The proxy can only be launched
+  // while the console is fullscreen, two ways:
+  //   Here        — the browser shows in this tab. Leaving fullscreen hides it
+  //                 (the page stays loaded) until fullscreen is back.
+  //   about:blank — a new about:blank window. It has this page's origin, so
+  //                 the same browser (bar, frame, settings, with all their
+  //                 handlers) moves into it, behind that window's own
+  //                 fullscreen gate, and moves back when the window closes.
+  const pxRoom = panel.querySelector('.gpa-pane[data-pane="browser"] .gpx-room');
+  const pxLauncher = panel.querySelector('.gpx-proxy-launcher');
+  const pxStage = panel.querySelector('#gpa-proxy-stage');
+  const pxFsBtn = panel.querySelector('#gpa-proxy-fs');
+  const pxFsChip = panel.querySelector('#gpa-proxy-fs-chip');
+  const pxGate = panel.querySelector('#gpa-proxy-gate');
+  const pxHereBtn = panel.querySelector('#gpa-proxy-launch-here');
+  const pxBlankBtn = panel.querySelector('#gpa-proxy-launch-blank');
+  const pxEndBtn = panel.querySelector('#gpa-proxy-end');
+  const pxErrorEl = panel.querySelector('#gpa-proxy-launch-error');
+  let pxNote = '';   // last outcome shown on the launcher (closed…)
+
+  function pxFsRefusedText(e) {
+    if (!eagFsSupported()) return 'This browser doesn’t let web pages go fullscreen here' + (ENV.os === 'ios' ? ' — iPhone Safari has no fullscreen for pages' : '') + ', and the proxy needs fullscreen.';
+    return 'The browser didn’t allow fullscreen' + ((e && e.message) ? ' (' + e.message + ')' : '') + '. Click Enter Fullscreen again.';
+  }
+  function pxShowError(text) {
+    pxErrorEl.textContent = text || '';
+    pxErrorEl.style.display = text ? '' : 'none';
+  }
+
+  // Repaints the launcher and stage from the current state.
+  function pxSync() {
+    const fs = isConsoleFullscreen();
+    const supported = eagFsSupported();
+    const here = !!px && px.mode === 'here';
+    pxRoom.dataset.px = px ? (px.mode === 'blank' ? 'blank' : fs ? 'here' : 'hidden') : 'idle';
+    // In about:blank mode the stage lives in that window, always shown there.
+    pxStage.style.display = (here && !fs) || !px ? 'none' : '';
+    pxFsChip.textContent = fs ? 'Fullscreen on' : 'Fullscreen off';
+    pxFsChip.classList.toggle('gpx-chip-accent', fs);
+    eagLabel(pxFsBtn, fs ? 'Exit Fullscreen' : 'Enter Fullscreen');
+    pxFsBtn.classList.toggle('primary', !fs);
+    pxFsBtn.disabled = !supported;
+    pxHereBtn.style.display = '';
+    pxBlankBtn.style.display = '';
+    pxEndBtn.style.display = px ? '' : 'none';
+    if (!px) {
+      eagLabel(pxHereBtn, 'Launch Proxy Here');
+      eagLabel(pxBlankBtn, 'Launch in about:blank');
+      pxHereBtn.disabled = pxBlankBtn.disabled = !fs;
+      pxGate.textContent = !supported ? pxFsRefusedText()
+        : fs ? 'Fullscreen is on. Launch the proxy here, or in a separate about:blank window.'
+          : 'The proxy requires fullscreen mode. Enter fullscreen, then launch.';
+      if (pxNote) pxGate.textContent = pxNote + ' ' + pxGate.textContent;
+    } else if (px.mode === 'blank') {
+      eagLabel(pxBlankBtn, 'Show the about:blank window');
+      pxBlankBtn.disabled = false;
+      pxHereBtn.style.display = 'none';
+      pxGate.textContent = 'The proxy is open in an about:blank window. That window has its own fullscreen requirement.';
+    } else {
+      eagLabel(pxHereBtn, 'Enter Fullscreen to Resume');
+      pxHereBtn.disabled = !supported;
+      pxBlankBtn.style.display = 'none';
+      pxGate.textContent = 'The proxy is hidden because the console left fullscreen. It needs fullscreen to come back.';
+    }
+  }
+
+  function launchProxy(mode) {
+    pxShowError('');
+    pxNote = '';
+    if (px) return;
+    if (!isConsoleFullscreen()) { pxShowError('Enter fullscreen first: the proxy only opens while the console is fullscreen.'); pxSync(); return; }
+    if (mode === 'here') {
+      px = { mode, child: null, cleanups: [] };
+      pxSync();
+      proxyStart();
+      return;
+    }
+    // Opened inside this click, or the browser treats it as an unrequested pop-up.
+    let win = null;
+    try { win = window.open('about:blank', '_blank'); } catch (e) { win = null; }
+    if (!win) { pxShowError('The browser blocked the about:blank window. Allow pop-ups for this site, then try again.'); return; }
+    px = { mode, child: null, cleanups: [] };
+    try { pxBuildChild(win); } catch (e) {
+      const s = px; px = null;
+      pxLauncher.after(pxStage);
+      s.cleanups.forEach((fn) => { try { fn(); } catch (err) { /* ignore */ } });
+      try { win.close(); } catch (err) { /* ignore */ }
+      pxShowError(e.message || String(e));
+    }
+    pxSync();
+  }
+
+  // Ends the proxy: the page unloads, the browser comes back to this tab
+  // from an about:blank window (closing it), and the launcher shows again.
+  function closeProxy(note) {
+    if (!px) return;
+    const s = px;
+    px = null;
+    if (s.child) pxLauncher.after(pxStage);
+    proxyUnload();
+    s.cleanups.forEach((fn) => { try { fn(); } catch (e) { /* already gone */ } });
+    if (s.child && !s.child.win.closed) { try { s.child.win.close(); } catch (e) { /* ignore */ } }
+    pxNote = note || '';
+    pxSync();
+  }
+  gpaCleanups.push(() => closeProxy());
+
+  // The about:blank window: the console's stylesheet and theme in a shadow
+  // root, a bar with Fullscreen and Close, and the browser moved in under it.
+  // The frame still loads only Worker URLs, so the window adds no new path.
+  function pxBuildChild(win) {
+    const w = gpxBlankShell(win, 'Proxy', 'gpa-panel gpx-eag-window gpx-room');
+    px.cleanups.push(w.dispose);
+    const { d, sr, shell } = w;
+    shell.innerHTML = `<div class="gpx-browser-bar"><div class="gpx-pxw-title">${GPS_ICONS.globe}<span>Proxy</span></div>`
+      + `<button class="gpa-btn" data-act="fs">${gpxLbl('maximize', 'Fullscreen')}</button>`
+      + `<button class="gpa-btn" data-act="close">${gpxLbl('x', 'Close Proxy')}</button></div>`
+      + `<div class="gpx-pxw-body"></div>`;
+    const body = shell.querySelector('.gpx-pxw-body');
+    body.appendChild(pxStage);   // adopted into the window's document, handlers and all
+    pxStage.style.display = '';
+    const child = { win, doc: d, sr, shell, body, started: false };
+    px.child = child;
+    // The status dot and load bar key off the room's data-proxy.
+    const syncConn = () => {
+      const t = proxyStatusEl.textContent.toLowerCase();
+      shell.dataset.proxy = /^not connected/.test(t) ? 'idle' : /fail|error|unable|blocked/.test(t) ? 'error' : /connecting/.test(t) ? 'connecting' : /loaded|connected/.test(t) ? 'connected' : 'idle';
+    };
+    const connMo = new MutationObserver(syncConn);
+    connMo.observe(proxyStatusEl, { childList: true, characterData: true, subtree: true });
+    px.cleanups.push(() => connMo.disconnect());
+    syncConn();
+    const childFs = () => { const el = sr.fullscreenElement || null; return !!el && (el === shell || shell.contains(el)); };
+    child.isFs = childFs;
+    const requestChildFs = () => {
+      const req = shell.requestFullscreen || shell.webkitRequestFullscreen;
+      if (!req || !(d.fullscreenEnabled || d.webkitFullscreenEnabled)) return Promise.reject(new Error('This browser doesn’t allow fullscreen in the about:blank window.'));
+      try { return Promise.resolve(req.call(shell)); } catch (e) { return Promise.reject(e); }
+    };
+    const onAct = (act) => {
+      if (act === 'close') { closeProxy('Closed from the about:blank window.'); return; }
+      if (act === 'fs' || act === 'enter') {
+        if (childFs()) { if (act === 'fs') d.exitFullscreen().catch(() => {}); else pxChildStart(); return; }
+        requestChildFs().then(() => pxChildStart(), (e) => {
+          eagCover(body, { icon: 'warn', title: 'Fullscreen was refused', desc: (e && e.message) || 'The browser didn’t allow fullscreen in this window.', buttons: [{ act: 'enter', label: 'Try again', icon: 'maximize', primary: true }, { act: 'close', label: 'Close', icon: 'x' }] }, onAct);
+        });
+      }
+    };
+    child.onAct = onAct;
+    shell.querySelectorAll(':scope > .gpx-browser-bar [data-act]').forEach((b) => b.addEventListener('click', () => onAct(b.dataset.act)));
+    const onFsChange = () => {
+      const fs = childFs();
+      eagLabel(shell.querySelector('[data-act="fs"]'), fs ? 'Exit Fullscreen' : 'Fullscreen');
+      if (!fs && px && px.child === child) pxChildGate();
+    };
+    d.addEventListener('fullscreenchange', onFsChange);
+    d.addEventListener('webkitfullscreenchange', onFsChange);
+    // This page's CSP (inherited by about:blank) can refuse the frame there too.
+    d.addEventListener('securitypolicyviolation', onProxyCsp, true);
+    // Closing the window closes the proxy. pagehide covers a normal close;
+    // the poll covers anything that skips it.
+    const onGone = () => { if (px && px.child === child) closeProxy('The about:blank window was closed.'); };
+    win.addEventListener('pagehide', onGone);
+    const poll = setInterval(() => { if (win.closed) onGone(); }, 1000);
+    px.cleanups.push(() => clearInterval(poll));
+    pxChildGate();
+    try { win.focus(); } catch (e) { /* ignore */ }
+  }
+  // The window's own gate: covers the browser until the window is
+  // fullscreen, and again whenever it leaves fullscreen.
+  function pxChildGate() {
+    const c = px && px.child;
+    if (!c) return;
+    eagCover(c.body, {
+      icon: c.started ? 'pause' : 'globe',
+      title: c.started ? 'Hidden' : 'The proxy requires fullscreen mode',
+      desc: c.started ? 'This window left fullscreen. Enter fullscreen to keep browsing.' : 'Enter fullscreen in this window to open the proxy.',
+      buttons: [{ act: 'enter', label: c.started ? 'Enter Fullscreen and Resume' : 'Enter Fullscreen', icon: 'maximize', primary: true }, { act: 'close', label: 'Close Proxy', icon: 'x' }]
+    }, c.onAct);
+  }
+  // Fullscreen granted in the window: the first time loads the proxy.
+  function pxChildStart() {
+    const c = px && px.child;
+    if (!c || !c.isFs()) return;
+    eagCover(c.body, null);
+    if (!c.started) { c.started = true; proxyStart(); }
+  }
+
+  onDoc('fullscreenchange', pxSync);
+  onDoc('webkitfullscreenchange', pxSync);
+  pxFsBtn.addEventListener('click', () => {
+    pxShowError('');
+    if (isConsoleFullscreen()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+    requestConsoleFullscreen().catch((e) => { pxShowError(pxFsRefusedText(e)); pxSync(); });
+  });
+  pxHereBtn.addEventListener('click', () => {
+    if (px && px.mode === 'here') { requestConsoleFullscreen().catch((e) => { pxShowError(pxFsRefusedText(e)); pxSync(); }); return; }
+    launchProxy('here');
+  });
+  pxBlankBtn.addEventListener('click', () => {
+    if (px && px.mode === 'blank') { try { px.child.win.focus(); } catch (e) { /* ignore */ } return; }
+    launchProxy('blank');
+  });
+  pxEndBtn.addEventListener('click', () => closeProxy('The proxy was closed.'));
 
   // ---- Eaglercraft tab --------------------------------------------------------
   // EaglercraftX 1.8 (Minecraft 1.8 in the browser) in its own tab. The game
@@ -13021,13 +13270,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // ---- about:blank window -------------------------------------------------
   // The window is about:blank, so it has this page's origin (and this page's
   // CSP). This script builds its document: the console's own stylesheet and
-  // theme tokens in a shadow root, a bar with status and Stop, and the same
-  // game frame as the tab. The game is still served by the worker, so the
-  // window adds no direct network path. It has its own fullscreen gate.
-  function eagBuildChild(win) {
+  // theme tokens in a shadow root, around an empty panel (`shell`) that the
+  // caller fills. Shared by Eaglercraft and the Proxy tab. dispose() stops the
+  // theme following into the window.
+  function gpxBlankShell(win, title, cls) {
     const d = win.document;
     try { void d.body; } catch (e) { throw new Error('The about:blank window couldn’t be set up.'); }
-    d.title = 'Eaglercraft';
+    d.title = title;
     const meta = d.createElement('meta');
     meta.name = 'viewport';
     meta.content = 'width=device-width, initial-scale=1';
@@ -13050,21 +13299,30 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     tokens.textContent = tokenStyle.textContent;
     sr.append(css, tokens);
     const shell = d.createElement('div');
-    shell.className = 'gpa-panel gpx-eag-window';
+    shell.className = cls;
+    sr.appendChild(shell);
+    // Theme changes (and hover previews) follow into the window.
+    const mo = new MutationObserver(() => { tokens.textContent = tokenStyle.textContent; });
+    mo.observe(tokenStyle, { childList: true, characterData: true, subtree: true });
+    return { d, sr, shell, dispose: () => mo.disconnect() };
+  }
+
+  // Eaglercraft's window: a bar with status and Stop, and the same game frame
+  // as the tab. The game is still served by the worker, so the window adds no
+  // direct network path. It has its own fullscreen gate.
+  function eagBuildChild(win) {
+    const w = gpxBlankShell(win, 'Eaglercraft', 'gpa-panel gpx-eag-window');
+    eag.cleanups.push(w.dispose);
+    const { d, sr, shell } = w;
     shell.dataset.proxy = 'idle';
     shell.innerHTML = `<div class="gpx-browser-bar"><div class="gpx-eag-state"><span class="gpx-dot"></span><span class="gpx-eag-wstatus">Starting…</span></div>`
       + `<button class="gpa-btn" data-act="fs">${gpxLbl('maximize', 'Fullscreen')}</button>`
       + `<button class="gpa-btn" data-act="stop">${gpxLbl('x', 'Stop Eaglercraft')}</button></div>`
       + `<div class="gpx-loadbar" aria-hidden="true"></div><div class="gpx-browser-view"></div>`;
-    sr.appendChild(shell);
     const child = { win, doc: d, sr, shell, view: shell.querySelector('.gpx-browser-view'), statusEl: shell.querySelector('.gpx-eag-wstatus') };
     eag.child = child;
     // The game frame's messages arrive at this window, not ours.
     win.addEventListener('message', eagOnMessage);
-    // Theme changes (and hover previews) follow into the window.
-    const mo = new MutationObserver(() => { tokens.textContent = tokenStyle.textContent; });
-    mo.observe(tokenStyle, { childList: true, characterData: true, subtree: true });
-    eag.cleanups.push(() => mo.disconnect());
     const childFs = () => { const el = sr.fullscreenElement || null; return !!el && (el === shell || shell.contains(el)); };
     child.isFs = childFs;
     const requestChildFs = () => {

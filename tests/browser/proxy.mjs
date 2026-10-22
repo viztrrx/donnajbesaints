@@ -15,6 +15,9 @@
 //   7. Worker down / Worker 500 / a website whose CSP forbids framing
 //   8. default address = deployed Worker; old localhost:4141 migrates;
 //      phone width; light/dark themes
+//   9. launching: nothing loads until launched, only while fullscreen;
+//      leaving fullscreen hides it; the about:blank window (its own
+//      fullscreen gate, the browser moves in and back out)
 import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
@@ -123,7 +126,14 @@ async function go(page, addr, settle = /Loaded|Website|HTTP|Redirect|failed|Not 
   return state(page);
 }
 
-let a, b, c, d, e, f2;
+// The proxy only launches while the console is fullscreen (like Eaglercraft).
+async function launchHere(page) {
+  if (!(await R(page, (r) => !!r.fullscreenElement))) await page.click(sr('#gpa-proxy-fs'));
+  await waitFor(page, (r) => !r.querySelector('#gpa-proxy-launch-here').disabled, null, 5000);
+  await page.click(sr('#gpa-proxy-launch-here'));
+}
+
+let a, b, c, d, e, f2, g;
 try {
   // 1: the tab, in its place; the connection test lists the approved sites.
   a = await computer({ server: PROXY });
@@ -132,6 +142,14 @@ try {
   const i = order.indexOf('browser');
   check('One Proxy tab, still followed by Eaglercraft then Games', order.filter((x) => x === 'browser').length === 1 && order[i + 1] === 'eaglercraft' && order[i + 2] === 'games', order.join(','));
   await tab(a.page, 'browser');
+  await a.page.waitForTimeout(800);
+  const pre = await R(a.page, (r) => ({ src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), stage: r.querySelector('#gpa-proxy-stage').style.display, here: r.querySelector('#gpa-proxy-launch-here').disabled, blank: r.querySelector('#gpa-proxy-launch-blank').disabled, gate: r.querySelector('#gpa-proxy-gate').textContent }));
+  check('Opening Proxy loads nothing; not fullscreen: both launch buttons disabled', !pre.src && pre.stage === 'none' && pre.here && pre.blank && /requires fullscreen/.test(pre.gate), JSON.stringify(pre));
+  await R(a.page, (r) => { const x = r.querySelector('#gpa-proxy-launch-here'); x.disabled = false; x.click(); x.disabled = true; });
+  await a.page.waitForTimeout(400);
+  check('A forced launch while not fullscreen opens nothing', !(await R(a.page, (r) => r.querySelector('#gpa-proxy-frame').getAttribute('src'))) && /Enter fullscreen first/.test(await R(a.page, (r) => r.querySelector('#gpa-proxy-launch-error').textContent)));
+  await launchHere(a.page);
+  check('Launch Here: the console is fullscreen and the browser replaces the launcher', await R(a.page, (r) => !!r.fullscreenElement && r.querySelector('#gpa-proxy-stage').style.display === '' && !r.querySelector('.gpx-proxy-launcher').offsetParent));
   await waitFor(a.page, (r) => /Connected/.test(r.querySelector('#gpa-proxy-status').textContent), null, 20000);
   let st = await state(a.page);
   check('Opening Proxy shows the Worker’s connection test: “Connected · connection test”', st.src === PROXY + '/preview' && /Connected · connection test/.test(st.status) && st.proxy === 'connected' && !st.error, JSON.stringify(st));
@@ -228,6 +246,48 @@ try {
     check(`Theme “${th}”: the Proxy tab uses the theme (bar ${look.bar})`, look.shown && !!look.bar, JSON.stringify(look));
     await a.page.screenshot({ path: path.join(OUT, `08-theme-${th}.png`) });
   }
+  // 9: leaving fullscreen hides the proxy; fullscreen brings the same page back; Close unloads.
+  await a.page.evaluate(() => document.exitFullscreen());
+  await a.page.waitForTimeout(500);
+  let hid = await R(a.page, (r) => ({ stage: r.querySelector('#gpa-proxy-stage').style.display, src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), btn: r.querySelector('#gpa-proxy-launch-here').textContent, gate: r.querySelector('#gpa-proxy-gate').textContent }));
+  check('Leaving fullscreen hides the proxy (page kept) and offers “Enter Fullscreen to Resume”', hid.stage === 'none' && hid.src === S(DOCS, '/welcome') && /Enter Fullscreen to Resume/.test(hid.btn) && /left fullscreen/.test(hid.gate), JSON.stringify(hid));
+  await a.page.click(sr('#gpa-proxy-launch-here'));
+  await a.page.waitForTimeout(500);
+  hid = await R(a.page, (r) => ({ fs: !!r.fullscreenElement, stage: r.querySelector('#gpa-proxy-stage').style.display, src: r.querySelector('#gpa-proxy-frame').getAttribute('src') }));
+  check('…Resume goes fullscreen and shows the same page again', hid.fs && hid.stage === '' && hid.src === S(DOCS, '/welcome'), JSON.stringify(hid));
+  await a.page.click(sr('#gpa-proxy-close'));
+  await a.page.waitForTimeout(400);
+  hid = await R(a.page, (r) => ({ stage: r.querySelector('#gpa-proxy-stage').style.display, src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), status: r.querySelector('#gpa-proxy-status').textContent, gate: r.querySelector('#gpa-proxy-gate').textContent }));
+  check('Close unloads the page and shows the launcher', hid.stage === 'none' && hid.src === 'about:blank' && hid.status === 'Not connected' && /proxy was closed/.test(hid.gate), JSON.stringify(hid));
+
+  // 9b: about:blank — its own fullscreen gate; the browser moves in, and back out on close.
+  await waitFor(a.page, (r) => !r.querySelector('#gpa-proxy-launch-blank').disabled, null, 5000);
+  const [pop] = await Promise.all([a.ctx.waitForEvent('page', { timeout: 8000 }), a.page.click(sr('#gpa-proxy-launch-blank'))]);
+  await a.page.waitForTimeout(500);
+  const P = (fn) => pop.evaluate((f) => (0, eval)(f)(document.body.firstElementChild.shadowRoot), String(fn));
+  let pw1 = await P((r) => ({ gate: (r.querySelector('.gpx-empty-title') || {}).textContent, url: location.href, hasBar: !!r.querySelector('#gpa-proxy-url'), src: r.querySelector('#gpa-proxy-frame').getAttribute('src') }));
+  check('Launch in about:blank: an about:blank window with the browser in it, behind its own fullscreen gate', pw1.url === 'about:blank' && pw1.hasBar && /requires fullscreen/.test(pw1.gate || '') && pw1.src === 'about:blank', JSON.stringify(pw1));
+  const mainNow = await R(a.page, (r) => ({ inTab: !!r.querySelector('#gpa-proxy-stage'), gate: r.querySelector('#gpa-proxy-gate').textContent, btn: r.querySelector('#gpa-proxy-launch-blank').textContent }));
+  check('…the console says it’s in the about:blank window', !mainNow.inTab && /about:blank window/.test(mainNow.gate) && /Show the about:blank window/.test(mainNow.btn), JSON.stringify(mainNow));
+  await pop.click('[data-act="enter"]');
+  await pop.waitForFunction(() => /Connected|Loaded/.test(document.body.firstElementChild.shadowRoot.querySelector('#gpa-proxy-status').textContent), null, { timeout: 20000 }).catch(() => {});
+  pw1 = await P((r) => ({ fs: !!r.fullscreenElement, cover: !!r.querySelector('.gpx-eag-cover'), status: r.querySelector('#gpa-proxy-status').textContent, dot: r.querySelector('.gpx-room').dataset.proxy }));
+  check('…fullscreen in that window opens the proxy there', pw1.fs && !pw1.cover && /Connected|Loaded/.test(pw1.status) && pw1.dot === 'connected', JSON.stringify(pw1));
+  await pop.fill('#gpa-proxy-url', FX);
+  await pop.click('#gpa-proxy-go');
+  await pop.waitForFunction(() => /Loaded/.test(document.body.firstElementChild.shadowRoot.querySelector('#gpa-proxy-status').textContent), null, { timeout: 20000 }).catch(() => {});
+  check('…the address bar works in the window (an approved site loads)', /Loaded · https:\/\/fixture/.test(await P((r) => r.querySelector('#gpa-proxy-status').textContent)) && pop.frames().some((x) => x.url().startsWith(S(FX))));
+  await pop.screenshot({ path: path.join(OUT, '09-about-blank.png') });
+  await pop.evaluate(() => document.exitFullscreen());
+  await pop.waitForTimeout(400);
+  check('…leaving fullscreen in the window covers the proxy again', /left fullscreen/.test(await P((r) => (r.querySelector('.gpx-eag-cover') || {}).textContent || '')));
+  await pop.close();
+  await a.page.waitForTimeout(1500);
+  hid = await R(a.page, (r) => ({ back: !!r.querySelector('#gpa-proxy-stage'), stage: (r.querySelector('#gpa-proxy-stage') || {}).style?.display, src: (r.querySelector('#gpa-proxy-frame') || { getAttribute: () => 'gone' }).getAttribute('src'), gate: r.querySelector('#gpa-proxy-gate').textContent }));
+  check('Closing the window brings the browser back to the tab, unloaded', hid.back && hid.stage === 'none' && hid.src === 'about:blank' && /about:blank window was closed/.test(hid.gate), JSON.stringify(hid));
+  await launchHere(a.page);
+  st = await go(a.page, FX);
+  check('…and it still works here afterwards', /Loaded/.test(st.status) && st.src === S(FX), JSON.stringify(st));
   check('No page errors (computer)', a.page._errors.length === 0, a.page._errors.slice(0, 2).join(' | '));
 
   // 6b: a new visit restores the last page on the SECOND approved site.
@@ -235,6 +295,7 @@ try {
   await f2.page.evaluate((d2) => localStorage.setItem('gpa_proxy_last_destination', d2), `https://${DOCS}/welcome`);
   await signIn(f2.page, 'pr' + run);
   await tab(f2.page, 'browser');
+  await launchHere(f2.page);
   await waitFor(f2.page, (r) => /Loaded/.test(r.querySelector('#gpa-proxy-status').textContent), null, 20000);
   st = await state(f2.page);
   check('Next visit: the last page (on the second approved site) comes back', st.src === S(DOCS, '/welcome') && st.addr === `https://${DOCS}/welcome`, JSON.stringify(st));
@@ -249,6 +310,7 @@ try {
   b = await computer({ server: `http://127.0.0.1:${deadPort}` });
   await signIn(b.page, 'pd' + run);
   await tab(b.page, 'browser');
+  await launchHere(b.page);
   await waitFor(b.page, (r) => r.querySelector('#gpa-proxy-error').style.display !== 'none', null, 20000);
   st = await state(b.page);
   check('Worker down: “Can’t reach the proxy Worker”, Load failed, Retry + Open in a new tab', /Can’t reach the proxy Worker/.test(st.error) && /Load failed/.test(st.status) && st.proxy === 'error' && /Retry/.test(st.error) && /Open in a new tab/.test(st.error), JSON.stringify(st));
@@ -265,12 +327,14 @@ try {
   c = await computer({ server: `http://127.0.0.1:${broken.port}` });
   await signIn(c.page, 'pb' + run);
   await tab(c.page, 'browser');
+  await launchHere(c.page);
   await waitFor(c.page, (r) => r.querySelector('#gpa-proxy-error').style.display !== 'none', null, 20000);
   st = await state(c.page);
   check('Worker answering errors: “answered with an error (HTTP 500)” + Retry', /answered with an error \(HTTP 500\)/.test(st.error) && /Proxy error/.test(st.status) && /Retry/.test(st.error), JSON.stringify(st));
   d = await computer({ server: PROXY, pathName: '/strict' });
   await signIn(d.page, 'ps' + run);
   await tab(d.page, 'browser');
+  await launchHere(d.page);
   await waitFor(d.page, (r) => /Blocked/.test(r.querySelector('#gpa-proxy-status').textContent), null, 20000);
   st = await state(d.page);
   check('A website that forbids framing: “Blocked by this website” + Open in a new tab', /Blocked by this website/.test(st.status) && /security settings/.test(st.error) && /Open in a new tab/.test(st.error) && st.proxy === 'error', JSON.stringify(st));
@@ -283,6 +347,7 @@ try {
   e = await computer({ server: 'https://localhost:4141', phone: true });
   await signIn(e.page, 'pl' + run);
   await tab(e.page, 'browser');
+  await launchHere(e.page);
   await e.page.waitForTimeout(800);
   const def = await R(e.page, (r) => ({ src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), setting: r.querySelector('#gpa-proxy-server').value }));
   check('Default: the deployed Worker (' + DEPLOYED + '/preview); an old saved localhost:4141 moves to it', def.src === DEPLOYED + '/preview' && def.setting === DEPLOYED, JSON.stringify(def));
