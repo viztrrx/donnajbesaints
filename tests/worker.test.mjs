@@ -1456,15 +1456,23 @@ test('proxy activity: launches and visits are logged per user and shown on their
   assert.equal((await log({ event: 'visit', url: 'https://example.com/page?q=secret#x' })).data.ok, true);
   assert.equal((await log({ event: 'visit', url: 'javascript:alert(1)' })).status, 400);
   assert.equal((await log({ event: 'other' })).status, 400);
-  // Signed out (no session for an account that has one): nothing is recorded.
+  // An older client that only sends the username is accepted too (the same
+  // identity rules as chat and AI; the owner can require sessions instead).
   await c.call('/proxy/log', { method: 'POST', body: { user: 'pia', event: 'launch', mode: 'here' } });
   // Another user's name can't be used to write into pia's log.
   const b = (await signUp(c, 'bob')).data.token;
   await c.call('/proxy/log', { method: 'POST', headers: sess(b), body: { user: 'pia', event: 'visit', url: 'https://evil.example/' } });
   const p = (await c.call('/admin/user?u=pia', { headers: owner })).data.proxy;
-  assert.equal(p.launches, 2);
+  assert.equal(p.launches, 3);
   assert.equal(p.visits, 1);
-  assert.deepEqual(p.recent.map((x) => [x.ev, x.mode || x.url]), [['visit', 'https://example.com/page'], ['launch', 'blank'], ['launch', 'here']]);
+  assert.deepEqual(p.recent.map((x) => [x.ev, x.mode || x.url]), [['launch', 'here'], ['visit', 'https://example.com/page'], ['launch', 'blank'], ['launch', 'here']]);
+  // With "Require verified sessions" on, a username alone is refused again.
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { requireSessions: true } });
+  assert.equal((await c.call('/proxy/log', { method: 'POST', body: { user: 'pia', event: 'launch', mode: 'here' } })).data.ok, false);
+  assert.equal((await c.call('/admin/user?u=pia', { headers: owner })).data.proxy.launches, 3);
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { requireSessions: false } });
+  // The owner's name can't be claimed without proof.
+  assert.equal((await c.call('/proxy/log', { method: 'POST', body: { user: 'boss', event: 'launch', mode: 'here' } })).data.ok, false);
   assert.equal((await c.call('/admin/user?u=bob', { headers: owner })).data.proxy.recent[0].url, 'https://evil.example/', 'bob’s report went to bob');
   // Users can't read the log; deleting the user deletes it.
   assert.equal((await c.call('/admin/user?u=pia', { headers: sess(a) })).status >= 400, true);

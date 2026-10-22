@@ -5029,12 +5029,14 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (!kv) return json({ ok: false }, 200);
       let body = {};
       try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
-      // Only a signed-in session counts: a bare username could otherwise
-      // write into someone else's log.
+      // The same identity rules as the rest of the console (a signed-in
+      // session, or the username for older clients unless the owner requires
+      // sessions); the allowed-users/subscriber check below still applies.
       const who = await effectiveUser(body.user);
-      if (who.refused || !who.verified) return json({ ok: false, error: 'Sign in first.' }, 200);
+      if (who.refused) return json({ ok: false, error: 'Sign in again.' }, 200);
       const user = String(who.user || '').slice(0, 40);
       if (!user || user.toLowerCase() === 'anonymous') return json({ ok: false, error: 'Sign in first.' }, 200);
+      if (!(await mayActInChatAs(who))) return json({ ok: false, error: 'name reserved' }, 200);
       const cfg = await getConfig(kv);
       if (!allowedUser(cfg, user)) return json({ ok: false, error: ACCESS_DENIED }, 403);
       const ev = body.event === 'launch' || body.event === 'visit' ? body.event : '';
