@@ -852,7 +852,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       admin: ['feature', 'A user’s profile shows whether they’re using the Proxy right now, where, and the site they’re on; Users → Proxy activity by user lists each day’s launches and sites per person; push alerts for Proxy launches and sites opened (Proxy tab: launches and sites opened)'] } },
     { at: '2026-10-23T09:30:00-04:00', commit: '', title: 'Proxy tab: just the launcher, filling the page', parts: {
       browser: ['redesign', 'The Proxy tab drops its header art and Research mode: only the Browse card (with Enter Fullscreen) or, once launched, the browser, filling the page'],
-      selection: ['fix', 'Research from the selection assistant goes to Notes (read, research and make notes)'] } }
+      selection: ['fix', 'Research from the selection assistant goes to Notes (read, research and make notes)'] } },
+    { at: '2026-10-23T11:00:00-04:00', commit: '', title: 'Proxy launcher redesigned; about:blank needs no fullscreen', parts: {
+      browser: ['redesign', 'A clean launcher with two options: In this tab (Enter Fullscreen, then Launch) and In a new window (about:blank, opens right away with no fullscreen needed); it fits every panel size without scrolling']} }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1405,11 +1407,41 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
       /* The Proxy tab is just the launcher, or the browser once launched;
          either one fills the pane. */
-      .gpx-proxy-room > .gpx-proxy-launcher { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
-      .gpx-proxy-launch-inner { width: 100%; max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
-      .gpx-proxy-launch-inner > * { margin: 0; }
-      .gpx-proxy-launch-inner .gpa-row { flex-wrap: wrap; }
-      .gpx-proxy-room > .gpx-browser { flex: 1 1 auto; }
+      /* The launcher card fills the pane and never scrolls: it's a size
+         container, and on shorter or narrower panes the extras step aside
+         (icon, then description and note, then the heading). */
+      .gpx-proxy-room > .gpx-proxy-launcher { container: pl / size; flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; padding: 16px; }
+      .gpx-pl { width: 100%; max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+      .gpx-pl-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; }
+      .gpx-pl-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 6px; border-radius: 13px; color: var(--gpa-accent-fg);
+        background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2)); box-shadow: 0 8px 20px -12px var(--gpa-accent); }
+      .gpx-pl-icon svg { width: 22px; height: 22px; }
+      .gpx-pl-title { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; color: var(--gpa-text); }
+      .gpx-pl-lede { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--gpa-sub); }
+      .gpx-pl-opts { display: flex; flex-direction: column; border: 1px solid var(--gpa-border); border-radius: var(--gps-r3); background: var(--gpa-field); }
+      .gpx-pl-opt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; padding: 12px 14px; }
+      .gpx-pl-opt + .gpx-pl-opt { border-top: 1px solid var(--gpa-border); }
+      .gpx-pl-opt-ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: var(--gpa-sub); background: var(--gpa-card-bg); border: 1px solid var(--gpa-border); }
+      .gpx-pl-opt-ic svg { width: 15px; height: 15px; }
+      .gpx-pl-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; color: var(--gpa-text); }
+      .gpx-pl-sub { font-size: 11.5px; color: var(--gpa-sub); }
+      .gpx-pl-act { display: flex; gap: 8px; justify-content: flex-end; }
+      .gpx-proxy-launcher[data-fs="on"] .gpx-pl-opt:first-child .gpx-pl-opt-ic { color: var(--gpa-accent); border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); }
+      .gpx-pl-foot { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 12px; }
+      .gpx-pl-status { margin: 0; text-align: center; font-size: 12px; line-height: 1.5; color: var(--gpa-text); }
+      .gpx-pl-status:empty { display: none; }
+      .gpx-pl-note { margin: 0; display: flex; align-items: flex-start; justify-content: center; gap: 6px; text-align: center; font-size: 11px; line-height: 1.45; color: var(--gpa-sub); }
+      .gpx-pl-note svg { flex: none; width: 13px; height: 13px; margin-top: 1px; }
+      .gpx-pl .gpx-inline-error { margin: 0; }
+      @container pl (max-height: 520px) { .gpx-pl { gap: 12px; } .gpx-pl-icon { display: none; } .gpx-pl-title { font-size: 16px; } }
+      @container pl (max-height: 400px) { .gpx-pl-lede { display: none; } .gpx-pl-opt { padding: 10px 12px; } }
+      @container pl (max-height: 330px) { .gpx-pl-head, .gpx-pl-note { display: none; } }
+      /* Narrow: each option's button goes under its text, still its own size. */
+      @container pl (max-width: 360px) {
+        .gpx-proxy-room > .gpx-proxy-launcher { padding: 12px; }
+        .gpx-pl-opt { grid-template-columns: auto minmax(0, 1fr); }
+        .gpx-pl-act { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; }
+      }
       /* Proxy launched here: the browser takes the launcher's place. */
       .gpx-room[data-px="here"] > .gpx-proxy-launcher { display: none; }
       /* The proxy's about:blank window: the browser moved into it, under a
@@ -3954,20 +3986,36 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
       <div class="gpa-pane" data-pane="browser">
         <div class="gpx-room gpx-proxy-room">
-          <section class="gpa-card gpx-card gpx-proxy-launcher">
-            <div class="gpx-proxy-launch-inner">
-              <div class="gpx-card-head">${GPS_ICONS.globe}<div class="gpa-card-title">Browse</div><span id="gpa-proxy-fs-chip" class="gpx-chip">Fullscreen off</span></div>
-              <p id="gpa-proxy-gate" class="gpa-sub">The proxy requires fullscreen mode. Enter fullscreen, then launch.</p>
-              <div class="gpa-row">
-                <button id="gpa-proxy-fs" class="gpa-btn primary">${gpxLbl('maximize', 'Enter Fullscreen')}</button>
+          <section class="gpa-card gpx-card gpx-proxy-launcher" data-fs="off">
+            <div class="gpx-pl">
+              <header class="gpx-pl-head">
+                <span class="gpx-pl-icon" aria-hidden="true">${GPS_ICONS.globe}</span>
+                <h2 class="gpx-pl-title">Proxy</h2>
+                <p class="gpx-pl-lede">Browse the approved sites through the Saints proxy.</p>
+              </header>
+              <div class="gpx-pl-opts">
+                <div class="gpx-pl-opt">
+                  <span class="gpx-pl-opt-ic" aria-hidden="true">${GPS_ICONS.maximize}</span>
+                  <div class="gpx-pl-text"><b>In this tab</b><span id="gpa-proxy-fs-chip" class="gpx-pl-sub">Needs fullscreen</span></div>
+                  <div class="gpx-pl-act">
+                    <button id="gpa-proxy-fs" class="gpa-btn primary">${gpxLbl('maximize', 'Enter Fullscreen')}</button>
+                    <button id="gpa-proxy-launch-here" class="gpa-btn primary" aria-label="Launch the proxy in this tab" style="display:none;">${gpxLbl('globe', 'Launch')}</button>
+                  </div>
+                </div>
+                <div class="gpx-pl-opt">
+                  <span class="gpx-pl-opt-ic" aria-hidden="true">${GPS_ICONS.external}</span>
+                  <div class="gpx-pl-text"><b>In a new window</b><span class="gpx-pl-sub" id="gpa-proxy-blank-sub">about:blank · no fullscreen needed</span></div>
+                  <div class="gpx-pl-act">
+                    <button id="gpa-proxy-launch-blank" class="gpa-btn" aria-label="Launch the proxy in an about:blank window">${gpxLbl('external', 'Launch')}</button>
+                  </div>
+                </div>
               </div>
-              <div class="gpa-row">
-                <button id="gpa-proxy-launch-here" class="gpa-btn primary" disabled>${gpxLbl('globe', 'Launch Proxy Here')}</button>
-                <button id="gpa-proxy-launch-blank" class="gpa-btn" disabled>${gpxLbl('external', 'Launch in about:blank')}</button>
+              <div class="gpx-pl-foot">
+                <p id="gpa-proxy-gate" class="gpx-pl-status" role="status"></p>
                 <button id="gpa-proxy-end" class="gpa-btn" style="display:none;">${gpxLbl('x', 'Close Proxy')}</button>
               </div>
-              <p class="gpa-sub gpx-field-hint">Launching the proxy and the sites you open in it are recorded on your account, where the owner can see them.</p>
               <div id="gpa-proxy-launch-error" class="gpx-inline-error" role="alert" style="display:none;"></div>
+              <p class="gpx-pl-note">${GPS_ICONS.eye}<span>Launches and the sites you open are recorded on your account, where the owner can see them.</span></p>
             </div>
           </section>
           <section id="gpa-proxy-stage" class="gpx-browser" style="display:none;">
@@ -12858,32 +12906,41 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     pxRoom.dataset.px = px ? (px.mode === 'blank' ? 'blank' : fs ? 'here' : 'hidden') : 'idle';
     // In about:blank mode the stage lives in that window, always shown there.
     pxStage.style.display = (here && !fs) || !px ? 'none' : '';
-    pxFsChip.textContent = fs ? 'Fullscreen on' : 'Fullscreen off';
-    pxFsChip.classList.toggle('gpx-chip-accent', fs);
-    eagLabel(pxFsBtn, fs ? 'Exit Fullscreen' : 'Enter Fullscreen');
-    pxFsBtn.classList.toggle('primary', !fs);
+    pxLauncher.dataset.fs = fs ? 'on' : 'off';
     pxFsBtn.disabled = !supported;
-    pxHereBtn.style.display = '';
-    pxBlankBtn.style.display = '';
     pxEndBtn.style.display = px ? '' : 'none';
+    const blankSub = panel.querySelector('#gpa-proxy-blank-sub');
     if (!px) {
-      eagLabel(pxHereBtn, 'Launch Proxy Here');
-      eagLabel(pxBlankBtn, 'Launch in about:blank');
-      pxHereBtn.disabled = pxBlankBtn.disabled = !fs;
-      pxGate.textContent = !supported ? pxFsRefusedText()
-        : fs ? 'Fullscreen is on. Launch the proxy here, or in a separate about:blank window.'
-          : 'The proxy requires fullscreen mode. Enter fullscreen, then launch.';
-      if (pxNote) pxGate.textContent = pxNote + ' ' + pxGate.textContent;
-    } else if (px.mode === 'blank') {
-      eagLabel(pxBlankBtn, 'Show the about:blank window');
+      // In this tab: Enter Fullscreen until it's on, then Launch.
+      pxFsChip.textContent = !supported ? 'Fullscreen isn’t available in this browser' : fs ? 'Fullscreen is on' : 'Needs fullscreen';
+      pxFsBtn.style.display = fs || !supported ? 'none' : '';
+      pxHereBtn.style.display = fs ? '' : 'none';
+      eagLabel(pxHereBtn, 'Launch');
+      pxHereBtn.disabled = !fs;
+      pxBlankBtn.style.display = '';
+      eagLabel(pxBlankBtn, 'Launch');
       pxBlankBtn.disabled = false;
+      blankSub.textContent = 'about:blank · no fullscreen needed';
+      pxGate.textContent = pxNote || '';
+    } else if (px.mode === 'blank') {
+      pxFsChip.textContent = 'The proxy is open in a window';
+      pxFsBtn.style.display = 'none';
       pxHereBtn.style.display = 'none';
-      pxGate.textContent = 'The proxy is open in an about:blank window. That window has its own fullscreen requirement.';
+      pxBlankBtn.style.display = '';
+      eagLabel(pxBlankBtn, 'Show window');
+      pxBlankBtn.disabled = false;
+      blankSub.textContent = 'Open in an about:blank window';
+      pxGate.textContent = 'The proxy is open in an about:blank window.';
     } else {
-      eagLabel(pxHereBtn, 'Enter Fullscreen to Resume');
+      // Launched here but the console left fullscreen: hidden until it's back.
+      pxFsChip.textContent = 'Hidden: the console left fullscreen';
+      pxFsBtn.style.display = 'none';
+      pxHereBtn.style.display = '';
+      eagLabel(pxHereBtn, 'Resume');
       pxHereBtn.disabled = !supported;
       pxBlankBtn.style.display = 'none';
-      pxGate.textContent = 'The proxy is hidden because the console left fullscreen. It needs fullscreen to come back.';
+      blankSub.textContent = 'Close the proxy first';
+      pxGate.textContent = 'The proxy needs fullscreen to come back.';
     }
   }
 
@@ -12891,7 +12948,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     pxShowError('');
     pxNote = '';
     if (px) return;
-    if (!isConsoleFullscreen()) { pxShowError('Enter fullscreen first: the proxy only opens while the console is fullscreen.'); pxSync(); return; }
+    // In the console it only opens fullscreen; the about:blank window needs no fullscreen.
+    if (mode === 'here' && !isConsoleFullscreen()) { pxShowError('Enter fullscreen first: the proxy only opens in this tab while the console is fullscreen. Or launch it in about:blank.'); pxSync(); return; }
     if (mode === 'here') {
       px = { mode, child: null, cleanups: [], since: Date.now() };
       pxSync();
@@ -12947,7 +13005,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const body = shell.querySelector('.gpx-pxw-body');
     body.appendChild(pxStage);   // adopted into the window's document, handlers and all
     pxStage.style.display = '';
-    const child = { win, doc: d, sr, shell, body, started: false };
+    const child = { win, doc: d, sr, shell, body };
     px.child = child;
     // The status dot and load bar key off the room's data-proxy.
     const syncConn = () => {
@@ -12958,29 +13016,20 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     connMo.observe(proxyStatusEl, { childList: true, characterData: true, subtree: true });
     px.cleanups.push(() => connMo.disconnect());
     syncConn();
+    // Fullscreen in the window is optional.
     const childFs = () => { const el = sr.fullscreenElement || null; return !!el && (el === shell || shell.contains(el)); };
-    child.isFs = childFs;
-    const requestChildFs = () => {
-      const req = shell.requestFullscreen || shell.webkitRequestFullscreen;
-      if (!req || !(d.fullscreenEnabled || d.webkitFullscreenEnabled)) return Promise.reject(new Error('This browser doesn’t allow fullscreen in the about:blank window.'));
-      try { return Promise.resolve(req.call(shell)); } catch (e) { return Promise.reject(e); }
-    };
     const onAct = (act) => {
       if (act === 'close') { closeProxy('Closed from the about:blank window.'); return; }
-      if (act === 'fs' || act === 'enter') {
-        if (childFs()) { if (act === 'fs') d.exitFullscreen().catch(() => {}); else pxChildStart(); return; }
-        requestChildFs().then(() => pxChildStart(), (e) => {
-          eagCover(body, { icon: 'warn', title: 'Fullscreen was refused', desc: (e && e.message) || 'The browser didn’t allow fullscreen in this window.', buttons: [{ act: 'enter', label: 'Try again', icon: 'maximize', primary: true }, { act: 'close', label: 'Close', icon: 'x' }] }, onAct);
-        });
+      if (act === 'fs') {
+        if (childFs()) { d.exitFullscreen().catch(() => {}); return; }
+        const req = shell.requestFullscreen || shell.webkitRequestFullscreen;
+        if (req) { try { Promise.resolve(req.call(shell)).catch(() => {}); } catch (e) { /* not allowed here */ } }
       }
     };
-    child.onAct = onAct;
     shell.querySelectorAll(':scope > .gpx-browser-bar [data-act]').forEach((b) => b.addEventListener('click', () => onAct(b.dataset.act)));
-    const onFsChange = () => {
-      const fs = childFs();
-      eagLabel(shell.querySelector('[data-act="fs"]'), fs ? 'Exit Fullscreen' : 'Fullscreen');
-      if (!fs && px && px.child === child) pxChildGate();
-    };
+    const fsBtn = shell.querySelector('[data-act="fs"]');
+    if (!(d.fullscreenEnabled || d.webkitFullscreenEnabled)) fsBtn.hidden = true;
+    const onFsChange = () => eagLabel(fsBtn, childFs() ? 'Exit Fullscreen' : 'Fullscreen');
     d.addEventListener('fullscreenchange', onFsChange);
     d.addEventListener('webkitfullscreenchange', onFsChange);
     // This page's CSP (inherited by about:blank) can refuse the frame there too.
@@ -12993,29 +13042,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     win.addEventListener('pagehide', onGone);
     const poll = setInterval(() => { if (win.closed) onGone(); }, 1000);
     px.cleanups.push(() => clearInterval(poll));
-    pxChildGate();
+    proxyStart();
     try { win.focus(); } catch (e) { /* ignore */ }
   }
-  // The window's own gate: covers the browser until the window is
-  // fullscreen, and again whenever it leaves fullscreen.
-  function pxChildGate() {
-    const c = px && px.child;
-    if (!c) return;
-    eagCover(c.body, {
-      icon: c.started ? 'pause' : 'globe',
-      title: c.started ? 'Hidden' : 'The proxy requires fullscreen mode',
-      desc: c.started ? 'This window left fullscreen. Enter fullscreen to keep browsing.' : 'Enter fullscreen in this window to open the proxy.',
-      buttons: [{ act: 'enter', label: c.started ? 'Enter Fullscreen and Resume' : 'Enter Fullscreen', icon: 'maximize', primary: true }, { act: 'close', label: 'Close Proxy', icon: 'x' }]
-    }, c.onAct);
-  }
-  // Fullscreen granted in the window: the first time loads the proxy.
-  function pxChildStart() {
-    const c = px && px.child;
-    if (!c || !c.isFs()) return;
-    eagCover(c.body, null);
-    if (!c.started) { c.started = true; proxyStart(); }
-  }
-
   onDoc('fullscreenchange', pxSync);
   onDoc('webkitfullscreenchange', pxSync);
   pxFsBtn.addEventListener('click', () => {

@@ -174,8 +174,8 @@ try {
   check('One Proxy tab, still followed by Eaglercraft then Games', order.filter((x) => x === 'browser').length === 1 && order[i + 1] === 'eaglercraft' && order[i + 2] === 'games', order.join(','));
   await tab(a.page, 'browser');
   await a.page.waitForTimeout(800);
-  const pre = await R(a.page, (r) => ({ src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), stage: r.querySelector('#gpa-proxy-stage').style.display, here: r.querySelector('#gpa-proxy-launch-here').disabled, blank: r.querySelector('#gpa-proxy-launch-blank').disabled, gate: r.querySelector('#gpa-proxy-gate').textContent }));
-  check('Opening Proxy loads nothing; not fullscreen: both launch buttons disabled', !pre.src && pre.stage === 'none' && pre.here && pre.blank && /requires fullscreen/.test(pre.gate), JSON.stringify(pre));
+  const pre = await R(a.page, (r) => ({ src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), stage: r.querySelector('#gpa-proxy-stage').style.display, here: !r.querySelector('#gpa-proxy-launch-here').offsetParent || r.querySelector('#gpa-proxy-launch-here').disabled, fs: !!r.querySelector('#gpa-proxy-fs').offsetParent, blank: r.querySelector('#gpa-proxy-launch-blank').disabled, sub: r.querySelector('#gpa-proxy-fs-chip').textContent }));
+  check('Opening Proxy loads nothing; not fullscreen: “In this tab” offers Enter Fullscreen (no launch), “In a new window” can launch', !pre.src && pre.stage === 'none' && pre.here && pre.fs && !pre.blank && /Needs fullscreen/.test(pre.sub), JSON.stringify(pre));
   await R(a.page, (r) => { const x = r.querySelector('#gpa-proxy-launch-here'); x.disabled = false; x.click(); x.disabled = true; });
   await a.page.waitForTimeout(400);
   check('A forced launch while not fullscreen opens nothing', !(await R(a.page, (r) => r.querySelector('#gpa-proxy-frame').getAttribute('src'))) && /Enter fullscreen first/.test(await R(a.page, (r) => r.querySelector('#gpa-proxy-launch-error').textContent)));
@@ -304,7 +304,7 @@ try {
   await a.page.evaluate(() => document.exitFullscreen());
   await a.page.waitForTimeout(500);
   let hid = await R(a.page, (r) => ({ stage: r.querySelector('#gpa-proxy-stage').style.display, src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), btn: r.querySelector('#gpa-proxy-launch-here').textContent, gate: r.querySelector('#gpa-proxy-gate').textContent }));
-  check('Leaving fullscreen hides the proxy (page kept) and offers “Enter Fullscreen to Resume”', hid.stage === 'none' && hid.src === S(FX) && /Enter Fullscreen to Resume/.test(hid.btn) && /left fullscreen/.test(hid.gate), JSON.stringify(hid));
+  check('Leaving fullscreen hides the proxy (page kept) and offers Resume', hid.stage === 'none' && hid.src === S(FX) && /Resume/.test(hid.btn) && /needs fullscreen to come back/.test(hid.gate), JSON.stringify(hid));
   await btn(a.page, 'gpa-proxy-launch-here');
   await a.page.waitForTimeout(500);
   hid = await R(a.page, (r) => ({ fs: !!r.fullscreenElement, stage: r.querySelector('#gpa-proxy-stage').style.display, src: r.querySelector('#gpa-proxy-frame').getAttribute('src') }));
@@ -314,20 +314,19 @@ try {
   hid = await R(a.page, (r) => ({ stage: r.querySelector('#gpa-proxy-stage').style.display, src: r.querySelector('#gpa-proxy-frame').getAttribute('src'), status: r.querySelector('#gpa-proxy-status').textContent, gate: r.querySelector('#gpa-proxy-gate').textContent, back: r.querySelector('#gpa-proxy-back').disabled }));
   check('Close unloads the page, clears Back/Forward and shows the launcher', hid.stage === 'none' && hid.src === 'about:blank' && hid.status === 'Not connected' && hid.back && /proxy was closed/.test(hid.gate), JSON.stringify(hid));
 
-  // 9b: about:blank — its own fullscreen gate; the browser moves in, and back out on close.
+  // 9b: about:blank — no fullscreen needed: the browser moves into the window
+  // and opens right away, and moves back out on close.
+  await a.page.evaluate(() => document.exitFullscreen().catch(() => {}));
+  await a.page.waitForTimeout(400);
   await a.page.evaluate((x) => localStorage.setItem('gpa_proxy_last_destination', x), `https://${FX}/`);
-  await waitFor(a.page, (r) => !r.querySelector('#gpa-proxy-launch-blank').disabled, null, 5000);
+  check('Not fullscreen: “Launch” in a new window is available', await R(a.page, (r) => !r.fullscreenElement && !r.querySelector('#gpa-proxy-launch-blank').disabled && !!r.querySelector('#gpa-proxy-launch-blank').offsetParent));
   const [pop] = await Promise.all([a.ctx.waitForEvent('page', { timeout: 8000 }), btn(a.page, 'gpa-proxy-launch-blank')]);
-  await a.page.waitForTimeout(500);
   const P = (fn) => pop.evaluate((f) => (0, eval)(f)(document.body.firstElementChild.shadowRoot), String(fn));
-  let pw1 = await P((r) => ({ gate: (r.querySelector('.gpx-empty-title') || {}).textContent, url: location.href, hasBar: !!r.querySelector('#gpa-proxy-home'), src: r.querySelector('#gpa-proxy-frame').getAttribute('src') }));
-  check('Launch in about:blank: an about:blank window with the browser in it, behind its own fullscreen gate', pw1.url === 'about:blank' && pw1.hasBar && /requires fullscreen/.test(pw1.gate || '') && pw1.src === 'about:blank', JSON.stringify(pw1));
-  const mainNow = await R(a.page, (r) => ({ inTab: !!r.querySelector('#gpa-proxy-stage'), gate: r.querySelector('#gpa-proxy-gate').textContent, btn: r.querySelector('#gpa-proxy-launch-blank').textContent }));
-  check('…the console says it’s in the about:blank window', !mainNow.inTab && /about:blank window/.test(mainNow.gate) && /Show the about:blank window/.test(mainNow.btn), JSON.stringify(mainNow));
-  await pop.click('[data-act="enter"]');
   await pop.waitForFunction(() => /Loaded/.test(document.body.firstElementChild.shadowRoot.querySelector('#gpa-proxy-status').textContent), null, { timeout: 20000 }).catch(() => {});
-  pw1 = await P((r) => ({ fs: !!r.fullscreenElement, cover: !!r.querySelector('.gpx-eag-cover'), status: r.querySelector('#gpa-proxy-status').textContent, dot: r.querySelector('.gpx-room').dataset.proxy }));
-  check('…fullscreen in that window opens the proxy there (the last page)', pw1.fs && !pw1.cover && pw1.status === 'Loaded' && pw1.dot === 'connected' && pop.frames().some((x) => x.url() === S(FX)), JSON.stringify(pw1));
+  let pw1 = await P((r) => ({ url: location.href, fs: !!r.fullscreenElement, cover: !!r.querySelector('.gpx-eag-cover'), hasBar: !!r.querySelector('#gpa-proxy-home'), status: r.querySelector('#gpa-proxy-status').textContent, dot: r.querySelector('.gpx-room').dataset.proxy }));
+  check('Launch in about:blank (console not fullscreen): the window opens the proxy right away, no fullscreen needed (the last page)', pw1.url === 'about:blank' && !pw1.fs && !pw1.cover && pw1.hasBar && pw1.status === 'Loaded' && pw1.dot === 'connected' && pop.frames().some((x) => x.url() === S(FX)), JSON.stringify(pw1));
+  const mainNow = await R(a.page, (r) => ({ inTab: !!r.querySelector('#gpa-proxy-stage'), gate: r.querySelector('#gpa-proxy-gate').textContent, btn: r.querySelector('#gpa-proxy-launch-blank').textContent, here: !!r.querySelector('#gpa-proxy-launch-here').offsetParent }));
+  check('…the console says it’s in the about:blank window (Show window), and can’t also launch here', !mainNow.inTab && /about:blank window/.test(mainNow.gate) && /Show window/.test(mainNow.btn) && !mainNow.here, JSON.stringify(mainNow));
   await pop.frames().find((x) => x.url() === S(FX)).click('#rel');
   await pop.waitForTimeout(1200);
   pw1 = await P((r) => ({ back: !r.querySelector('#gpa-proxy-back').disabled }));
@@ -336,9 +335,6 @@ try {
   await pop.waitForTimeout(1500);
   check('…and Back works in the window', pop.frames().some((x) => x.url() === S(FX)) && /Loaded/.test(await P((r) => r.querySelector('#gpa-proxy-status').textContent)));
   await pop.screenshot({ path: path.join(OUT, '09-about-blank.png') });
-  await pop.evaluate(() => document.exitFullscreen());
-  await pop.waitForTimeout(400);
-  check('…leaving fullscreen in the window covers the proxy again', /left fullscreen/.test(await P((r) => (r.querySelector('.gpx-eag-cover') || {}).textContent || '')));
   await pop.close();
   await a.page.waitForTimeout(1500);
   hid = await R(a.page, (r) => ({ back: !!r.querySelector('#gpa-proxy-stage'), stage: (r.querySelector('#gpa-proxy-stage') || {}).style?.display, src: (r.querySelector('#gpa-proxy-frame') || { getAttribute: () => 'gone' }).getAttribute('src'), gate: r.querySelector('#gpa-proxy-gate').textContent }));
