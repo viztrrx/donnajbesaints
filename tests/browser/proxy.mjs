@@ -28,11 +28,23 @@ const FE_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Scramje
 <body><h1>Scramjet</h1>
 <button id="go-tiktok">tiktok</button><button id="go-wiki">wiki</button><button id="home">home</button>
 <script>
-function post(url){ try { if (parent && parent !== window) parent.postMessage({ saintsProxy: 1, type: "nav", url: url }, "*"); } catch (e) {} }
-post("");
-document.getElementById("go-tiktok").onclick = function(){ post("https://www.tiktok.com/@someone?x=1"); };
-document.getElementById("go-wiki").onclick = function(){ post("https://en.wikipedia.org/wiki/Proxy"); };
-document.getElementById("home").onclick = function(){ post(""); };
+function post(msg){ try { if (parent && parent !== window) parent.postMessage(Object.assign({ saintsProxy: 1, type: "nav" }, msg), "*"); } catch (e) {} }
+post({ url: "" });
+document.getElementById("go-tiktok").onclick = function(){ post({ url: "https://www.tiktok.com/@someone?x=1" }); };
+document.getElementById("go-wiki").onclick = function(){ post({ url: "https://en.wikipedia.org/wiki/Proxy" }); };
+document.getElementById("home").onclick = function(){ post({ url: "" }); };
+// Like Scramjet: the console asks us to navigate; a web address opens that
+// site, plain words become a search (reported with the words).
+window.addEventListener("message", function(e){
+  var d = e.data;
+  if (!d || d.saintsProxy !== 1 || d.type !== "navigate" || typeof d.query !== "string") return;
+  var q = d.query.trim();
+  var looksUrl = false;
+  try { new URL(q); looksUrl = true; } catch (x) {}
+  if (!looksUrl) { try { looksUrl = new URL("http://" + q).hostname.indexOf(".") >= 0; } catch (x) {} }
+  if (looksUrl) post({ url: q.indexOf("://") >= 0 ? q : "https://" + q });
+  else post({ url: "https://www.google.com/search?q=" + encodeURIComponent(q), query: q });
+});
 </script></body></html>`;
 const fe = await serve((rq, rs) => { rs.setHeader('Content-Type', 'text/html'); rs.end(FE_PAGE); });
 const FE = `http://127.0.0.1:${fe.port}`;
@@ -117,6 +129,15 @@ try {
   await feFrame(a.page).click('#go-tiktok');
   await waitFor(a.page, (r) => /Browsing/.test(r.querySelector('#gpa-proxy-status').textContent), null, 8000);
   check('A site opened in the proxy is reported: status becomes Browsing', /Browsing/.test((await stat(a.page)).status));
+  // The address bar appears over the frame once a site is open (hidden on the start page).
+  const addr1 = await R(a.page, (r) => ({ hidden: r.querySelector('#gpa-proxy-addr').hidden, ph: r.querySelector('#gpa-proxy-url').placeholder, val: r.querySelector('#gpa-proxy-url').value }));
+  check('The address bar shows over the frame after a site opens, empty, with the site host as placeholder', !addr1.hidden && addr1.val === '' && /tiktok\.com/.test(addr1.ph), JSON.stringify(addr1));
+  // Typing plain words in the bar drives the proxy to search, and logs the words.
+  await a.page.fill(sr('#gpa-proxy-url'), 'funny cats');
+  await a.page.press(sr('#gpa-proxy-url'), 'Enter');
+  await waitFor(a.page, (r) => /Searching/.test(r.querySelector('#gpa-proxy-status').textContent), null, 8000);
+  const addr2 = await R(a.page, (r) => ({ ph: r.querySelector('#gpa-proxy-url').placeholder, val: r.querySelector('#gpa-proxy-url').value }));
+  check('Typing a search term navigates the proxy and keeps the words as the placeholder (Safari-style)', addr2.val === '' && addr2.ph === 'funny cats', JSON.stringify(addr2));
   await feFrame(a.page).click('#go-wiki');
   await a.page.waitForTimeout(600);
   await feFrame(a.page).click('#home');
@@ -131,6 +152,8 @@ try {
   check('Admin /admin/proxy: the user is live on the Proxy, on the reported site, in the tab', !!me && !!me.live && me.live.mode === 'here' && me.live.site === 'https://www.tiktok.com/@someone' && me.visits >= 2, JSON.stringify(me && { live: me.live, visits: me.visits }));
   const urls = me ? me.entries.filter((x) => x.ev === 'visit').map((x) => x.url) : [];
   check('…the sites visited are logged without query strings', urls.includes('https://www.tiktok.com/@someone') && urls.includes('https://en.wikipedia.org/wiki/Proxy') && urls.every((x) => !x.includes('?')), urls.join(' '));
+  const searched = me ? me.entries.filter((x) => x.ev === 'visit' && x.q).map((x) => x.q) : [];
+  check('…a search typed in the bar is logged by the words (not the search URL)', searched.includes('funny cats'), searched.join(' '));
   await connectAdmin(a.page);
   await R(a.page, (r) => { const t = r.querySelector('.gps-tab[data-asec="proxy"]'); if (t) t.click(); });
   const U = 'px' + run;
@@ -140,7 +163,7 @@ try {
   await R(a.page, (r, u) => r.querySelector(`#gac-pm-users [data-pm-user="${u}"]`).click(), U);
   await a.page.waitForTimeout(300);
   const hist = await R(a.page, (r) => r.querySelector('#gac-pm-detail').textContent.replace(/\s+/g, ' '));
-  check('…pressing their name shows today’s history (launches and the sites proxied)', hist.includes(U) && /Proxied tiktok\.com\/@someone/.test(hist) && /Proxied en\.wikipedia\.org/.test(hist) && /Launched/.test(hist), hist.slice(0, 160));
+  check('…pressing their name shows today’s history (launches, the sites proxied and the search)', hist.includes(U) && /Proxied tiktok\.com\/@someone/.test(hist) && /Searched .funny cats./.test(hist) && /Launched/.test(hist), hist.slice(0, 200));
   await a.page.screenshot({ path: path.join(OUT, '01-proxy-monitor.png') });
   check('No page errors (main computer)', a.page._errors.length === 0, a.page._errors.slice(0, 2).join(' | '));
 

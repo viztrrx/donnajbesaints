@@ -1510,6 +1510,13 @@ test('proxy activity: live status from the heartbeat, and today by user in /admi
   const zed = (await c.call('/admin/proxy', { headers: owner })).data.users.find((u) => u.user === 'zed');
   assert.deepEqual([zed.live.site, zed.entries.length], ['https://tiktok.com/', 0]);
   assert.ok((await c.call('/admin/proxy', { headers: sess(a) })).status >= 400, 'staff only');
+  // A search: the typed words are kept with the visit and in the live status.
+  await c.call('/proxy/log', { method: 'POST', headers: sess(a), body: { user: 'liv', event: 'visit', url: 'https://www.google.com/search?q=secret', q: 'funny cats' } });
+  await c.call('/track', { method: 'POST', body: { user: 'liv', session: a, event: 'beat', sid: 'l1', proxy: { mode: 'here', site: 'https://www.google.com/search?q=x', q: 'funny cats' } } });
+  const livedata = (await c.call('/admin/proxy', { headers: owner })).data.users.find((u) => u.user === 'liv');
+  assert.equal(livedata.live.q, 'funny cats', 'the live status carries the search term');
+  assert.equal(livedata.entries[0].q, 'funny cats');
+  assert.equal(livedata.entries[0].url, 'https://www.google.com/search', 'the resolved URL is still stored, query stripped');
   const { PUSH_CATEGORIES } = await import('../web/console/push.js');
   assert.equal(PUSH_CATEGORIES.proxy.on, true, 'owner devices get Proxy alerts by default');
 });

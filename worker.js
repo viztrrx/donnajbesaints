@@ -483,7 +483,7 @@ async function proxyLiveAll(kv) {
       if (!v || !v.user || !v.proxy) continue;
       const u = String(v.user).toLowerCase();
       const cur = live.get(u);
-      if (!cur || (v.lastSeen || 0) > cur.lastSeen) live.set(u, { user: v.user, mode: v.proxy.mode, site: v.proxy.site || '', since: v.proxy.since || 0, lastSeen: v.lastSeen || 0 });
+      if (!cur || (v.lastSeen || 0) > cur.lastSeen) live.set(u, { user: v.user, mode: v.proxy.mode, site: v.proxy.site || '', q: v.proxy.q || '', since: v.proxy.since || 0, lastSeen: v.lastSeen || 0 });
     }
     if (page.list_complete) break;
     cursor = page.cursor;
@@ -3359,6 +3359,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         proxy: body.proxy && typeof body.proxy === 'object' ? {
           mode: body.proxy.mode === 'blank' ? 'blank' : 'here',
           site: /^https:\/\/[a-z0-9.-]+\//i.test(scrubUrl(body.proxy.site)) ? clip(scrubUrl(body.proxy.site), 200) : '',
+          q: typeof body.proxy.q === 'string' && body.proxy.q.trim() ? clip(body.proxy.q.replace(/[\u0000-\u001f\u007f]/g, ' ').trim(), 120) : '',
           since: Number.isFinite(body.proxy.since) ? body.proxy.since : now
         } : undefined,
         country: cf.country || '??',
@@ -5047,6 +5048,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const site = scrubUrl(body.url);
         if (!/^https:\/\/[a-z0-9.-]+\//i.test(site)) return json({ ok: false, error: 'bad url' }, 400);
         entry.url = site.slice(0, 200);
+        // The words the user typed, when it was a search rather than an
+        // address (the resolved search URL above loses them).
+        if (typeof body.q === 'string' && body.q.trim()) entry.q = body.q.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 120);
       }
       const key = 'proxylog:' + user.toLowerCase();
       const log = (await kv.get(key, 'json')) || { launches: 0, visits: 0, recent: [] };
@@ -5065,7 +5069,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const where = log.mode === 'blank' ? 'in an about:blank window' : 'in the Proxy tab';
         const alert = ev === 'launch'
           ? { title: user + ' launched the Proxy', body: (entry.mode === 'blank' ? 'In an about:blank window' : 'In the Proxy tab') + ' · ' + ownerTime(env, entry.at) }
-          : { title: user + ' opened ' + entry.url.replace(/^https:\/\//, '').replace(/\/$/, ''), body: entry.url + ' · ' + where + ' · ' + ownerTime(env, entry.at) };
+          : entry.q
+            ? { title: user + ' searched "' + entry.q + '"', body: 'Through the proxy · ' + where + ' · ' + ownerTime(env, entry.at) }
+            : { title: user + ' opened ' + entry.url.replace(/^https:\/\//, '').replace(/\/$/, ''), body: entry.url + ' · ' + where + ' · ' + ownerTime(env, entry.at) };
         const pushEv = { cat: 'proxy', tag: 'proxy-' + user.toLowerCase(), url: adminLink('proxy', { user }), ...alert };
         const p = (async () => {
           if (user.toLowerCase() !== OWNER) await notifyOwner(env, pushEv, url.origin).catch(() => {});

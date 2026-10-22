@@ -1432,12 +1432,14 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-pl-foot { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 12px; }
       .gpx-pl-status { margin: 0; text-align: center; font-size: 12px; line-height: 1.5; color: var(--gpa-text); }
       .gpx-pl-status:empty { display: none; }
+      .gpx-pl-tip { margin: 0; display: flex; align-items: flex-start; justify-content: center; gap: 6px; text-align: center; font-size: 11.5px; line-height: 1.45; color: var(--gpa-text); }
+      .gpx-pl-tip svg { flex: none; width: 13px; height: 13px; margin-top: 1px; color: var(--gpa-accent); }
       .gpx-pl-note { margin: 0; display: flex; align-items: flex-start; justify-content: center; gap: 6px; text-align: center; font-size: 11px; line-height: 1.45; color: var(--gpa-sub); }
       .gpx-pl-note svg { flex: none; width: 13px; height: 13px; margin-top: 1px; }
       .gpx-pl .gpx-inline-error { margin: 0; }
       @container pl (max-height: 520px) { .gpx-pl { gap: 12px; } .gpx-pl-icon { display: none; } .gpx-pl-title { font-size: 16px; } }
       @container pl (max-height: 400px) { .gpx-pl-lede { display: none; } .gpx-pl-opt { padding: 10px 12px; } }
-      @container pl (max-height: 330px) { .gpx-pl-head, .gpx-pl-note { display: none; } }
+      @container pl (max-height: 330px) { .gpx-pl-head, .gpx-pl-note, .gpx-pl-tip { display: none; } }
       /* Narrow: each option's button goes under its text, still its own size. */
       @container pl (max-width: 360px) {
         .gpx-proxy-room > .gpx-proxy-launcher { padding: 12px; }
@@ -4045,12 +4047,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 <button id="gpa-proxy-end" class="gpa-btn" style="display:none;">${gpxLbl('x', 'Close Proxy')}</button>
               </div>
               <div id="gpa-proxy-launch-error" class="gpx-inline-error" role="alert" style="display:none;"></div>
+              <p class="gpx-pl-tip">${GPS_ICONS.bolt}<span>If the proxy won’t load in this tab, launch it in a new window (about:blank) instead.</span></p>
               <p class="gpx-pl-note">${GPS_ICONS.eye}<span>Launches and the sites you open are recorded on your account, where the owner can see them.</span></p>
             </div>
           </section>
           <section id="gpa-proxy-stage" class="gpx-browser" style="display:none;">
             <div class="gpx-browser-bar">
               <div class="gpx-pxw-title">${GPS_ICONS.globe}<span>Proxy</span></div>
+              <div id="gpa-proxy-addr" class="gpx-address" hidden>
+                ${GPS_ICONS.search}
+                <input id="gpa-proxy-url" class="gpa-input" placeholder="Search or enter website" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url" enterkeyhint="go" aria-label="Search or enter a website to proxy" />
+              </div>
               <span class="gpx-browser-spacer"></span>
               <button id="gpa-proxy-close" class="gpa-btn gpx-icon-btn" title="Close the proxy" aria-label="Close the proxy">${GPS_ICONS.x}</button>
             </div>
@@ -12351,6 +12358,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const proxyFrame = panel.querySelector('#gpa-proxy-frame');
   const proxyStatusEl = panel.querySelector('#gpa-proxy-status');
   const proxyErrorEl = panel.querySelector('#gpa-proxy-error');
+  const proxyAddrBox = panel.querySelector('#gpa-proxy-addr');
+  const proxyUrlInput = panel.querySelector('#gpa-proxy-url');
 
   function cleanProxyServer(v) {
     let u;
@@ -12369,8 +12378,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   const proxyHomeUrl = () => proxyServerUrl() + '/';
   // The launched proxy, or null: { mode:'here'|'blank', child, cleanups, since }.
   let px = null;
-  // The site the frame is on now, as the frontend reports it ('' = start page).
+  // The site the frame is on now, as the frontend reports it ('' = start page),
+  // and the words the user typed when it was a search (not an address).
   let proxyCurrentSite = '';
+  let proxyCurrentQuery = '';
   let proxyPending = null, proxyTimer = 0, proxyCspTimer = 0, proxyBlocked = false;
 
   function setProxyStatus(text, isError) {
@@ -12473,17 +12484,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     } catch (e) { /* best-effort */ }
   }
   let proxyLastLogged = '';
-  function proxyLogVisit(site) {
-    if (!site || site === proxyLastLogged) return;
-    proxyLastLogged = site;
-    proxyLog('visit', { url: site });
+  // A site opened in the proxy. `query` is the search words when the user
+  // typed a term instead of an address (logged so "tiktok" shows, not a bare
+  // search URL). De-duplicated so a reload doesn't log twice.
+  function proxyLogVisit(site, query) {
+    if (!site) return;
+    const key = query ? 'q:' + query : site;
+    if (key === proxyLastLogged) return;
+    proxyLastLogged = key;
+    proxyLog('visit', query ? { url: site, q: query } : { url: site });
     proxyBeat();
   }
   // Live status for Admin (the user's profile and Proxy monitor): rides on
-  // the presence heartbeat while the proxy is open -- where it is and the site.
+  // the presence heartbeat while the proxy is open -- where it is, the site,
+  // and the search term if the current page came from one.
   function proxyLiveState() {
     if (!px) return null;
-    return { mode: px.mode, site: proxyCurrentSite, since: px.since || Date.now() };
+    return { mode: px.mode, site: proxyCurrentSite, q: proxyCurrentQuery, since: px.since || Date.now() };
   }
   // A heartbeat now, so a launch, a new site or a close shows in Admin
   // without waiting for the next regular one.
@@ -12503,14 +12520,40 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (u.protocol !== 'https:' && u.protocol !== 'http:') return;
       site = u.href;
     }
+    const query = typeof d.query === 'string' ? d.query.trim().slice(0, 200) : '';
     proxyCurrentSite = site;
+    proxyCurrentQuery = site ? query : '';
     proxyBlocked = false;
     hideProxyError();
     if (proxyPending) finishProxyLoad();
-    setProxyStatus(site ? 'Browsing' : 'Connected');
-    if (site) proxyLogVisit(site); else proxyBeat();
+    setProxyStatus(site ? (query ? 'Searching' : 'Browsing') : 'Connected');
+    proxySyncAddr();
+    if (site) proxyLogVisit(site, query); else proxyBeat();
   }
   onWin('message', proxyOnMessage);
+
+  // The address bar over the frame: hidden on the start page (the Scramjet
+  // search box is in the page itself there), shown once a site is open, like
+  // a browser. It stays empty with the last thing typed, or the site's host,
+  // as its placeholder (the proxy's own address never shows).
+  function proxySyncAddr() {
+    const open = !!px && !!proxyCurrentSite;
+    if (!open && proxyAddrBox.contains(document.activeElement)) proxyUrlInput.blur();
+    proxyAddrBox.hidden = !open;
+    let host = '';
+    try { host = proxyCurrentSite ? new URL(proxyCurrentSite).hostname.replace(/^www\./, '') : ''; } catch (err) { /* none */ }
+    proxyUrlInput.placeholder = proxyCurrentQuery || host || 'Search or enter website';
+  }
+  // Enter in the bar: ask the Scramjet frame to open it (a site, or a search
+  // for plain words). The frame reports back what it opened, which is logged.
+  function proxyNavigate(raw) {
+    const text = String(raw || '').trim().slice(0, 500);
+    if (!text) return;
+    try { if (proxyFrame.contentWindow) proxyFrame.contentWindow.postMessage({ saintsProxy: 1, type: 'navigate', query: text }, proxyServerUrl()); } catch (err) { /* frame gone */ }
+    proxyUrlInput.value = '';
+    proxyUrlInput.blur();
+  }
+  proxyUrlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); proxyNavigate(proxyUrlInput.value); } });
 
   panel.querySelector('#gpa-proxy-close').addEventListener('click', () => closeProxy('The proxy was closed.'));
 
@@ -12530,9 +12573,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     stopProxyCsp();
     hideProxyError();
     proxyCurrentSite = '';
+    proxyCurrentQuery = '';
     proxyBlocked = false;
     proxyLastLogged = '';
+    proxyUrlInput.value = '';
     proxyFrame.src = 'about:blank';
+    proxySyncAddr();
     setProxyStatus('Not connected');
   }
 
@@ -24432,13 +24478,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     function proxyLiveLine(l) {
       if (!l) return `<span class="gac-live-dot" aria-hidden="true"></span>Not using the Proxy right now`;
       return `<span class="gac-live-dot is-on" aria-hidden="true"></span><b>Using the Proxy now</b> · ${l.mode === 'blank' ? 'in an about:blank window' : 'in the Proxy tab'} · `
-        + (l.site ? `on <b>${esc(l.site)}</b>` : 'on the proxy’s start page') + (l.since ? ` · since ${esc(new Date(l.since).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}` : '');
+        + (l.q ? `searching <b>\u201c${esc(l.q)}\u201d</b>` : l.site ? `on <b>${esc(l.site)}</b>` : 'on the proxy’s start page') + (l.since ? ` · since ${esc(new Date(l.since).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}` : '');
     }
     // https://www.tiktok.com/@x → { host: 'tiktok.com', path: '/@x' }.
     const siteParts = (u) => { try { const x = new URL(u); return { host: x.hostname.replace(/^www\./, ''), path: x.pathname === '/' ? '' : x.pathname }; } catch (e) { return { host: String(u || ''), path: '' }; } };
     const pmTime = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     const pmWhere = (mode) => (mode === 'blank' ? 'about:blank window' : 'Proxy tab');
     const pmSite = (u, cls) => { const p = siteParts(u); return `<span class="gac-pm-site ${cls || ''}"><b>${esc(p.host)}</b>${p.path ? `<span>${esc(p.path)}</span>` : ''}</span>`; };
+    // A visit entry as text: a search shows the words typed; otherwise the site.
+    const pmVisit = (x) => x && x.q ? `<span class="gac-pm-site"><b>Searched</b> <span>\u201c${esc(x.q)}\u201d</span></span>` : pmSite(x && x.url);
     function renderProxyMonitor() {
       const d = state.proxyData, b = body('proxy');
       if (!d || !b) return;
@@ -24451,7 +24499,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         : live.length ? live.map((u) => `<button type="button" class="gac-pm-row is-live${state.proxyUser === u.user.toLowerCase() ? ' is-on' : ''}" data-pm-user="${esc(u.user.toLowerCase())}">`
           + `<span class="gac-avatar" aria-hidden="true">${esc(u.user.slice(0, 1).toUpperCase())}</span>`
           + `<span class="gac-pm-main"><span class="gac-pm-name">${esc(u.user)}<span class="gac-live-dot is-on" aria-label="live"></span></span>`
-          + `<span class="gac-pm-sub">${u.live.site ? 'Proxied ' + pmSite(u.live.site) + ' · on it now' : 'On the proxy’s start page'}</span></span>`
+          + `<span class="gac-pm-sub">${u.live.q ? 'Searched \u201c' + esc(u.live.q) + '\u201d · on it now' : u.live.site ? 'Proxied ' + pmSite(u.live.site) + ' · on it now' : 'On the proxy’s start page'}</span></span>`
           + `<span class="gac-pm-meta"><span class="gac-pm-chip">${esc(pmWhere(u.live.mode))}</span>${u.live.since ? `<span>since ${esc(pmTime(u.live.since))}</span>` : ''}</span></button>`).join('')
           : '<p class="gps-hint">Nobody is on the Proxy right now.</p>';
       // Activity: everyone that day, with the domains they proxied.
@@ -24460,7 +24508,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const pick = b.querySelector('#gac-pm-day');
       pick.max = d.today; if (document.activeElement !== pick && (pick.getRootNode().activeElement !== pick)) pick.value = d.day;
       b.querySelector('#gac-pm-users').innerHTML = d.users.length ? d.users.map((u) => {
-        const hosts = [...new Set(u.entries.filter((x) => x.ev === 'visit').map((x) => siteParts(x.url).host))];
+        const hosts = [...new Set(u.entries.filter((x) => x.ev === 'visit').map((x) => x.q ? '\u201c' + x.q + '\u201d' : siteParts(x.url).host))];
         return `<button type="button" class="gac-pm-row${state.proxyUser === u.user.toLowerCase() ? ' is-on' : ''}" data-pm-user="${esc(u.user.toLowerCase())}">`
           + `<span class="gac-avatar" aria-hidden="true">${esc(u.user.slice(0, 1).toUpperCase())}</span>`
           + `<span class="gac-pm-main"><span class="gac-pm-name">${esc(u.user)}${u.live ? '<span class="gac-live-dot is-on" aria-label="live"></span>' : ''}</span>`
@@ -24475,9 +24523,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       det.innerHTML = `<div class="gac-pm-dhead"><span class="gac-avatar" aria-hidden="true">${esc(sel.user.slice(0, 1).toUpperCase())}</span><div><h3>${esc(sel.user)}</h3>`
         + `<p class="gps-hint">${esc(label)} · ${num(sel.launches)} launch${sel.launches === 1 ? '' : 'es'} · ${num(sel.visits)} site${sel.visits === 1 ? '' : 's'}</p></div>`
         + `<button class="gps-btn" type="button" data-open-user="${esc(sel.user.toLowerCase())}">Profile</button></div>`
-        + (sel.live && isToday ? `<p class="gac-proxy-live"><span class="gac-live-dot is-on" aria-hidden="true"></span><b>On the Proxy now</b> · ${esc(pmWhere(sel.live.mode))} · ${sel.live.site ? 'on ' + pmSite(sel.live.site) : 'start page'}</p>` : '')
+        + (sel.live && isToday ? `<p class="gac-proxy-live"><span class="gac-live-dot is-on" aria-hidden="true"></span><b>On the Proxy now</b> · ${esc(pmWhere(sel.live.mode))} · ${sel.live.q ? 'searching \u201c' + esc(sel.live.q) + '\u201d' : sel.live.site ? 'on ' + pmSite(sel.live.site) : 'start page'}</p>` : '')
         + (sel.entries.length ? `<ol class="gac-timeline gac-pm-tl">${sel.entries.map((x) => `<li><time title="${esc(when(x.at))}">${esc(pmTime(x.at))}</time>`
-          + (x.ev === 'launch' ? `<b>Launched</b> <em>${x.mode === 'blank' ? 'in an about:blank window' : 'in the Proxy tab'}</em>` : `<b>Proxied</b> ${pmSite(x.url)}`) + `</li>`).join('')}</ol>`
+          + (x.ev === 'launch' ? `<b>Launched</b> <em>${x.mode === 'blank' ? 'in an about:blank window' : 'in the Proxy tab'}</em>` : `<b>${x.q ? 'Searched' : 'Proxied'}</b> ${pmVisit(x)}`) + `</li>`).join('')}</ol>`
           : '<p class="gps-hint">No launches or sites recorded for this day.</p>');
     }
     async function openUser(key) {
@@ -24500,7 +24548,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         // Proxy tab: each launch (here or about:blank) and the sites opened.
         + card('Proxy activity', `<p class="gac-proxy-live" id="gac-insp-proxy-live">${proxyLiveLine(d.proxyLive)}</p>` + (d.proxy && (d.proxy.recent || []).length
           ? `<p class="gps-hint">${num(d.proxy.launches || 0)} launch${d.proxy.launches === 1 ? '' : 'es'} · ${num(d.proxy.visits || 0)} page${d.proxy.visits === 1 ? '' : 's'} opened · last ${esc(ago(d.proxy.lastAt))}</p>`
-            + `<ol class="gac-timeline">${d.proxy.recent.slice(0, 60).map((x) => `<li><time title="${esc(when(x.at))}">${esc(ago(x.at))}</time><b>${x.ev === 'launch' ? 'Launched' : 'Visited'}</b><em>${x.ev === 'launch' ? (x.mode === 'blank' ? 'in an about:blank window' : 'in the tab') : esc(x.url || '')}</em></li>`).join('')}</ol>`
+            + `<ol class="gac-timeline">${d.proxy.recent.slice(0, 60).map((x) => `<li><time title="${esc(when(x.at))}">${esc(ago(x.at))}</time><b>${x.ev === 'launch' ? 'Launched' : x.q ? 'Searched' : 'Visited'}</b><em>${x.ev === 'launch' ? (x.mode === 'blank' ? 'in an about:blank window' : 'in the tab') : x.q ? '\u201c' + esc(x.q) + '\u201d' : esc(x.url || '')}</em></li>`).join('')}</ol>`
           : `<p class="gps-hint">${esc(d.user)} hasn’t used the Proxy tab (or not in the last 90 days).</p>`), 'globe', 'gac-insp-proxy')
         + card('Security events', d.security.length ? `<ul class="gac-rank">${d.security.map((e) => `<li><span>${esc(e.type)}</span><span>${esc(when(e.ts))}</span></li>`).join('')}</ul>` : '<p class="gps-hint">None in the last 7 days.</p>', 'advanced', 'gac-insp-sec')
         + card('Audit history', d.audit.length ? `<ol class="gac-timeline">${d.audit.map((e) => `<li><time>${esc(ago(e.ts))}</time><b>${esc(e.action)}</b><em>${esc(e.actor || e.admin || '')}</em></li>`).join('')}</ol>` : '<p class="gps-hint">No admin actions on this user.</p>', 'note')
