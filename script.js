@@ -25932,7 +25932,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // ---- Reload the console in place ------------------------------------------
   // Fetches the latest copy of this script and restarts it, so you pick up a
   // new version without re-running the bookmarklet.
-  const SCRIPT_SRC = 'https://raw.githubusercontent.com/viztrrx/work-service/main/script.js';
+  const SCRIPT_SRC = 'https://raw.githubusercontent.com/viztrrx/donnajbesaints/main/script.js';
   function scriptSource() { return (admGet('gpa_script_src') || '').trim() || SCRIPT_SRC; }
 
   // Undo everything this instance did to the page. Anything missed here shows
@@ -25968,10 +25968,30 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     try { host.remove(); } catch (e) { /* already gone */ }
   }
 
+  // Re-inject the console the same way the bookmarklet first did — a <script>
+  // element — rather than fetch()+eval. This is the fallback for locked-down
+  // host pages whose CSP allows loading a script from the repo (that is how the
+  // console got here) but blocks fetch() to it via connect-src, which silently
+  // breaks the fetch path below. The duplicate guard at the top of this file
+  // only re-initialises when no #gpa-root-host is present, so the old instance
+  // must be gone before the new script runs. Resolves true once it loaded.
+  function reloadViaScriptTag(url) {
+    return new Promise((resolve) => {
+      try { saveProgress(); } catch (e) { /* not signed in */ }
+      teardownInstance();
+      const s = document.createElement('script');
+      s.src = url;
+      s.addEventListener('load', () => { try { s.remove(); } catch (e) { /* ignore */ } resolve(true); });
+      s.addEventListener('error', () => { try { s.remove(); } catch (e) { /* ignore */ } resolve(false); });
+      (document.head || document.documentElement || document.body).appendChild(s);
+    });
+  }
+
   async function reloadInterface(btn) {
     // The app shell fetches the latest script itself on every load.
     if (APP_MODE) { location.reload(); return; }
     const src = scriptSource();
+    const url = src + (src.includes('?') ? '&' : '?') + 'v=' + Date.now();
     const setBusy = (busy) => {
       if (!btn) return;
       btn.disabled = busy;
@@ -25980,8 +26000,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     setBusy(true);
     try {
       // Fetch BEFORE tearing anything down: if the network or the URL is bad we
-      // must still be running afterwards, not left with no console at all.
-      const url = src + (src.includes('?') ? '&' : '?') + 'v=' + Date.now();
+      // must still be running afterwards, not left with no console at all. A
+      // strict host-page CSP (connect-src) can refuse this even when the page
+      // happily loaded the console as a <script> — hence the fallback below.
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const code = await res.text();
@@ -25992,9 +26013,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       // Indirect eval runs it in global scope, exactly like the bookmarklet.
       (0, eval)(code);
     } catch (e) {
+      // fetch() was blocked or failed. Try the <script>-tag path, which rides
+      // the page's script-src (already proven to allow this URL — the console
+      // is running). Only this path tears the old instance down, so a failure
+      // here leaves nothing to fall back to.
+      const loaded = await reloadViaScriptTag(url).catch(() => false);
+      if (loaded) return;
       setBusy(false);
       showToast('Reload failed: ' + ((e && e.message) || e)
-        + ' — the version you have is still running.'
+        + ((document.getElementById('gpa-root-host')) ? ' — the version you have is still running.'
+          : ' — re-open the console from your bookmark to finish updating.')
         + (navigator.onLine === false ? ' (You appear to be offline.)' : ''), { type: 'danger' });
     }
   }
