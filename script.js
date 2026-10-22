@@ -8704,8 +8704,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // Admin calls carry the token in the Authorization header. It used to ride
   // in the query string, where it lands in the worker's request logs, in any
   // proxy or CDN in between, and in the browser's own history.
+  // The admin token if one was entered; otherwise the signed-in staff session
+  // (how the web app's owner signs in — by PIN, never typing a token).
   function adminAuthHeaders(token, extra) {
-    return { ...(extra || {}), Authorization: 'Bearer ' + String(token || '').trim() };
+    const t = String(token || '').trim();
+    if (!t && sessionToken()) return { ...(extra || {}), 'X-GPA-Session': sessionToken() };
+    return { ...(extra || {}), Authorization: 'Bearer ' + t };
   }
   // Auto-upgrade defaults to ON until the owner explicitly turns it off.
   function autoUpgradeOn() { const v = admGet(ADMIN_KEYS.AUTO_UPGRADE); return v === null ? true : v === 'on'; }
@@ -25166,7 +25170,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     async function genUnlockCode(user) {
       const token = teleToken.value.trim();
       const base = (teleEndpoint.value.trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
-      if (!token || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
+      if (!(token || sessionToken()) || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
       teleMsg.textContent = 'Generating code for ' + user + '…';
       try {
         const res = await fetch(base + '/admin/setunlock', {
@@ -25190,7 +25194,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     async function assignKey(user) {
       const token = teleToken.value.trim();
       const base = (teleEndpoint.value.trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
-      if (!token || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
+      if (!(token || sessionToken()) || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
       const key = (prompt(`Paste the OpenAI API key to assign to ${user} (leave blank to remove their assigned key):`, '') || '').trim();
       teleMsg.textContent = (key ? 'Assigning key to ' : 'Removing key from ') + user + '…';
       try {
@@ -25213,7 +25217,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (action === 'assignkey') { assignKey(user); return; }
       const token = teleToken.value.trim();
       const base = (teleEndpoint.value.trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
-      if (!token || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
+      if (!(token || sessionToken()) || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
       let reason = '';
       if (action === 'block' || action === 'lock' || action === 'kick') {
         reason = prompt(`Message to show ${user} (optional):`, '') || '';
@@ -25261,7 +25265,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const token = teleToken.value.trim();
       const base = (teleEndpoint.value.trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
       if (!base) { teleMsg.textContent = 'No worker URL configured.'; return; }
-      if (!token) { teleMsg.textContent = 'Enter your admin token (the worker\'s ADMIN_TOKEN).'; return; }
+      if (!token && !sessionToken()) { teleMsg.textContent = 'Enter your admin token (the worker\'s ADMIN_TOKEN).'; return; }
       teleMsg.textContent = 'Loading…';
       try {
         const res = await fetch(base + '/admin/summary', { headers: adminAuthHeaders(token) });
@@ -25279,7 +25283,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     panel.querySelector('#gpa-tele-private').addEventListener('click', async () => {
       const token = teleToken.value.trim();
       const base = (teleEndpoint.value.trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
-      if (!token || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
+      if (!(token || sessionToken()) || !base) { teleMsg.textContent = 'Set the worker URL and admin token first.'; return; }
       const turningOn = panel.querySelector('#gpa-tele-private').dataset.on !== '1';
       if (turningOn && !confirm('Turn on private mode? Everyone except the owner will be blocked from using the tool.')) return;
       teleMsg.textContent = turningOn ? 'Enabling private mode…' : 'Disabling private mode…';
@@ -25322,7 +25326,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     async function postConfig(body, okMsg) {
       const token = teleToken.value.trim();
       const base = adminBase();
-      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return null; }
+      if (!(token || sessionToken()) || !base) { controlMsg.textContent = 'Sign in as staff, or set the worker URL and admin token on the Usage tab.'; showToast(controlMsg.textContent, { type: 'danger' }); return null; }
       controlMsg.textContent = 'Sending…';
       try {
         const res = await fetch(base + '/admin/config', {
@@ -25331,9 +25335,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
         controlMsg.textContent = okMsg || 'Done.';
+        // The message line sits in another card in the Command Center, so
+        // say it where the owner is looking too.
+        showToast(okMsg || 'Done.');
         return data.config || {};
       } catch (e) {
         controlMsg.textContent = 'Failed: ' + e.message;
+        showToast('Failed: ' + e.message, { type: 'danger' });
         return null;
       }
     }
@@ -25423,7 +25431,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const out = panel.querySelector('#gpa-adm-audit');
       const token = teleToken.value.trim();
       const base = adminBase();
-      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      if (!(token || sessionToken()) || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
       out.innerHTML = '<div class="gpa-sub">Loading…</div>';
       try {
         const res = await fetch(base + '/admin/audit', { headers: adminAuthHeaders(token) });
@@ -25443,7 +25451,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     panel.querySelector('#gpa-adm-backup-dl').addEventListener('click', async () => {
       const token = teleToken.value.trim();
       const base = adminBase();
-      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      if (!(token || sessionToken()) || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
       controlMsg.textContent = 'Preparing backup…';
       try {
         const res = await fetch(base + '/admin/backup', { headers: adminAuthHeaders(token) });
@@ -25469,7 +25477,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (!confirm(`Restore from "${file.name}"? This overwrites any matching records currently on the worker.`)) return;
       const token = teleToken.value.trim();
       const base = adminBase();
-      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      if (!(token || sessionToken()) || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
       try {
         const text = await file.text();
         const payload = JSON.parse(text);
@@ -25495,7 +25503,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       const msg = panel.querySelector('#gpa-adm-key-msg');
       const token = teleToken.value.trim();
       const base = adminBase();
-      if (!token || !base) { msg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
+      if (!(token || sessionToken()) || !base) { msg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return; }
       const provider = 'openai';
       const all = keyTargetSel.value === 'all';
       const users = all ? [] : panel.querySelector('#gpa-adm-key-users').value.split(',').map((u) => u.trim()).filter(Boolean);
@@ -25526,7 +25534,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     async function roomsApi(body) {
       const token = teleToken.value.trim();
       const base = adminBase();
-      if (!token || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return null; }
+      if (!(token || sessionToken()) || !base) { controlMsg.textContent = 'Set the worker URL and admin token on the Usage tab first.'; return null; }
       try {
         const res = await fetch(base + '/admin/rooms', {
           method: 'POST', headers: adminAuthHeaders(token, { 'Content-Type': 'text/plain' }), body: JSON.stringify(body)
@@ -25642,7 +25650,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
     panel.querySelector('#gpa-adm-force-reload').addEventListener('click', async () => {
       if (!confirm('Make every open copy re-fetch the script and restart?')) return;
-      await postConfig({ bumpReload: true }, 'Reload pushed — clients update within ~15s.');
+      const cfg = await postConfig({ bumpReload: true }, 'Reload pushed — everyone else updates within ~15s.');
+      // This copy sent it: don't restart in the owner's hands. Use the
+      // console's own Reload button to update here.
+      if (cfg && typeof cfg.reloadVersion === 'number') reloadBaseline = cfg.reloadVersion;
     });
 
     // ---- Diagnostics tab ----
