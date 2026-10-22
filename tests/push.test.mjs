@@ -396,3 +396,35 @@ test('push: subscriptions — a reminder 3 days before, and an alert when one en
     assert.equal((await got()).filter((m) => m.cat === 'subs').length, 0, 'told once');
   } finally { Date.now = realNow; t.restore(); }
 });
+
+test('push: the Proxy tab — a launch (tab or about:blank) and each site opened alert the owner', async () => {
+  const t = setup();
+  try {
+    await t.call('/push/key');
+    const d = await makeDevice();
+    await t.call('/push/subscribe', { method: 'POST', headers: owner, body: { subscription: d.subscription } });
+    const got = async () => { await t.settle(); const out = []; for (const p of t.pushes.splice(0)) out.push(await decrypt(d, p.body)); return out; };
+    const tok = (await t.call('/auth/register', { method: 'POST', body: { user: 'ria', verifier: 'ab'.repeat(32) } })).data.token;
+    await got();   // sign-up alerts aren't this test's
+    const S = { 'X-GPA-Session': tok };
+    await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'launch', mode: 'blank' } });
+    let n = (await got()).filter((m) => m.cat === 'proxy');
+    assert.equal(n.length, 1);
+    assert.equal(n[0].title, 'ria launched the Proxy');
+    assert.match(n[0].body, /^In an about:blank window · \d{1,2}:\d{2} [AP]M/);
+    assert.equal(n[0].url, '/console/#tab=admin&sec=users&user=ria&focus=proxy');
+    await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'visit', url: 'https://example.com/news?id=7' } });
+    n = (await got()).filter((m) => m.cat === 'proxy');
+    assert.equal(n[0].title, 'ria opened example.com/news');
+    assert.match(n[0].body, /^https:\/\/example\.com\/news · in an about:blank window · /);
+    // The same page again within a minute (a reload) doesn't alert again.
+    await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'visit', url: 'https://example.com/news' } });
+    assert.equal((await got()).filter((m) => m.cat === 'proxy').length, 0);
+    // A device that turned Proxy alerts off gets none.
+    const subs = JSON.parse(t.env.TELEMETRY.store.get('push:subs'));
+    subs[0].categories = { ...(subs[0].categories || {}), proxy: false };
+    t.env.TELEMETRY.store.set('push:subs', JSON.stringify(subs));
+    await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'launch', mode: 'here' } });
+    assert.equal((await got()).filter((m) => m.cat === 'proxy').length, 0);
+  } finally { t.restore(); }
+});

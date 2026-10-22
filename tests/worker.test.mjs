@@ -1471,3 +1471,32 @@ test('proxy activity: launches and visits are logged per user and shown on their
   await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'pia', action: 'delete', confirm: 'pia' } });
   assert.equal(await env.TELEMETRY.get('proxylog:pia'), null);
 });
+
+test('proxy activity: live status from the heartbeat, and today by user in /admin/proxy', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  const a = (await signUp(c, 'liv')).data.token;
+  const b = (await signUp(c, 'max')).data.token;
+  const log = (t, user, body) => c.call('/proxy/log', { method: 'POST', headers: sess(t), body: { user, ...body } });
+  await log(a, 'liv', { event: 'launch', mode: 'blank' });
+  await log(a, 'liv', { event: 'visit', url: 'https://example.com/a?x=1' });
+  await log(b, 'max', { event: 'launch', mode: 'here' });
+  // liv's heartbeat says the Proxy is open on a site; max's says it isn't.
+  await c.call('/track', { method: 'POST', body: { user: 'liv', session: a, event: 'beat', sid: 'l1', proxy: { mode: 'blank', site: 'https://example.com/a?secret=1', since: 5 } } });
+  await c.call('/track', { method: 'POST', body: { user: 'max', session: b, event: 'beat', sid: 'm1' } });
+  const live = (await c.call('/admin/user?u=liv', { headers: owner })).data.proxyLive;
+  assert.equal(live.mode, 'blank');
+  assert.equal(live.site, 'https://example.com/a', 'query strings never reach the live status');
+  assert.equal((await c.call('/admin/user?u=max', { headers: owner })).data.proxyLive, null);
+  // A bad site in the heartbeat is dropped, not stored.
+  await c.call('/track', { method: 'POST', body: { user: 'liv', session: a, event: 'beat', sid: 'l1', proxy: { mode: 'here', site: 'javascript:alert(1)' } } });
+  assert.equal((await c.call('/admin/user?u=liv', { headers: owner })).data.proxyLive.site, '');
+  const day = (await c.call('/admin/proxy', { headers: owner })).data;
+  assert.equal(day.day, day.today);
+  assert.deepEqual(day.users.map((u) => [u.user, u.launches, u.visits, !!u.live]), [['liv', 1, 1, true], ['max', 1, 0, false]]);
+  assert.deepEqual(day.totals, { users: 2, live: 1, launches: 2, visits: 1 });
+  assert.equal(day.users[0].entries[0].url, 'https://example.com/a');
+  assert.equal((await c.call('/admin/proxy?day=2001-01-01', { headers: owner })).data.users.length, 0);
+  assert.ok((await c.call('/admin/proxy', { headers: sess(a) })).status >= 400, 'staff only');
+  const { PUSH_CATEGORIES } = await import('../web/console/push.js');
+  assert.equal(PUSH_CATEGORIES.proxy.on, true, 'owner devices get Proxy alerts by default');
+});

@@ -470,6 +470,35 @@ const listsSongCap = (cfg) => (Number.isInteger(cfg && cfg.listsDailySongs) ? cf
 // New subscribers' school email: their 6-digit student number at this domain.
 const SCHOOL_ID_RE = /^\d{6}$/;
 // Names with the admin role (for alerts that go to the owner and admins).
+// Who is in the Proxy tab right now, from the live presence records
+// (session:<sid>, ~2.5 min TTL, refreshed by each heartbeat): user (lower
+// case) → { user, mode, site, since, lastSeen }, the most recent session wins.
+async function proxyLiveAll(kv) {
+  const live = new Map();
+  let cursor;
+  for (let i = 0; i < 10; i++) {
+    const page = await kv.list({ prefix: 'session:', cursor });
+    for (const k of page.keys) {
+      const v = await kv.get(k.name, 'json');
+      if (!v || !v.user || !v.proxy) continue;
+      const u = String(v.user).toLowerCase();
+      const cur = live.get(u);
+      if (!cur || (v.lastSeen || 0) > cur.lastSeen) live.set(u, { user: v.user, mode: v.proxy.mode, site: v.proxy.site || '', since: v.proxy.since || 0, lastSeen: v.lastSeen || 0 });
+    }
+    if (page.list_complete) break;
+    cursor = page.cursor;
+  }
+  return live;
+}
+async function proxyLiveFor(kv, u) { return (await proxyLiveAll(kv)).get(String(u).toLowerCase()) || null; }
+
+// adminNames lists every account, so busy alerts (the Proxy tab's) reuse
+// the list for a few minutes within this Worker instance.
+let adminNamesMemo = { at: 0, list: [] };
+async function adminNamesCached(kv) {
+  if (Date.now() - adminNamesMemo.at > 5 * 60 * 1000) adminNamesMemo = { at: Date.now(), list: await adminNames(kv) };
+  return adminNamesMemo.list;
+}
 async function adminNames(kv) {
   const out = [];
   try {
@@ -1829,6 +1858,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       '/admin/overview':       { method: 'GET',  perm: 'system.view', v2: true },
       '/admin/users':          { method: 'GET',  perm: 'users.view', v2: true },
       '/admin/user':           { method: 'GET',  perm: 'users.view', v2: true },
+      '/admin/proxy':          { method: 'GET',  perm: 'users.view', v2: true },
       '/admin/user/action':    { method: 'POST', perm: 'users.view', v2: true },   // each action re-checks its own permission
       '/admin/ai':             { method: 'GET',  perm: 'ai.view', v2: true },
       '/admin/keys':           { method: 'GET',  perm: 'keys.manage', v2: true },
@@ -3324,6 +3354,13 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         // active, and all of which would then sit in KV and in every admin
         // console that loads the summary.
         url: clip(scrubUrl(body.url), 200),
+        // The Proxy tab, while it's open: where (tab or about:blank) and the
+        // approved site it's on (origin + path), for Admin's live status.
+        proxy: body.proxy && typeof body.proxy === 'object' ? {
+          mode: body.proxy.mode === 'blank' ? 'blank' : 'here',
+          site: /^https:\/\/[a-z0-9.-]+\//i.test(scrubUrl(body.proxy.site)) ? clip(scrubUrl(body.proxy.site), 200) : '',
+          since: Number.isFinite(body.proxy.since) ? body.proxy.since : now
+        } : undefined,
         country: cf.country || '??',
         region: clip(cf.region || cf.city || '', 60),
         lastSeen: now
@@ -5014,8 +5051,26 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (ev === 'launch') log.launches = (log.launches || 0) + 1; else log.visits = (log.visits || 0) + 1;
       log.user = user;
       log.lastAt = entry.at;
+      // The same page again within a minute (a reload) doesn't alert twice.
+      const prevEntry = (log.recent || [])[0];
+      const repeat = ev === 'visit' && prevEntry && prevEntry.ev === 'visit' && prevEntry.url === entry.url && entry.at - prevEntry.at < 60000;
+      if (ev === 'launch') log.mode = entry.mode;
       log.recent = [entry, ...(log.recent || [])].slice(0, PROXY_LOG_MAX);
       await kv.put(key, JSON.stringify(log), { expirationTtl: PROXY_LOG_TTL });
+      if (!repeat) {
+        // The owner's devices (category "proxy") and every admin with alerts
+        // on, except the person who did it.
+        const where = log.mode === 'blank' ? 'in an about:blank window' : 'in the Proxy tab';
+        const alert = ev === 'launch'
+          ? { title: user + ' launched the Proxy', body: (entry.mode === 'blank' ? 'In an about:blank window' : 'In the Proxy tab') + ' · ' + ownerTime(env, entry.at) }
+          : { title: user + ' opened ' + entry.url.replace(/^https:\/\//, '').replace(/\/$/, ''), body: entry.url + ' · ' + where + ' · ' + ownerTime(env, entry.at) };
+        const pushEv = { cat: 'proxy', tag: 'proxy-' + user.toLowerCase(), url: adminLink('users', { user, focus: 'proxy' }), ...alert };
+        const p = (async () => {
+          if (user.toLowerCase() !== OWNER) await notifyOwner(env, pushEv, url.origin).catch(() => {});
+          for (const a of await adminNamesCached(kv)) if (a.toLowerCase() !== user.toLowerCase()) await notifyUser(env, a, pushEv, url.origin).catch(() => {});
+        })();
+        if (ctx && ctx.waitUntil) ctx.waitUntil(p); else await p;
+      }
       return json({ ok: true });
     }
 
@@ -5577,6 +5632,35 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         return json({ ok: true, users, owner: OWNER });
       }
 
+      // Proxy tab activity for one day (owner's time zone; today by default),
+      // by user: each launch (tab or about:blank) and site opened, newest
+      // first, with who is in the Proxy right now and the site they're on.
+      if (url.pathname === '/admin/proxy') {
+        const today = ownerClock(env).date;
+        const day = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('day') || '') ? url.searchParams.get('day') : today;
+        const live = await proxyLiveAll(kv);
+        const users = [];
+        let cursor;
+        for (let i = 0; i < 20; i++) {
+          const page = await kv.list({ prefix: 'proxylog:', cursor });
+          for (const k of page.keys) {
+            const log = await kv.get(k.name, 'json');
+            if (!log) continue;
+            const entries = (log.recent || []).filter((x) => ownerClock(env, x.at).date === day);
+            const lu = k.name.slice('proxylog:'.length);
+            const now = day === today ? live.get(lu) || null : null;
+            if (!entries.length && !now) continue;
+            users.push({ user: log.user || lu, launches: entries.filter((x) => x.ev === 'launch').length, visits: entries.filter((x) => x.ev === 'visit').length,
+              lastAt: entries.length ? entries[0].at : 0, live: now, entries });
+          }
+          if (page.list_complete) break;
+          cursor = page.cursor;
+        }
+        users.sort((a, b) => (b.live ? 1 : 0) - (a.live ? 1 : 0) || b.lastAt - a.lastAt);
+        return json({ ok: true, day, today, users,
+          totals: { users: users.length, live: users.filter((x) => x.live).length, launches: users.reduce((n, x) => n + x.launches, 0), visits: users.reduce((n, x) => n + x.visits, 0) } });
+      }
+
       if (url.pathname === '/admin/user') {
         const u = String(url.searchParams.get('u') || '').toLowerCase().slice(0, 40);
         if (!u) return json({ error: 'u required' }, 400);
@@ -5602,6 +5686,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           usage, memory: memCounts, security: security.slice(-40).reverse(), audit,
           assignedKey: !!(await kv.get('key:openai:' + u)),
           proxy: (await kv.get('proxylog:' + u, 'json')) || null,
+          proxyLive: await proxyLiveFor(kv, u),
           flair: (cfg.flair && cfg.flair[u]) || null,
           pinReset: await (async () => { const rs = a && authedLevel === 'owner' ? await kv.get(pinResetKey(u), 'json') : null; return rs && rs.until > Date.now() ? { code: rs.code, until: rs.until } : null; })()
         });

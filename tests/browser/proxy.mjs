@@ -369,8 +369,21 @@ try {
   await waitFor(a.page, (r) => !!r.querySelector('#gac-insp-proxy'), null, 15000);
   const card = await R(a.page, (r) => { const c2 = r.querySelector('#gac-insp-proxy'); c2.scrollIntoView({ block: 'start' }); return c2.textContent; });
   check('Admin → Users → the user’s profile shows a Proxy activity card with launches and sites', /Proxy activity/.test(card) && /launches/.test(card) && /in an about:blank window/.test(card) && card.includes(`https://${FX}/page2`), card.slice(0, 200));
+  const liveLine = await R(a.page, (r) => r.querySelector('#gac-insp-proxy-live').textContent);
+  check('…with the live status: using the Proxy now, where, and the site they’re on', /Using the Proxy now/.test(liveLine) && /in the Proxy tab/.test(liveLine) && liveLine.includes(`https://${FX}/`) && !liveLine.includes(PH), liveLine);
   await a.page.waitForTimeout(300);
   await a.page.screenshot({ path: path.join(OUT, '10-admin-proxy-activity.png') });
+  await waitFor(a.page, (r, u) => !!r.querySelector(`#gac-proxy-day-list .gac-proxy-user[data-user="${u}"]`), 'px' + run, 15000);
+  const dayView = await R(a.page, (r, u) => { const el = r.querySelector(`#gac-proxy-day-list .gac-proxy-user[data-user="${u}"]`); el.open = true; el.scrollIntoView({ block: 'start' }); return { sum: r.querySelector('#gac-proxy-day-sum').textContent, row: el.querySelector('summary').textContent, items: el.querySelectorAll('.gac-timeline li').length }; }, 'px' + run);
+  check('Admin → Users → Proxy activity by user: today, this user (live, with counts) and their timeline', /^Today: /.test(dayView.sum) && /using it now/.test(dayView.sum) && /Live on https:\/\/fixture/.test(dayView.row) && /launches/.test(dayView.row) && dayView.items >= 10, JSON.stringify(dayView));
+  await a.page.waitForTimeout(300);
+  await a.page.screenshot({ path: path.join(OUT, '11-admin-proxy-by-user.png') });
+  // Closing the proxy clears the live status.
+  await tab(a.page, 'browser');
+  await btn(a.page, 'gpa-proxy-close');
+  await a.page.waitForTimeout(1500);
+  const after = await (await fetch(`${env.workerUrl}/admin/user?u=px${run}`, { headers: { Authorization: 'Bearer ' + ADMIN } })).json();
+  check('Closing the proxy clears the live status', after.proxyLive === null, JSON.stringify(after.proxyLive));
   check('No page errors (computer)', a.page._errors.length === 0, a.page._errors.slice(0, 2).join(' | '));
 
   // 6b: a new visit restores the last page on the SECOND approved site.

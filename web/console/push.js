@@ -27,6 +27,7 @@ export const PUSH_CATEGORIES = {
   access: { label: 'Access requests', group: 'People', on: true },
   subs: { label: 'Subscriptions ending', group: 'People', on: true },
   presence: { label: 'Who’s online (live)', group: 'People', on: false },
+  proxy: { label: 'Proxy tab: launches and sites opened', group: 'People', on: true },
   aierror: { label: 'AI request failures', group: 'AI', on: true },
   limits: { label: 'Rate limits and quotas reached', group: 'AI', on: true },
   error: { label: 'Worker errors', group: 'System', on: true },
