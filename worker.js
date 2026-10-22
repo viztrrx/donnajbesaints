@@ -3242,6 +3242,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // TTL, so a user drops off the live list on their own ~2.5 min after their
     // last heartbeat, with no cleanup job.
     const SESSION_TTL = 150;        // seconds a session counts as "active"
+    const PROXY_LOG_MAX = 200;      // newest Proxy tab launches/visits kept per user
+    const PROXY_LOG_TTL = 60 * 60 * 24 * 90;   // a user's Proxy log lapses 90 days after its last entry
 
     // Health/diagnostics. Safe to call without a token: it reports only whether
     // things are CONFIGURED, never any secret value. The admin panel's
@@ -3270,7 +3272,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         maintenance: cfg.maintenance && cfg.maintenance.on ? { on: true, message: cfg.maintenance.message || '' } : null,
         memoryEnabled: cfg.memoryEnabled !== false,
         routes: [
-          '/v1/*', '/read', '/track', '/status', '/active-count', '/health',
+          '/v1/*', '/read', '/track', '/proxy/log', '/status', '/active-count', '/health',
           '/chat/poll', '/chat/send', '/chat/react', '/chat/unsend', '/chat/report', '/chat/extras', '/games/score', '/games/leaderboard', '/unlock',
           '/dm/list', '/dm/people', '/dm/start', '/dm/group', '/dm/manage', '/dm/review', '/stats/public', '/notify/claim',
           '/auth/register', '/auth/login', '/auth/me', '/auth/logout', '/auth/revoke',
@@ -4980,6 +4982,43 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // A new personal best (the console only sends those). Top 10 per game,
     // one entry per person; a new #1 is announced in #public (owner can turn
     // that off in Admin → Moderation → Fun features).
+    // ---- Proxy tab activity, per user -------------------------------------
+    // The console reports each launch of the Proxy tab (in the tab or in an
+    // about:blank window) and each approved-site page it shows; the owner
+    // sees them on that user's profile in Admin. Like /track, a site is kept
+    // as origin + path only (no query string or fragment).
+    if (url.pathname === '/proxy/log' && req.method === 'POST') {
+      const kv = env && env.TELEMETRY;
+      if (!kv) return json({ ok: false }, 200);
+      let body = {};
+      try { body = JSON.parse(await req.text()); } catch (e) { /* tolerate */ }
+      // Only a signed-in session counts: a bare username could otherwise
+      // write into someone else's log.
+      const who = await effectiveUser(body.user);
+      if (who.refused || !who.verified) return json({ ok: false, error: 'Sign in first.' }, 200);
+      const user = String(who.user || '').slice(0, 40);
+      if (!user || user.toLowerCase() === 'anonymous') return json({ ok: false, error: 'Sign in first.' }, 200);
+      const cfg = await getConfig(kv);
+      if (!allowedUser(cfg, user)) return json({ ok: false, error: ACCESS_DENIED }, 403);
+      const ev = body.event === 'launch' || body.event === 'visit' ? body.event : '';
+      if (!ev) return json({ ok: false, error: 'unknown event' }, 400);
+      const entry = { at: Date.now(), ev };
+      if (ev === 'launch') entry.mode = body.mode === 'blank' ? 'blank' : 'here';
+      else {
+        const site = scrubUrl(body.url);
+        if (!/^https:\/\/[a-z0-9.-]+\//i.test(site)) return json({ ok: false, error: 'bad url' }, 400);
+        entry.url = site.slice(0, 200);
+      }
+      const key = 'proxylog:' + user.toLowerCase();
+      const log = (await kv.get(key, 'json')) || { launches: 0, visits: 0, recent: [] };
+      if (ev === 'launch') log.launches = (log.launches || 0) + 1; else log.visits = (log.visits || 0) + 1;
+      log.user = user;
+      log.lastAt = entry.at;
+      log.recent = [entry, ...(log.recent || [])].slice(0, PROXY_LOG_MAX);
+      await kv.put(key, JSON.stringify(log), { expirationTtl: PROXY_LOG_TTL });
+      return json({ ok: true });
+    }
+
     if (url.pathname === '/games/score' && req.method === 'POST') {
       const kv = env && env.TELEMETRY;
       if (!kv) return json({ ok: false }, 200);
@@ -5562,6 +5601,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           rollup: r || null, moderation: { ...modSafe, hasUnlockCode: !!unlock, effective: st }, quota: effQuota(mod, cfg),
           usage, memory: memCounts, security: security.slice(-40).reverse(), audit,
           assignedKey: !!(await kv.get('key:openai:' + u)),
+          proxy: (await kv.get('proxylog:' + u, 'json')) || null,
           flair: (cfg.flair && cfg.flair[u]) || null,
           pinReset: await (async () => { const rs = a && authedLevel === 'owner' ? await kv.get(pinResetKey(u), 'json') : null; return rs && rs.until > Date.now() ? { code: rs.code, until: rs.until } : null; })()
         });
@@ -5689,7 +5729,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         }
         if (action === 'delete') {
           if (String(body.confirm || '') !== u) return json({ error: `type the username (${u}) to confirm` }, 400);
-          for (const k of [acctKey(u), 'mem:u:' + u, 'mod:' + u, 'user:' + u, 'key:openai:' + u]) await kv.delete(k);
+          for (const k of [acctKey(u), 'mem:u:' + u, 'mod:' + u, 'user:' + u, 'key:openai:' + u, 'proxylog:' + u]) await kv.delete(k);
           await logAudit(kv, { route: url.pathname, action: 'delete', target: u });
           return json({ ok: true });
         }

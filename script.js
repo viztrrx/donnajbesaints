@@ -844,7 +844,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-22T12:00:00-04:00', commit: '', title: 'Proxy launches in fullscreen, in the tab or an about:blank window', parts: {
       browser: ['feature', 'The Proxy tab works like Eaglercraft: nothing loads until it’s launched, and it only launches while the console is fullscreen, either here or in an about:blank window with its own fullscreen gate; leaving fullscreen hides it until fullscreen is back, and Close Proxy unloads it'] } },
     { at: '2026-10-22T18:00:00-04:00', commit: '', title: 'Proxy: no address shown; Back and Forward', parts: {
-      browser: ['redesign', 'The Proxy bar no longer shows the site’s address (no address field, and the status just says Loaded): it has Back and Forward, which follow links clicked inside the page, Reload, and Home, which goes to the main page of the site you’re on'] } }
+      browser: ['redesign', 'The Proxy bar no longer shows the site’s address (no address field, and the status just says Loaded): it has Back and Forward, which follow links clicked inside the page, Reload, and Home, which goes to the main page of the site you’re on'] } },
+    { at: '2026-10-22T22:00:00-04:00', commit: '', title: 'Proxy: type a site, Safari-style; activity in Admin', parts: {
+      browser: ['feature', 'Type a site into the proxy’s start page and press Enter: it opens through the proxy, and an address field appears on top that keeps what you typed as its placeholder (the proxy’s own address never shows); type another site there like in a browser'],
+      admin: ['feature', 'Users → a user → Proxy activity: when they launched the Proxy (in the tab or about:blank) and the sites they opened'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1366,6 +1369,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-browser-bar { display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--gpa-panel); border-bottom: 1px solid var(--gpa-border); }
       .gpx-browser-nav { display: flex; gap: 4px; }
       .gpx-browser-spacer { flex: 1; }
+      .gpx-address { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 999px; background: var(--gpa-field); border: 1px solid var(--gpa-border); color: var(--gpa-sub); }
+      .gpx-address[hidden] { display: none; }
+      .gpx-address:not([hidden]) + .gpx-browser-spacer { display: none; }
+      .gpx-address:focus-within { border-color: var(--gpa-accent); }
+      .gpx-address svg { width: 16px; height: 16px; }
+      .gpx-address .gpa-input { border: none; background: transparent; padding-left: 0; box-shadow: none; }
       .gpx-loadbar { height: 2px; background: transparent; overflow: hidden; position: relative; }
       .gpx-room[data-proxy="connecting"] .gpx-loadbar::after {
         content: ''; position: absolute; top: 0; bottom: 0; width: 35%; background: linear-gradient(90deg, transparent, var(--gpa-accent), transparent);
@@ -1384,7 +1393,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-field-hint { margin: 6px 0 0; font-size: 12px; }
       .gpx-browser-view { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
       /* iOS Safari zooms the page when a field under 16px is focused. */
-      @supports (-webkit-touch-callout: none) { #gpa-proxy-server, #gpa-proxy-key { font-size: 16px; } }
+      @supports (-webkit-touch-callout: none) { #gpa-proxy-url, #gpa-proxy-server, #gpa-proxy-key { font-size: 16px; } }
       .gpx-browser-view { position: relative; flex: 1; min-height: 280px; display: flex; }
       .gpx-browser-view .gpa-iframe { flex: 1; border: none; border-radius: 0; min-height: 280px; height: auto; background: var(--gpa-bg); }
       .gpx-browser .gpx-details { border: none; border-top: 1px solid var(--gpa-border); border-radius: 0; background: transparent; }
@@ -1687,6 +1696,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         .gpx-tool-feature .gpx-tool-ic { width: 40px; height: 40px; }
         .gpx-games { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
         .gpx-browser-bar { flex-wrap: wrap; }
+        .gpx-address { order: 5; flex-basis: 100%; }
         .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-hero,
         .gpx-room-convo:has(.gpa-chat-msg) .gpx-hero { grid-template-columns: 56px minmax(0, 1fr); }
         .gpx-room-convo:has(#gpa-chat:not(:empty)) .gpx-visual,
@@ -3933,6 +3943,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <button id="gpa-proxy-launch-blank" class="gpa-btn" disabled>${gpxLbl('external', 'Launch in about:blank')}</button>
               <button id="gpa-proxy-end" class="gpa-btn" style="display:none;">${gpxLbl('x', 'Close Proxy')}</button>
             </div>
+            <p class="gpa-sub gpx-field-hint">Launching the proxy and the sites you open in it are recorded on your account, where the owner can see them.</p>
             <div id="gpa-proxy-launch-error" class="gpx-inline-error" role="alert" style="display:none;"></div>
           </section>
           <section id="gpa-proxy-stage" class="gpx-browser" style="display:none;">
@@ -3942,6 +3953,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                 <button id="gpa-proxy-forward" class="gpa-btn gpx-icon-btn" title="Forward" aria-label="Forward" disabled>${GPS_ICONS.forward}</button>
                 <button id="gpa-proxy-reload" class="gpa-btn gpx-icon-btn" title="Reload" aria-label="Reload">${GPS_ICONS.refresh}</button>
                 <button id="gpa-proxy-home" class="gpa-btn gpx-icon-btn" title="This site’s main page" aria-label="This site’s main page">${GPS_ICONS.home}</button>
+              </div>
+              <div id="gpa-proxy-addr" class="gpx-address" hidden>
+                ${GPS_ICONS.search}
+                <input id="gpa-proxy-url" class="gpa-input" placeholder="Search or enter website" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url" enterkeyhint="go" aria-label="Search or enter website" />
               </div>
               <span class="gpx-browser-spacer"></span>
               <button id="gpa-proxy-close" class="gpa-btn gpx-icon-btn" title="Close the proxy" aria-label="Close the proxy">${GPS_ICONS.x}</button>
@@ -12275,6 +12290,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   const proxyBackBtn = panel.querySelector('#gpa-proxy-back');
   const proxyForwardBtn = panel.querySelector('#gpa-proxy-forward');
+  const proxyAddrBox = panel.querySelector('#gpa-proxy-addr');
+  const proxyUrlInput = panel.querySelector('#gpa-proxy-url');
   const proxyFrame = panel.querySelector('#gpa-proxy-frame');
   const proxyReloadBtn = panel.querySelector('#gpa-proxy-reload');
   const proxyHomeBtn = panel.querySelector('#gpa-proxy-home');
@@ -12306,7 +12323,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // frame is another origin, so its history can't be driven directly, and
   // the window's history.back() could walk past it into the host page.
   // expect: the page the tab just opened, until that page reports in.
-  const proxyNav = { list: [], i: -1, expect: '' };
+  // labels: what was typed to reach each page (shown in the address field,
+  // Safari-style, instead of any address); nextLabel: for the next new page.
+  const proxyNav = { list: [], labels: [], i: -1, expect: '', nextLabel: null };
+  const PROXY_LAST_TYPED_KEY = 'gpa_proxy_last_typed';
   const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
   function proxyKey() { try { return localStorage.getItem(PROXY_KEY_KEY) || ''; } catch (e) { return ''; } }
   // Adds the access key to a Worker /site/ or /status/ URL (if one is set).
@@ -12538,6 +12558,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (!input) return { frameUrl: proxyPreviewUrl() };
     const base = proxyServerUrl();
     if (input.startsWith('/')) input = 'https://' + currentProxyHost() + input;
+    // A bare name ("example") opens the one approved site it names.
+    if (/^[a-z0-9-]+$/i.test(input)) {
+      const named = proxy.targets.filter((h) => h.replace(/^www\./, '').split('.')[0] === input.toLowerCase());
+      if (named.length === 1) input = named[0];
+    }
     if (!/^[a-z][a-z0-9+.-]*:/i.test(input)) input = 'https://' + input;
     let u;
     try { u = new URL(input); } catch (e) { return { error: '“' + raw + '” isn’t a web address.' }; }
@@ -12549,9 +12574,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (m && proxy.targets.includes(m[1].toLowerCase())) return { frameUrl: withKey(base + u.pathname + u.search + u.hash), display: proxyDisplay(base + u.pathname + u.search + u.hash) };
       return { error: 'That proxy address isn’t one of its approved sites (' + approvedList() + ').' };
     }
-    const host = u.hostname.toLowerCase();
+    let host = u.hostname.toLowerCase();
+    // example.com ⇄ www.example.com, whichever one is approved.
+    if (!proxy.targets.includes(host)) host = proxy.targets.find((h) => h === 'www.' + host || 'www.' + h === host) || host;
     // http://approved.site → https (the Worker only fetches https).
-    if (u.protocol === 'http:' && proxy.targets.includes(host) && !u.port) u = new URL('https://' + u.host + u.pathname + u.search + u.hash);
+    if (u.protocol === 'http:' && proxy.targets.includes(host) && !u.port) u = new URL('https://' + host + u.pathname + u.search + u.hash);
     if (u.protocol !== 'https:' || u.port || u.username || u.password || !proxy.targets.includes(host)) {
       return { error: 'This proxy only opens its approved sites (' + approvedList() + '), so “' + (u.host || raw) + '” isn’t supported. The owner can add sites they’re allowed to proxy on the Worker.' };
     }
@@ -12568,18 +12595,87 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function proxyNavRecord(u, replace) {
     const k = proxyNavKey(u);
     const cur = proxyNav.list[proxyNav.i];
-    if (cur && proxyNavKey(cur) === k) { proxyNavSync(); return; }
+    const label = proxyNav.nextLabel;
+    proxyNav.nextLabel = null;
+    if (cur && proxyNavKey(cur) === k) {
+      if (label != null) proxyNav.labels[proxyNav.i] = label;
+      proxyNavSync();
+      return;
+    }
     if (replace && cur) proxyNav.list[proxyNav.i] = u;
     else {
+      // A link clicked inside a page keeps what was typed to get there.
+      const carried = proxyNav.labels[proxyNav.i] || '';
       proxyNav.list = proxyNav.list.slice(0, proxyNav.i + 1).concat(u).slice(-50);
+      proxyNav.labels = proxyNav.labels.slice(0, proxyNav.i + 1).concat(label != null ? label : carried).slice(-50);
       proxyNav.i = proxyNav.list.length - 1;
     }
-    try { localStorage.setItem(PROXY_LAST_DEST_KEY, proxyDisplay(u)); } catch (e) { /* best-effort */ }
+    if (label != null) proxyNav.labels[proxyNav.i] = label;
+    try {
+      localStorage.setItem(PROXY_LAST_DEST_KEY, proxyDisplay(u));
+      localStorage.setItem(PROXY_LAST_TYPED_KEY, proxyNav.labels[proxyNav.i] || '');
+    } catch (e) { /* best-effort */ }
+    proxyLogVisit(u);
     proxyNavSync();
   }
+  // The proxy's own start page (its search box), or the /go page a search
+  // from it passes through.
+  function proxyIsHome(u) {
+    try { const p = new URL(u).pathname; return p === '/' || p === '/preview' || p === '/go'; } catch (e) { return true; }
+  }
+  function proxySiteHost(u) {
+    try { const m = /^\/site\/([^/]+)/.exec(new URL(u).pathname); return m ? m[1] : ''; } catch (e) { return ''; }
+  }
+  // Buttons, and the address field: hidden on the proxy's start page (where
+  // the search box is in the page itself); elsewhere it stays empty, with
+  // what was typed as its placeholder. The proxy's own address never shows.
   function proxyNavSync() {
     proxyBackBtn.disabled = proxyNav.i <= 0;
     proxyForwardBtn.disabled = proxyNav.i >= proxyNav.list.length - 1;
+    const cur = proxyNav.list[proxyNav.i] || '';
+    const home = !cur || proxyIsHome(cur);
+    if (home) proxyUrlInput.blur();
+    proxyAddrBox.hidden = home;
+    proxyUrlInput.placeholder = proxyNav.labels[proxyNav.i] || proxySiteHost(cur) || 'Search or enter website';
+  }
+  // Opens what was typed (in the address field, or in the proxy's start
+  // page): an approved site, through the proxy, never the site directly.
+  function proxyOpen(raw) {
+    const text = String(raw || '').trim().slice(0, 500);
+    if (!text) return;
+    const r = proxyRoute(text);
+    if (r.error) {
+      // The page stays; offer the approved sites.
+      showProxyError(r.error, proxy.targets.slice(0, 4).map((h) => ['Open ' + h, () => proxyOpen(h)]));
+      return;
+    }
+    proxyUrlInput.value = '';
+    proxyUrlInput.blur();
+    proxyNav.nextLabel = text;
+    proxyLoad(r.frameUrl, { force: true });
+  }
+  proxyUrlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); proxyOpen(proxyUrlInput.value); } });
+
+  // Proxy activity for the owner (Admin → the user's profile): each launch,
+  // and each approved-site page shown (origin + path; the Worker drops the
+  // rest again). Best-effort, signed-in users only.
+  function proxyLog(event, extra) {
+    if (!currentUser || !(typeof telemetryOn === 'function' && telemetryOn())) return;
+    try {
+      const h = { 'Content-Type': 'text/plain' };
+      if (sessionToken()) h['X-GPA-Session'] = sessionToken();
+      fetch(telemetryEndpoint() + '/proxy/log', { method: 'POST', headers: h, body: JSON.stringify({ user: currentUser, event, ...extra }), keepalive: true }).catch(() => {});
+    } catch (e) { /* best-effort */ }
+  }
+  let proxyLastLogged = '';
+  function proxyLogVisit(u) {
+    const host = proxySiteHost(u);
+    if (!host) return;
+    let site = '';
+    try { site = 'https://' + host + (new URL(u).pathname.slice(('/site/' + host).length) || '/'); } catch (e) { return; }
+    if (site === proxyLastLogged) return;
+    proxyLastLogged = site;
+    proxyLog('visit', { url: site });
   }
   function proxyNavGo(delta) {
     const j = proxyNav.i + delta;
@@ -12597,6 +12693,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     let u;
     try { u = new URL(d.url); } catch (err) { return; }
     if (u.origin !== proxyServerUrl()) return;
+    // Typed into the proxy's start page: its form goes to /go?q=…, which
+    // reports here, and the tab opens it like the address field would.
+    if (u.pathname === '/go') {
+      proxyNav.expect = '';
+      proxyOpen(u.searchParams.get('q') || '');
+      return;
+    }
     const m = /^\/site\/([^/]+)\//.exec(u.pathname);
     if (!(u.pathname === '/preview' || (m && proxy.targets.includes(m[1])))) return;
     // The first report after the tab opens a page is that page (perhaps
@@ -12667,7 +12770,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     proxyHealth().then(() => {
       const r = proxyRoute(lastDest);
       if (!px) return;   // closed while the list was loading
-      if (r && r.frameUrl && !r.error) proxyLoad(r.frameUrl);
+      if (r && r.frameUrl && !r.error) {
+        try { proxyNav.nextLabel = localStorage.getItem(PROXY_LAST_TYPED_KEY) || ''; } catch (e) { /* none */ }
+        proxyLoad(r.frameUrl);
+      }
       else proxyLoad(proxyPreviewUrl());
     });
   }
@@ -12679,7 +12785,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     proxy.current = '';
     proxy.blocked = false;
     proxyFrame.src = 'about:blank';
-    proxyNav.list = []; proxyNav.i = -1; proxyNav.expect = '';
+    proxyNav.list = []; proxyNav.labels = []; proxyNav.i = -1; proxyNav.expect = ''; proxyNav.nextLabel = null;
+    proxyUrlInput.value = '';
+    proxyLastLogged = '';
     proxyNavSync();
     setProxyStatus('Not connected');
   }
@@ -12759,6 +12867,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if (mode === 'here') {
       px = { mode, child: null, cleanups: [] };
       pxSync();
+      proxyLog('launch', { mode });
       proxyStart();
       return;
     }
@@ -12767,6 +12876,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     try { win = window.open('about:blank', '_blank'); } catch (e) { win = null; }
     if (!win) { pxShowError('The browser blocked the about:blank window. Allow pop-ups for this site, then try again.'); return; }
     px = { mode, child: null, cleanups: [] };
+    proxyLog('launch', { mode });
     try { pxBuildChild(win); } catch (e) {
       const s = px; px = null;
       pxLauncher.after(pxStage);
@@ -24616,6 +24726,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         + `<div class="gpx-split"><div class="gpx-main">`
         + card('Usage, last 14 days', bars(d.usage, 'requests', { label: 'Requests' }) + `<p class="gps-hint">${num(d.usage.reduce((n, x) => n + x.requests, 0))} requests · ${num(d.usage.reduce((n, x) => n + x.failures, 0))} failed · ${num(d.usage.reduce((n, x) => n + x.tokensIn + x.tokensOut, 0))} tokens</p>`, 'ai')
         + card('Sessions', d.account && d.account.sessions.length ? `<ul class="gac-rank">${d.account.sessions.map((s) => `<li><span>Signed in ${esc(when(s.createdAt))}</span><span>${s.country && s.country !== '??' ? esc(s.country) + ' · ' : ''}${esc((s.ua || '').slice(0, 40))}</span></li>`).join('')}</ul>` : '<p class="gps-hint">No server sessions.</p>', 'account')
+        // Proxy tab: each launch (here or about:blank) and the sites opened.
+        + card('Proxy activity', d.proxy && (d.proxy.recent || []).length
+          ? `<p class="gps-hint">${num(d.proxy.launches || 0)} launch${d.proxy.launches === 1 ? '' : 'es'} · ${num(d.proxy.visits || 0)} page${d.proxy.visits === 1 ? '' : 's'} opened · last ${esc(ago(d.proxy.lastAt))}</p>`
+            + `<ol class="gac-timeline">${d.proxy.recent.slice(0, 60).map((x) => `<li><time title="${esc(when(x.at))}">${esc(ago(x.at))}</time><b>${x.ev === 'launch' ? 'Launched' : 'Visited'}</b><em>${x.ev === 'launch' ? (x.mode === 'blank' ? 'in an about:blank window' : 'in the tab') : esc(x.url || '')}</em></li>`).join('')}</ol>`
+          : `<p class="gps-hint">${esc(d.user)} hasn’t used the Proxy tab (or not in the last 90 days).</p>`, 'globe', 'gac-insp-proxy')
         + card('Security events', d.security.length ? `<ul class="gac-rank">${d.security.map((e) => `<li><span>${esc(e.type)}</span><span>${esc(when(e.ts))}</span></li>`).join('')}</ul>` : '<p class="gps-hint">None in the last 7 days.</p>', 'advanced', 'gac-insp-sec')
         + card('Audit history', d.audit.length ? `<ol class="gac-timeline">${d.audit.map((e) => `<li><time>${esc(ago(e.ts))}</time><b>${esc(e.action)}</b><em>${esc(e.actor || e.admin || '')}</em></li>`).join('')}</ol>` : '<p class="gps-hint">No admin actions on this user.</p>', 'note')
         + `</div><aside class="gpx-side">`
@@ -24708,7 +24823,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       if (sec === 'users' && user) {
         await openUser(user);
         const box = $a('#gac-inspector');
-        const id = { key: 'gac-insp-key', quota: 'gac-insp-quota', actions: 'gac-insp-actions', security: 'gac-insp-sec' }[p.focus];
+        const id = { key: 'gac-insp-key', quota: 'gac-insp-quota', actions: 'gac-insp-actions', security: 'gac-insp-sec', proxy: 'gac-insp-proxy' }[p.focus];
         await land(id ? () => box.querySelector('#' + id) : () => box);
         return;
       }

@@ -95,6 +95,7 @@ function body(env, kind, price) {
       <li><b>Account:</b> the username you choose and your sign-in sessions. Your PIN is never stored; we keep only a salted one-way hash that can check it.</li>
       <li><b>Payments:</b> handled by <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe</a>, which collects your payment details, email and billing details at checkout. We receive your email, the Stripe customer and subscription IDs, and the amount and date of each payment. We never receive your full card number.</li>
       <li><b>What you add:</b> messages, voice messages, music, files and other content you post.</li>
+      <li><b>Proxy tab:</b> each time you launch the Proxy (in the app or in an about:blank window) and the pages of approved sites you open in it (the site and page path, without anything after a “?”). This is kept on your account for 90 days, and the owner and admins can see it.</li>
       <li><b>Technical information:</b> your IP address and device or browser type, used for security (sign-in limits, one-device sign-in and stopping abuse). We store these mostly as one-way hashes, along with your approximate country.</li>
       <li><b>On your device:</b> the app saves a sign-in token and your settings in your browser so you stay signed in. We don’t use advertising or tracking cookies.</li>
     </ul>

@@ -78,7 +78,8 @@ const broken = await serve((rq, rs) => {
 });
 const deadPort = await (async () => { const s = await serve((q, r) => r.end('')); const p = s.port; await s.close(); return p; })();
 
-const env = await startEnv({});
+const ADMIN = 'proxy-test-admin-token-0123456789';
+const env = await startEnv({ extraEnv: { ADMIN_TOKEN: ADMIN } });
 const site = await serve((rq, rs) => {
   rs.setHeader('Content-Type', 'text/html');
   if (rq.url.startsWith('/strict')) rs.setHeader('Content-Security-Policy', "frame-src 'self'");
@@ -147,6 +148,21 @@ async function clickIn(page, prefix, sel, expectSrcPrefix) {
   return state(page).then((st) => ({ ...st, frame: (frameFor(page, expectSrcPrefix) || { url: () => '' }).url() }));
 }
 const btn = (page, id) => page.click(sr('#' + id));
+// The address field on top: hidden on the proxy's start page; elsewhere empty,
+// with what was typed as its placeholder. The proxy's own address never shows.
+const addr = (page, proxyHost) => R(page, (r, h) => { const i = r.querySelector('#gpa-proxy-url'); const stage = r.querySelector('#gpa-proxy-stage'); return { hidden: r.querySelector('#gpa-proxy-addr').hidden, value: i.value, ph: i.placeholder, proxyShown: (stage.innerText + ' ' + i.value + ' ' + i.placeholder + ' ' + r.querySelector('#gpa-proxy-status').textContent).includes(h) }; }, proxyHost);
+async function typeTop(page, text) {
+  await page.fill(sr('#gpa-proxy-url'), text);
+  await page.press(sr('#gpa-proxy-url'), 'Enter');
+  return settle(page);
+}
+async function typeInFrame(page, text) {
+  const f = frameFor(page, PROXY + '/preview') || frameFor(page, PROXY + '/go');
+  await f.fill('input[name="q"]', text);
+  await f.press('input[name="q"]', 'Enter');
+  await page.waitForTimeout(1500);
+  return settle(page);
+}
 
 let a, b, c, d, e, f2;
 try {
@@ -169,8 +185,10 @@ try {
   check('Launching shows the Worker’s connection test: “Connected · connection test”', st.src === PROXY + '/preview' && /Connected · connection test/.test(st.status) && st.proxy === 'connected' && !st.error, JSON.stringify(st));
   const pv = await frameText(a.page, PROXY + '/preview');
   check('…which lists the approved sites', pv.includes(FX) && pv.includes(DOCS), pv.slice(0, 160));
-  const bar = await R(a.page, (r) => { const b2 = r.querySelector('#gpa-proxy-stage .gpx-browser-bar'); return { inputs: b2.querySelectorAll('input').length, buttons: [...b2.querySelectorAll('button')].map((x) => x.id), text: b2.textContent.trim() }; });
-  check('The bar shows no address: only Back, Forward, Reload, Home (and Close)', bar.inputs === 0 && bar.buttons.join(',') === 'gpa-proxy-back,gpa-proxy-forward,gpa-proxy-reload,gpa-proxy-home,gpa-proxy-close' && !bar.text, JSON.stringify(bar));
+  const PH = new URL(PROXY).host;
+  const bar = await R(a.page, (r) => { const b2 = r.querySelector('#gpa-proxy-stage .gpx-browser-bar'); return { addrHidden: r.querySelector('#gpa-proxy-addr').hidden, buttons: [...b2.querySelectorAll('button')].map((x) => x.id), text: b2.textContent.trim() }; });
+  check('On the proxy’s start page the bar shows no address field: Back, Forward, Reload, Home (and Close)', bar.addrHidden && bar.buttons.join(',') === 'gpa-proxy-back,gpa-proxy-forward,gpa-proxy-reload,gpa-proxy-home,gpa-proxy-close' && !bar.text, JSON.stringify(bar));
+  check('…and the start page itself has the search box', await frameFor(a.page, PROXY + '/preview').$('form[action="/go"] input[name="q"]').then((x) => !!x));
   check('Back and Forward start disabled', !st.back && !st.fwd, JSON.stringify(st));
   const attrs = await R(a.page, (r) => { const fr = r.querySelector('#gpa-proxy-frame'); return { sandbox: fr.getAttribute('sandbox'), allow: fr.getAttribute('allow'), ref: fr.getAttribute('referrerpolicy') }; });
   check('The frame is sandboxed: no allow-same-origin (isolation), no top-navigation, no camera/mic/location, no referrer', !/allow-same-origin/.test(attrs.sandbox) && !/allow-top-navigation/.test(attrs.sandbox) && /allow-scripts/.test(attrs.sandbox) && !/camera|microphone|geolocation/.test(attrs.allow) && attrs.ref === 'no-referrer', JSON.stringify(attrs));
@@ -178,8 +196,10 @@ try {
 
   // 2: an approved site, opened from the connection test, through the Worker.
   hits.length = 0;
-  st = await clickIn(a.page, PROXY + '/preview', `a[href="/site/${FX}/"]`, S(FX));
-  check(`Clicking ${FX} on the connection test opens it: “Loaded”, the domain shown nowhere, Back enabled`, st.frame === S(FX) && st.status === 'Loaded' && st.back && !st.fwd && !st.error, JSON.stringify(st));
+  st = await typeInFrame(a.page, FX);
+  check(`Typing “${FX}” into the start page and pressing Enter opens it through the proxy: “Loaded”, Back enabled`, st.src === S(FX) && st.status === 'Loaded' && st.back && !st.fwd && !st.error, JSON.stringify(st));
+  let top = await addr(a.page, PH);
+  check('…then the address field appears on top: empty, with what was typed as its placeholder; the proxy’s address shows nowhere', !top.hidden && top.value === '' && top.ph === FX && !top.proxyShown, JSON.stringify(top));
   const fr = frameFor(a.page, S(FX));
   await fr.waitForFunction(() => document.getElementById('js') && document.getElementById('js').textContent === 'JS ran', null, { timeout: 10000 }).catch(() => {});
   const page1 = await fr.evaluate(() => ({ h1: document.querySelector('h1').textContent, bg: getComputedStyle(document.body).backgroundColor, img: document.getElementById('dot').naturalWidth, imgSrc: document.getElementById('dot').src, js: document.getElementById('js').textContent, store: document.getElementById('store').textContent, rel: document.getElementById('rel').href, docs: document.getElementById('docs').href, ext: document.getElementById('ext').href, origin: (() => { try { return String(window.origin); } catch (x) { return 'err'; } })() }));
@@ -195,14 +215,14 @@ try {
   st = await clickIn(a.page, S(FX), '#rel', S(FX, '/page2'));
   const p2 = frameFor(a.page, S(FX, '/page2'));
   check('Clicking a link inside the page works (page two, query x=1 kept)', !!p2 && /Page two/.test(await p2.textContent('h1')) && (await p2.textContent('#q')) === 'x=1', p2 ? p2.url() : 'no frame');
-  check('…the tab follows it: Back enabled, Forward not', st.back && !st.fwd && st.status === 'Loaded', JSON.stringify(st));
+  check('…the tab follows it: Back enabled, Forward not; the field keeps what was typed', st.back && !st.fwd && st.status === 'Loaded' && (await addr(a.page, PH)).ph === FX, JSON.stringify(st));
   check('The last page is saved for next time (the page clicked to)', await a.page.evaluate(() => localStorage.getItem('gpa_proxy_last_destination')) === `https://${FX}/page2?x=1#sec`);
   await btn(a.page, 'gpa-proxy-back');
   st = await settle(a.page);
   check('Back: the previous page (the site’s home), Forward now enabled', st.src === S(FX) && /Fixture home/.test(await frameText(a.page, S(FX))) && st.back && st.fwd, JSON.stringify(st));
   await btn(a.page, 'gpa-proxy-back');
   st = await settle(a.page);
-  check('Back again: the connection test, Back disabled', st.src === PROXY + '/preview' && !st.back && st.fwd, JSON.stringify(st));
+  check('Back again: the start page, Back disabled, the address field hidden again', st.src === PROXY + '/preview' && !st.back && st.fwd && (await addr(a.page, PH)).hidden, JSON.stringify(st));
   await btn(a.page, 'gpa-proxy-forward');
   st = await settle(a.page);
   await btn(a.page, 'gpa-proxy-forward');
@@ -213,7 +233,27 @@ try {
   check('Home: the main page of the site that’s showing', st.src === S(FX) && /Fixture home/.test(await frameText(a.page, S(FX))) && st.back && !st.fwd, JSON.stringify(st));
   st = await clickIn(a.page, S(FX), '#docs', S(DOCS, '/welcome'));
   check('A link to the second approved site opens it', /Docs welcome/.test(await frameText(a.page, S(DOCS))) && st.status === 'Loaded', JSON.stringify(st));
+  // 3b: the address field on top, like a browser's: through the proxy, never directly.
+  st = await typeTop(a.page, `${FX}/page2?x=7`);
+  top = await addr(a.page, PH);
+  check('Typing a different site on top opens it through the proxy; what was typed stays as the placeholder', st.src === S(FX, '/page2?x=7') && st.status === 'Loaded' && top.value === '' && top.ph === `${FX}/page2?x=7` && !top.proxyShown && !a.page.frames().some((x) => x.url().startsWith('https://' + FX)), JSON.stringify({ st, top }));
+  st = await typeTop(a.page, 'docs');
+  check('A bare name (“docs”) opens the approved site it names', st.src === S(DOCS) && (await addr(a.page, PH)).ph === 'docs', JSON.stringify(st));
+  await a.page.fill(sr('#gpa-proxy-url'), 'google.com');
+  await a.page.press(sr('#gpa-proxy-url'), 'Enter');
+  await a.page.waitForTimeout(400);
+  st = await state(a.page); top = await addr(a.page, PH);
+  check('A site that isn’t approved is explained; the page and the typed text stay', st.src === S(DOCS) && /isn’t supported/.test(st.error) && top.value === 'google.com', JSON.stringify({ st, top }));
+  await a.page.fill(sr('#gpa-proxy-url'), '');
+  await btn(a.page, 'gpa-proxy-back');
+  st = await settle(a.page);
+  check('Back brings back that page’s typed text too', st.src === S(FX, '/page2?x=7') && (await addr(a.page, PH)).ph === `${FX}/page2?x=7`, JSON.stringify(st));
   await a.page.screenshot({ path: path.join(OUT, '03-back-forward.png') });
+
+  // 4a: something that isn't an approved site, typed into the start page.
+  st = await openVia(a.page, '');
+  st = await typeInFrame(a.page, 'best restaurants near me');
+  check('Typed into the start page but not an approved site: explained in the page and above it; the field stays hidden', /isn’t supported/.test(st.error) && /an approved site/.test(await frameText(a.page, PROXY + '/go')) && (await addr(a.page, PH)).hidden, JSON.stringify(st));
 
   // 4: redirects and errors (pages reopened as the last page).
   st = await openVia(a.page, `https://${FX}/go-docs`);
@@ -305,6 +345,32 @@ try {
   check('Closing the window brings the browser back to the tab, unloaded', hid.back && hid.stage === 'none' && hid.src === 'about:blank' && /about:blank window was closed/.test(hid.gate), JSON.stringify(hid));
   st = await openVia(a.page, `https://${FX}/`);
   check('…and it still works here afterwards', st.status === 'Loaded' && st.src === S(FX), JSON.stringify(st));
+  // 10: the owner sees this user's Proxy launches and visited sites on their profile.
+  const prof = await (await fetch(`${env.workerUrl}/admin/user?u=px${run}`, { headers: { Authorization: 'Bearer ' + ADMIN } })).json();
+  const pl = prof.proxy || { recent: [] };
+  const urls = pl.recent.filter((x) => x.ev === 'visit').map((x) => x.url);
+  check('Admin: the user’s launches are logged, in the tab and in about:blank', pl.launches >= 10 && pl.recent.some((x) => x.ev === 'launch' && x.mode === 'blank') && pl.recent.some((x) => x.ev === 'launch' && x.mode === 'here'), JSON.stringify({ launches: pl.launches }));
+  check('…and the sites visited, without query strings', [`https://${FX}/`, `https://${FX}/page2`, `https://${DOCS}/welcome`].every((x) => urls.includes(x)) && urls.every((x) => !x.includes('?') && !x.includes(PH)), urls.slice(0, 8).join(' '));
+  await tab(a.page, 'admin');
+  await a.page.waitForTimeout(500);
+  await R(a.page, (r, x) => {
+    const f = r.querySelector('#gac-auth-fields');
+    const inputs = [...f.querySelectorAll('input')];
+    const tok = inputs.find((i) => i.type === 'password') || inputs[0];
+    tok.value = x.token; tok.dispatchEvent(new Event('input', { bubbles: true }));
+    const urlIn = inputs.find((i) => i !== tok);
+    if (urlIn) { urlIn.value = x.url; urlIn.dispatchEvent(new Event('input', { bubbles: true })); }
+    r.querySelector('#gac-connect').click();
+  }, { token: ADMIN, url: env.workerUrl });
+  await a.page.waitForTimeout(2500);
+  await R(a.page, (r) => { const t = r.querySelector('.gps-tab[data-asec="users"]'); if (t) t.click(); });
+  await waitFor(a.page, (r, u) => !!r.querySelector(`[data-open-user="${u}"]`), 'px' + run, 15000);
+  await R(a.page, (r, u) => r.querySelector(`[data-open-user="${u}"]`).click(), 'px' + run);
+  await waitFor(a.page, (r) => !!r.querySelector('#gac-insp-proxy'), null, 15000);
+  const card = await R(a.page, (r) => { const c2 = r.querySelector('#gac-insp-proxy'); c2.scrollIntoView({ block: 'start' }); return c2.textContent; });
+  check('Admin → Users → the user’s profile shows a Proxy activity card with launches and sites', /Proxy activity/.test(card) && /launches/.test(card) && /in an about:blank window/.test(card) && card.includes(`https://${FX}/page2`), card.slice(0, 200));
+  await a.page.waitForTimeout(300);
+  await a.page.screenshot({ path: path.join(OUT, '10-admin-proxy-activity.png') });
   check('No page errors (computer)', a.page._errors.length === 0, a.page._errors.slice(0, 2).join(' | '));
 
   // 6b: a new visit restores the last page on the SECOND approved site.

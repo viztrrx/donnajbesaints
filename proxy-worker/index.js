@@ -17,7 +17,11 @@
  *
  * Routing:
  *   /health            JSON {status, service, targets:[host…]} (CORS-readable)
- *   / , /preview       the Worker's own connection-test page
+ *   / , /preview       the Worker's own start page: a search box (no scripts;
+ *                      a plain GET form) and the approved sites
+ *   /go?q=<typed>      where that search box goes: reports what was typed to
+ *                      the Proxy tab (which opens it), and on its own moves to
+ *                      the approved site it names, or explains it isn't one
  *   /site/<host>/<...> the approved site <host>, rebuilt path/query/fragment
  *
  * Security summary: exact-match host allowlist (crafted paths/queries can't
@@ -80,7 +84,8 @@ function allowedOrigins(env) {
 }
 
 // No scripts, except the one-line address report (by hash; see nav.js).
-const OWN_PAGE_CSP = "default-src 'none'; script-src " + NAV_REPORT_HASH + "; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'";
+// Forms only to the Worker itself (the start page's search box → /go).
+const OWN_PAGE_CSP = "default-src 'none'; script-src " + NAV_REPORT_HASH + "; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'self'";
 
 function page(html, status = 200, extraHeaders = {}) {
   return new Response(html, {
@@ -111,20 +116,60 @@ function shell(title, bodyHtml, status = 200, extraHeaders = {}) {
     .ok { color:#93e6b1; font-weight:700; } .bad { color:#ff9a9a; font-weight:700; }
     h1 { font-size:20px; } p { color:#bdc9dc; line-height:1.6; }
     a { color:#a9c4ff; } ul { padding-left:18px; } li { margin:4px 0; }
+    form { display:flex; gap:8px; margin:18px 0; }
+    input { flex:1; min-width:0; font:inherit; font-size:16px; color:inherit; background:#10131b; border:1px solid #343b50; border-radius:999px; padding:10px 16px; }
+    input:focus { outline:none; border-color:#a9c4ff; }
+    button { font:inherit; font-weight:600; color:#10131b; background:#a9c4ff; border:0; border-radius:999px; padding:10px 18px; cursor:pointer; }
   </style>
 </head>
 <body><main>${bodyHtml}</main>${NAV_REPORT}</body>
 </html>`, status, extraHeaders);
 }
 
+const SEARCH_FORM = (value = "") => `<form action="/go" method="get" role="search">
+    <input name="q" value="${esc(value)}" placeholder="Search or enter website" aria-label="Search or enter website" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" autofocus required maxlength="500">
+    <button type="submit">Go</button></form>`;
+const SITE_LIST = (hosts) => hosts.length
+  ? `<p>Approved sites:</p><ul>${hosts.map((h) => `<li><a href="/site/${esc(h)}/">${esc(h)}</a></li>`).join("")}</ul>`
+  : `<p>No sites are approved yet. Set <code>TARGET_ORIGINS</code> on the Worker.</p>`;
+
 function preview(hosts) {
-  const list = hosts.length
-    ? `<p>Approved sites:</p><ul>${hosts.map((h) => `<li><a href="/site/${esc(h)}/">${esc(h)}</a></li>`).join("")}</ul>`
-    : `<p>No sites are approved yet. Set <code>TARGET_ORIGINS</code> on the Worker.</p>`;
   return shell("connection test", `<div class="ok">● Cloudflare Worker connected</div>
-    <h1>Saints Proxy Test</h1>
+    <h1>Saints Proxy</h1>
+    ${SEARCH_FORM()}
     <p>This restricted proxy opens only the sites approved on the Worker, through the Saints Service Proxy tab.</p>
-    ${list}`);
+    ${SITE_LIST(hosts)}`);
+}
+
+// What was typed into the start page → an approved site's /site/ path, or
+// null. Accepts "example.com/page", a full https:// address, www. or not,
+// and a bare name ("example") that names exactly one approved site.
+function resolveTyped(raw, allowed) {
+  const typed = String(raw || "").trim().slice(0, 500);
+  if (!typed) return null;
+  const name = typed.toLowerCase();
+  if (/^[a-z0-9-]+$/.test(name)) {
+    const named = [...allowed.keys()].filter((h) => h.replace(/^www\./, "").split(".")[0] === name);
+    if (named.length === 1) return "/site/" + named[0] + "/";
+  }
+  let u;
+  try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(typed) ? typed : "https://" + typed); } catch { return null; }
+  if ((u.protocol !== "https:" && u.protocol !== "http:") || u.port || u.username || u.password) return null;
+  const h = u.hostname.toLowerCase();
+  const host = [h, "www." + h, h.replace(/^www\./, "")].find((x) => allowed.has(x));
+  return host ? "/site/" + host + (u.pathname || "/") + u.search : null;
+}
+// /go: the Proxy tab reads what was typed from this page's address report
+// and opens it itself; the refresh is for this page on its own.
+function goPage(raw, allowed, hosts) {
+  const typed = String(raw || "").trim().slice(0, 500);
+  const to = resolveTyped(typed, allowed);
+  if (to) return shell("opening", `<div class="ok">● Opening ${esc(typed)}…</div><p><a href="${esc(to)}">Continue</a></p>`, 200,
+    { refresh: "1;url=" + to });
+  return shell("not an approved site", `<div class="bad">● ${typed ? "“" + esc(typed) + "” isn't an approved site" : "Type a website"}</div>
+    ${SEARCH_FORM(typed)}
+    <p>This proxy opens only the sites approved on the Worker.</p>
+    ${SITE_LIST(hosts)}`, typed ? 404 : 400);
 }
 function errorPage(status, title, detail) {
   return shell(title, `<div class="bad">● ${esc(title)}</div><p>${esc(detail)}</p><p><a href="/preview">Back to the connection test</a></p>`, status);
@@ -260,6 +305,7 @@ export default {
       );
     }
     if (path === "/" || path === "/preview") return preview(hosts);
+    if (path === "/go") return goPage(url.searchParams.get("q"), allowed, hosts);
     // /status/<host>/<rest>: what the Proxy tab can't see inside the frame —
     // only the HTTP status and a one-word outcome, never the page itself.
     if (path.startsWith("/status/")) {

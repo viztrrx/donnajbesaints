@@ -252,3 +252,27 @@ test('proxy: /status/ reports only status + outcome (never page content), with t
     assert.equal((await st('example.com/', { ...env, PROXY_KEY: 'k1' })).outcome, 'key-required');
   } finally { up.restore(); }
 });
+
+test('proxy: the start page has a search box; /go opens what was typed when it names an approved site', async () => {
+  const pv = await call('/preview');
+  assert.match(pv.headers.get('content-security-policy'), /form-action 'self'/);
+  const html = await pv.text();
+  assert.match(html, /<form action="\/go" method="get" role="search">/);
+  assert.match(html, /<input name="q"/);
+  for (const [typed, to] of [['example.com', '/site/example.com/'], ['https://example.com/a?b=1', '/site/example.com/a?b=1'], ['www.example.com/x', '/site/example.com/x'], ['example', '/site/example.com/'], ['docs.example.org', '/site/docs.example.org/'], ['http://example.com/', '/site/example.com/']]) {
+    const r = await call('/go?q=' + encodeURIComponent(typed));
+    assert.equal(r.status, 200, typed);
+    assert.equal(r.headers.get('refresh'), '1;url=' + to, typed);
+    assert.ok((await r.text()).endsWith(NAV_REPORT + '</body>\n</html>'), 'the page reports what was typed (its own address) to the tab');
+  }
+  for (const typed of ['google.com', 'best restaurants near me', 'example.com.evil.test', 'https://example.com:8443/', 'javascript:alert(1)', 'localhost']) {
+    const r = await call('/go?q=' + encodeURIComponent(typed));
+    assert.equal(r.status, 404, typed);
+    assert.equal(r.headers.get('refresh'), null, typed);
+    const body = await r.text();
+    assert.ok(body.includes('an approved site') && body.includes('<form action="/go"'), typed);
+  }
+  assert.equal((await call('/go?q=')).status, 400);
+  // What was typed is escaped back into the form.
+  assert.ok((await (await call('/go?q=' + encodeURIComponent('"><script>x</script>'))).text()).includes('value="&quot;&gt;&lt;script&gt;x&lt;/script&gt;"'));
+});
