@@ -502,6 +502,8 @@ test('eagler: status, config and frame page', async () => {
   assert.match(csp, /connect-src 'self' blob: data:/, 'the game may only connect back to the worker');
   assert.match(csp, /worker-src 'self' blob:/, 'singleplayer starts a blob: worker');
   assert.ok(!/unsafe-eval'/.test(csp.replace("'wasm-unsafe-eval'", '')), 'no JavaScript eval');
+  assert.equal(page.headers.get('Cross-Origin-Resource-Policy'), 'cross-origin', 'Saints Search (COEP) may embed the frame');
+  assert.equal(page.headers.get('Cross-Origin-Embedder-Policy'), 'require-corp');
   assert.equal(await page.text(), 'loader file loader/frame.html');
   const redirect = await worker.fetch(new Request('https://worker.test/eagler'), eaglerEnv(), { waitUntil() {} });
   assert.equal(redirect.status, 301);

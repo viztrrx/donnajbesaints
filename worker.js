@@ -6783,6 +6783,15 @@ const EAGLER_TYPES = {
 // the only socket the game is allowed to open. blob: is for the integrated
 // server, which the client starts as a Worker from a blob: copy of classes.js.
 // 'wasm-unsafe-eval' allows WebAssembly compilation, not JavaScript eval.
+// The game frame may also be embedded by pages that are cross-origin isolated
+// (Saints Search, frontend.viztrrx.workers.dev, runs with COEP require-corp):
+// such a page only shows a cross-origin frame that allows it (CORP) and has
+// COEP itself. The frame's CSP already keeps every load on this worker, blob:
+// or data:, so COEP changes nothing about what the game can load.
+const EAGLER_FRAME_EMBED = {
+  'Cross-Origin-Resource-Policy': 'cross-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp'
+};
 const EAGLER_FRAME_CSP = [
   "default-src 'none'",
   "script-src 'self' blob: 'wasm-unsafe-eval'",
@@ -6876,7 +6885,7 @@ async function handleEagler(req, env, url, h) {
     // /eagler without the slash would resolve the page's relative URLs one
     // level too high.
     if (url.pathname === '/eagler') return Response.redirect(url.origin + '/eagler/', 301);
-    return eaglerPassThrough(req, cfg.loader + 'frame.html', 'html', { 'Content-Security-Policy': EAGLER_FRAME_CSP, 'Cache-Control': 'no-cache' }, json);
+    return eaglerPassThrough(req, cfg.loader + 'frame.html', 'html', { 'Content-Security-Policy': EAGLER_FRAME_CSP, ...EAGLER_FRAME_EMBED, 'Cache-Control': 'no-cache' }, json);
   }
   if (sub === 'config.js') {
     const conf = {
@@ -6890,7 +6899,7 @@ async function handleEagler(req, env, url, h) {
   }
   let m = /^loader\/([A-Za-z0-9_-]+\.(js|css|html|json))$/.exec(sub);
   if (m) {
-    const extra = m[2] === 'html' ? { 'Content-Security-Policy': EAGLER_FRAME_CSP } : {};
+    const extra = m[2] === 'html' ? { 'Content-Security-Policy': EAGLER_FRAME_CSP, ...EAGLER_FRAME_EMBED } : {};
     const version = url.searchParams.get('v') || '';
     const versioned = m[2] === 'json' && /^[a-f0-9]{64}$/.test(version);
     const source = cfg.loader + m[1] + (versioned ? '?v=' + version : '');
