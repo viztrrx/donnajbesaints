@@ -24543,7 +24543,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       box.scrollIntoView({ block: 'nearest' });
       let d;
       try { d = await api('/admin/user?u=' + encodeURIComponent(key)); }
-      catch (e) { box.innerHTML = `<p class="gps-hint">${esc(e.message)}</p>`; return; }
+      catch (e) { if (state.inspecting === key) box.innerHTML = `<p class="gps-hint">${esc(e.message)}</p>`; return; }
+      // Another profile was opened while this one loaded: a late answer must
+      // not paint this user's profile (and its buttons) over the newer one.
+      if (state.inspecting !== key) return;
       const m = d.moderation || {};
       const st = m.effective || {};
       box.innerHTML = `<header class="gac-insp-head"><div class="gac-avatar" aria-hidden="true">${esc(d.user.slice(0, 1).toUpperCase())}</div><div><h3>${esc(d.user)}</h3><p class="gps-hint">${esc(d.role)} · ${d.account ? 'account since ' + esc(when(d.account.createdAt)) : 'no server account'} · ${esc(st.state || 'active')}</p></div><button class="gps-btn" id="gac-insp-close" aria-label="Close inspector">${GPS_ICONS.x}</button></header>`
@@ -24598,6 +24601,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         catch (e) { showToast(e.message, { type: 'danger' }); }
       }));
       box.querySelectorAll('[data-mod]').forEach((b) => b.addEventListener('click', async () => {
+        // Block sits next to Reset PIN; one stray tap shouldn't shut someone out.
+        const ask = { block: 'Block “' + d.user + '”? They see “Blocked by the owner” and can’t use the console until you unblock them.',
+          mute: 'Mute “' + d.user + '” for 1 hour? They see “Blocked by the owner” until it ends.',
+          kick: 'Sign “' + d.user + '” out now?' }[b.dataset.mod];
+        if (ask && !confirm(ask)) return;
         try { await api('/admin/moderate', { method: 'POST', body: { user: key, action: b.dataset.mod, hours: b.dataset.hours } }); showToast('Done.'); openUser(key); }
         catch (e) { showToast(e.message, { type: 'danger' }); }
       }));
