@@ -1415,8 +1415,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-proxy-room > .gpx-proxy-launcher { container: pl / size; flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; padding: 16px; }
       .gpx-pl { width: 100%; max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
       .gpx-pl-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; }
-      .gpx-pl-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 6px; border-radius: 13px; color: var(--gpa-accent-fg);
-        background: linear-gradient(135deg, var(--gpa-accent), var(--gpa-accent2)); box-shadow: 0 8px 20px -12px var(--gpa-accent); }
+      .gpx-pl-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 6px; border-radius: 13px; overflow: hidden;
+        background: #11161c; border: 1px solid var(--gpa-border); box-shadow: 0 8px 20px -12px #000; }
+      .gpx-pl-icon img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-user-drag: none; }
       .gpx-pl-icon svg { width: 22px; height: 22px; }
       .gpx-pl-title { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; color: var(--gpa-text); }
       .gpx-pl-lede { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--gpa-sub); }
@@ -4021,7 +4022,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           <section class="gpa-card gpx-card gpx-proxy-launcher" data-fs="off">
             <div class="gpx-pl">
               <header class="gpx-pl-head">
-                <span class="gpx-pl-icon" aria-hidden="true">${GPS_ICONS.globe}</span>
+                <span class="gpx-pl-icon" aria-hidden="true"><img src="${SAINTS_LOGO}" alt="" draggable="false"></span>
                 <h2 class="gpx-pl-title">Proxy</h2>
                 <p class="gpx-pl-lede">Browse the web through the Scramjet proxy.</p>
               </header>
