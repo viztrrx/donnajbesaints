@@ -4061,7 +4061,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             <span id="gpa-proxy-status" class="gpa-sr-only" role="status">Not connected</span>
             <div id="gpa-proxy-error" class="gpx-inline-error" style="display:none;"></div>
             <div class="gpx-browser-view">
-              <iframe id="gpa-proxy-frame" class="gpa-iframe" title="Proxy" allow="fullscreen; clipboard-read; clipboard-write; autoplay; cross-origin-isolated"></iframe>
+              <iframe id="gpa-proxy-frame" class="gpa-iframe" title="Proxy" allow="fullscreen; clipboard-read; clipboard-write; autoplay; gamepad; cross-origin-isolated"></iframe>
             </div>
           </section>
         </div>
@@ -12526,6 +12526,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     // Saints Search asking who is signed in (for its saved sessions).
     if (d.type === 'account?') { proxySendAccount(); return; }
+    // A game (Eaglercraft, the Games tab) on screen in Saints Search, or not.
+    if (d.type === 'game') { proxyGameKeys(!!d.playing); return; }
+    // Saints Search wants the keyboard (a game just started): keys go to
+    // whatever has focus inside the frame once the frame itself has it.
+    if (d.type === 'focus') { try { proxyFrame.focus(); } catch (err) { /* frame gone */ } return; }
     if (d.type === 'fullscreen') { if (px.toggleFs) px.toggleFs(); return; }
     if (d.type !== 'nav' || typeof d.url !== 'string') return;
     // Each page of Saints Search is told which window buttons to show.
@@ -12709,10 +12714,23 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   // Ends the proxy: the page unloads, the browser comes back to this tab
   // from an about:blank window (closing it), and the launcher shows again.
+  // While a game is on screen in Saints Search, the window holding the proxy
+  // keeps Esc (close the inventory, chat or a menu; pause) and shortcuts like
+  // Ctrl+W for the game instead of the browser: Keyboard Lock, as the
+  // Eaglercraft tab does. Chromium only, and only while that window is
+  // fullscreen, so in this tab Esc no longer drops out of fullscreen and hides
+  // the game. Holding Esc still leaves fullscreen.
+  function proxyKeysWin(s) { return s && s.child ? s.child.win : window; }
+  function proxyGameKeys(on) {
+    if (!px) return;
+    px.gameKeys = on;
+    if (on) eagLockKeys(proxyKeysWin(px)); else eagUnlockKeys(proxyKeysWin(px));
+  }
   function closeProxy(note) {
     if (!px) return;
     const s = px;
     px = null;
+    if (s.gameKeys) eagUnlockKeys(proxyKeysWin(s));
     if (s.child) pxLauncher.after(pxStage);
     proxyUnload();
     s.cleanups.forEach((fn) => { try { fn(); } catch (e) { /* already gone */ } });
