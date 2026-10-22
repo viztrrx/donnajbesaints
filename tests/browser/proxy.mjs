@@ -369,11 +369,21 @@ try {
   check('…with the live status: using the Proxy now, where, and the site they’re on', /Using the Proxy now/.test(liveLine) && /in the Proxy tab/.test(liveLine) && liveLine.includes(`https://${FX}/`) && !liveLine.includes(PH), liveLine);
   await a.page.waitForTimeout(300);
   await a.page.screenshot({ path: path.join(OUT, '10-admin-proxy-activity.png') });
-  await waitFor(a.page, (r, u) => !!r.querySelector(`#gac-proxy-day-list .gac-proxy-user[data-user="${u}"]`), 'px' + run, 15000);
-  const dayView = await R(a.page, (r, u) => { const el = r.querySelector(`#gac-proxy-day-list .gac-proxy-user[data-user="${u}"]`); el.open = true; el.scrollIntoView({ block: 'start' }); return { sum: r.querySelector('#gac-proxy-day-sum').textContent, row: el.querySelector('summary').textContent, items: el.querySelectorAll('.gac-timeline li').length }; }, 'px' + run);
-  check('Admin → Users → Proxy activity by user: today, this user (live, with counts) and their timeline', /^Today: /.test(dayView.sum) && /using it now/.test(dayView.sum) && /Live on https:\/\/fixture/.test(dayView.row) && /launches/.test(dayView.row) && dayView.items >= 10, JSON.stringify(dayView));
+  // 11: Admin → Proxy monitor: live users with the site they're on; pressing a name shows the day's history.
+  check('The Users section no longer carries the Proxy day view (it has its own section)', await R(a.page, (r) => !r.querySelector('#gac-body-users #gac-proxy-day, #gac-body-users .gac-pm')));
+  await R(a.page, (r) => r.querySelector('.gps-tab[data-asec="proxy"]').click());
+  const U = 'px' + run;
+  await waitFor(a.page, (r, u) => !!r.querySelector(`#gac-pm-live [data-pm-user="${u}"]`), U, 15000);
+  const liveRow = await R(a.page, (r, u) => r.querySelector(`#gac-pm-live [data-pm-user="${u}"]`).textContent.replace(/\s+/g, ' '), U);
+  check('Proxy monitor → Live now: the user, the domain they proxied and are on now, and where', liveRow.includes(U) && /Proxied fixture\.saints-test\.dev · on it now/.test(liveRow) && /Proxy tab/.test(liveRow) && !liveRow.includes(PH), liveRow);
+  const actRow = await R(a.page, (r, u) => r.querySelector(`#gac-pm-users [data-pm-user="${u}"]`).textContent.replace(/\s+/g, ' '), U);
+  check('…Activity lists them with today’s counts and the domains they proxied', /launches/.test(actRow) && actRow.includes('fixture.saints-test.dev') && actRow.includes('docs.saints-test.dev'), actRow);
+  await R(a.page, (r, u) => r.querySelector(`#gac-pm-users [data-pm-user="${u}"]`).click(), U);
   await a.page.waitForTimeout(300);
-  await a.page.screenshot({ path: path.join(OUT, '11-admin-proxy-by-user.png') });
+  const hist = await R(a.page, (r) => { const d = r.querySelector('#gac-pm-detail'); d.scrollIntoView({ block: 'start' }); return { text: d.textContent.replace(/\s+/g, ' '), items: d.querySelectorAll('.gac-timeline li').length }; });
+  check('…pressing their name shows their Proxy history for today (launches and sites, newest first)', hist.text.includes(U) && /On the Proxy now/.test(hist.text) && /Launched in an about:blank window/.test(hist.text) && /Proxied fixture\.saints-test\.dev\/page2/.test(hist.text) && hist.items >= 10, JSON.stringify({ ...hist, text: hist.text.slice(0, 200) }));
+  await a.page.waitForTimeout(300);
+  await a.page.screenshot({ path: path.join(OUT, '11-admin-proxy-monitor.png') });
   // Closing the proxy clears the live status.
   await tab(a.page, 'browser');
   await btn(a.page, 'gpa-proxy-close');

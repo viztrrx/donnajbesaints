@@ -5066,7 +5066,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const alert = ev === 'launch'
           ? { title: user + ' launched the Proxy', body: (entry.mode === 'blank' ? 'In an about:blank window' : 'In the Proxy tab') + ' · ' + ownerTime(env, entry.at) }
           : { title: user + ' opened ' + entry.url.replace(/^https:\/\//, '').replace(/\/$/, ''), body: entry.url + ' · ' + where + ' · ' + ownerTime(env, entry.at) };
-        const pushEv = { cat: 'proxy', tag: 'proxy-' + user.toLowerCase(), url: adminLink('users', { user, focus: 'proxy' }), ...alert };
+        const pushEv = { cat: 'proxy', tag: 'proxy-' + user.toLowerCase(), url: adminLink('proxy', { user }), ...alert };
         const p = (async () => {
           if (user.toLowerCase() !== OWNER) await notifyOwner(env, pushEv, url.origin).catch(() => {});
           for (const a of await adminNamesCached(kv)) if (a.toLowerCase() !== user.toLowerCase()) await notifyUser(env, a, pushEv, url.origin).catch(() => {});
@@ -5642,6 +5642,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const day = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('day') || '') ? url.searchParams.get('day') : today;
         const live = await proxyLiveAll(kv);
         const users = [];
+        const seen = new Set();
         let cursor;
         for (let i = 0; i < 20; i++) {
           const page = await kv.list({ prefix: 'proxylog:', cursor });
@@ -5650,6 +5651,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             if (!log) continue;
             const entries = (log.recent || []).filter((x) => ownerClock(env, x.at).date === day);
             const lu = k.name.slice('proxylog:'.length);
+            seen.add(lu);
             const now = day === today ? live.get(lu) || null : null;
             if (!entries.length && !now) continue;
             users.push({ user: log.user || lu, launches: entries.filter((x) => x.ev === 'launch').length, visits: entries.filter((x) => x.ev === 'visit').length,
@@ -5658,6 +5660,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           if (page.list_complete) break;
           cursor = page.cursor;
         }
+        // Someone live whose log isn't there (it lapsed, or the write failed).
+        if (day === today) for (const [lu, l] of live) if (!seen.has(lu)) users.push({ user: l.user, launches: 0, visits: 0, lastAt: 0, live: l, entries: [] });
         users.sort((a, b) => (b.live ? 1 : 0) - (a.live ? 1 : 0) || b.lastAt - a.lastAt);
         return json({ ok: true, day, today, users,
           totals: { users: users.length, live: users.filter((x) => x.live).length, launches: users.reduce((n, x) => n + x.launches, 0), visits: users.reduce((n, x) => n + x.visits, 0) } });

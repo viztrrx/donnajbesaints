@@ -1504,6 +1504,11 @@ test('proxy activity: live status from the heartbeat, and today by user in /admi
   assert.deepEqual(day.totals, { users: 2, live: 1, launches: 2, visits: 1 });
   assert.equal(day.users[0].entries[0].url, 'https://example.com/a');
   assert.equal((await c.call('/admin/proxy?day=2001-01-01', { headers: owner })).data.users.length, 0);
+  // Live on the Proxy with no log yet: still listed (live, no entries).
+  const z = (await signUp(c, 'zed')).data.token;
+  await c.call('/track', { method: 'POST', body: { user: 'zed', session: z, event: 'beat', sid: 'z1', proxy: { mode: 'here', site: 'https://tiktok.com/' } } });
+  const zed = (await c.call('/admin/proxy', { headers: owner })).data.users.find((u) => u.user === 'zed');
+  assert.deepEqual([zed.live.site, zed.entries.length], ['https://tiktok.com/', 0]);
   assert.ok((await c.call('/admin/proxy', { headers: sess(a) })).status >= 400, 'staff only');
   const { PUSH_CATEGORIES } = await import('../web/console/push.js');
   assert.equal(PUSH_CATEGORIES.proxy.on, true, 'owner devices get Proxy alerts by default');

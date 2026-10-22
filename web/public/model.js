@@ -1,5 +1,5 @@
 export const sections=[
- ['Users','/admin/users','users.view'],['AI & Usage','/admin/ai?days=7','ai.view'],['Memory','/admin/memory/stats','memory.view'],['Security','/admin/security','security.view'],['Moderation','/admin/reports','moderation.view'],['Content & Data','','moderation.view'],['System','/admin/config/view','system.view'],['Automation','/admin/jobs','automation.run'],['Developer','','system.view'],['Audit','/admin/audit','audit.view'],['Danger Zone','','danger.execute']
+ ['Users','/admin/users','users.view'],['Proxy monitor','/admin/proxy','users.view'],['AI & Usage','/admin/ai?days=7','ai.view'],['Memory','/admin/memory/stats','memory.view'],['Security','/admin/security','security.view'],['Moderation','/admin/reports','moderation.view'],['Content & Data','','moderation.view'],['System','/admin/config/view','system.view'],['Automation','/admin/jobs','automation.run'],['Developer','','system.view'],['Audit','/admin/audit','audit.view'],['Danger Zone','','danger.execute']
 ];
 export function permits(identity,p){return p==='owner'?identity?.role==='owner':!!identity?.perms?.some(v=>v==='*'||v===p);}
 export function payload(op,values){

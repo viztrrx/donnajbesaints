@@ -412,7 +412,7 @@ test('push: the Proxy tab — a launch (tab or about:blank) and each site opened
     assert.equal(n.length, 1);
     assert.equal(n[0].title, 'ria launched the Proxy');
     assert.match(n[0].body, /^In an about:blank window · \d{1,2}:\d{2} [AP]M/);
-    assert.equal(n[0].url, '/console/#tab=admin&sec=users&user=ria&focus=proxy');
+    assert.equal(n[0].url, '/console/#tab=admin&sec=proxy&user=ria');
     await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'visit', url: 'https://example.com/news?id=7' } });
     n = (await got()).filter((m) => m.cat === 'proxy');
     assert.equal(n[0].title, 'ria opened example.com/news');

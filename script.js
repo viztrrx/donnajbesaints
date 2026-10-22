@@ -854,7 +854,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       browser: ['redesign', 'The Proxy tab drops its header art and Research mode: only the Browse card (with Enter Fullscreen) or, once launched, the browser, filling the page'],
       selection: ['fix', 'Research from the selection assistant goes to Notes (read, research and make notes)'] } },
     { at: '2026-10-23T11:00:00-04:00', commit: '', title: 'Proxy launcher redesigned; about:blank needs no fullscreen', parts: {
-      browser: ['redesign', 'A clean launcher with two options: In this tab (Enter Fullscreen, then Launch) and In a new window (about:blank, opens right away with no fullscreen needed); it fits every panel size without scrolling']} }
+      browser: ['redesign', 'A clean launcher with two options: In this tab (Enter Fullscreen, then Launch) and In a new window (about:blank, opens right away with no fullscreen needed); it fits every panel size without scrolling']} },
+    { at: '2026-10-23T14:00:00-04:00', commit: '', title: 'Admin: Proxy monitor', parts: {
+      admin: ['feature', 'A Proxy monitor section: who is on the Proxy right now and the site they proxied and are on, the day’s activity by user with the domains they proxied, and each person’s history for the day when you press their name; Proxy alerts open it'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1835,16 +1837,44 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gac-timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 1px solid var(--gpa-border); display: flex; flex-direction: column; gap: 8px; }
       .gac-timeline li { position: relative; font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
       .gac-timeline li::before { content: ''; position: absolute; left: -18px; top: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--gpa-accent); }
-      /* Proxy activity: live status, and the by-user day view in Users. */
+      /* Proxy activity: live status (profiles) and the Proxy monitor section. */
       .gac-live-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--gpa-sub); vertical-align: middle; }
       .gac-live-dot.is-on { background: var(--gpx-ok, #34c759); box-shadow: 0 0 8px var(--gpx-ok, #34c759); }
       .gac-proxy-live { margin: 0 0 8px; font-size: 13px; overflow-wrap: anywhere; }
-      .gac-proxy-day-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-      .gac-proxy-day-head .gpa-input { width: auto; }
-      .gac-proxy-user { border-top: 1px solid var(--gpa-border); padding: 8px 0; }
-      .gac-proxy-user summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
-      .gac-proxy-meta { font-size: 12.5px; color: var(--gpa-sub); overflow-wrap: anywhere; }
-      .gac-proxy-user .gac-timeline { margin: 10px 0; }
+      .gac-pm { display: flex; flex-direction: column; gap: 14px; }
+      .gac-pm-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+      @container room (max-width: 760px) { .gac-pm-split { grid-template-columns: minmax(0, 1fr); } }
+      .gac-pm-list { display: flex; flex-direction: column; }
+      .gac-pm-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 10px 8px; text-align: left; font: inherit; color: var(--gpa-text); background: transparent;
+        border: 0; border-top: 1px solid var(--gpa-border); border-radius: 0; cursor: pointer; }
+      .gac-pm-row:first-child { border-top: 0; }
+      .gac-pm-row:hover { background: var(--gps-soft); }
+      .gac-pm-row.is-on { background: color-mix(in srgb, var(--gpa-accent) 12%, transparent); }
+      .gac-pm-row:focus-visible { outline: 2px solid var(--gpa-accent); outline-offset: -2px; }
+      .gac-pm-row .gac-avatar, .gac-pm-dhead .gac-avatar { flex: none; width: 34px; height: 34px; border-radius: 11px; font-size: 14px; transform: none; }
+      .gac-pm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+      .gac-pm-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13.5px; }
+      .gac-pm-name .gac-live-dot { margin: 0; }
+      .gac-pm-sub { font-size: 12px; color: var(--gpa-sub); overflow-wrap: anywhere; }
+      .gac-pm-site b { color: var(--gpa-text); font-weight: 600; }
+      .gac-pm-site span { color: var(--gpa-sub); }
+      .gac-pm-meta { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 11.5px; color: var(--gpa-sub); }
+      .gac-pm-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+      .gac-pm-chip { display: inline-flex; align-items: center; max-width: 100%; padding: 2px 8px; border-radius: 999px; font-size: 11px; line-height: 1.5; color: var(--gpa-text);
+        background: var(--gpa-field); border: 1px solid var(--gpa-border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gac-pm-chev { flex: none; align-self: center; color: var(--gpa-sub); font-size: 18px; }
+      .gac-pm-dayrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+      .gac-pm-dayrow .gpa-input { width: auto; flex: 0 0 auto; max-width: 170px; }
+      .gac-pm-dhead { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+      .gac-pm-dhead > div { flex: 1; min-width: 0; }
+      .gac-pm-dhead h3 { margin: 0; font-size: 15px; }
+      .gac-pm-dhead .gps-hint { margin: 2px 0 0; }
+      .gac-pm-tl li { overflow-wrap: anywhere; }
+      @container room (max-width: 460px) {
+        .gac-pm-row { flex-wrap: wrap; }
+        .gac-pm-meta { flex-basis: 100%; flex-direction: row; align-items: center; padding-left: 46px; }
+        .gac-pm-chev { display: none; }
+      }
       .gac-timeline time { font: 500 11px 'Geist Mono', ui-monospace, monospace; color: var(--gpa-sub); }
       .gac-timeline em { font-style: normal; color: var(--gpa-sub); }
       .gac-table { display: flex; flex-direction: column; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2); overflow: hidden; background: var(--gpa-card-bg); }
@@ -23532,6 +23562,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const SECTIONS = [
       { id: 'overview', label: 'Overview', icon: 'overview', perm: 'system.view', desc: 'Live state of the whole console, from the worker.' },
       { id: 'users', label: 'Users', icon: 'users', perm: 'users.view', desc: 'Every account and every name seen, with usage, quotas and moderation.' },
+      { id: 'proxy', label: 'Proxy monitor', icon: 'globe', perm: 'users.view', desc: 'Who is on the Proxy right now and the site they’re on, and each person’s Proxy history for the day.' },
       { id: 'ai', label: 'AI & Usage', icon: 'ai', perm: 'ai.view', desc: 'Requests, failures, latency, tokens and models. OpenAI only: gpt-4.1-mini and gpt-5.' },
       { id: 'memory', label: 'Memory', icon: 'book', perm: 'memory.view', desc: 'Health of the AI memory system. Aggregates only unless the owner opens a specific user, which is audited.' },
       { id: 'security', label: 'Security', icon: 'advanced', perm: 'security.view', desc: 'Sign-in failures, lockouts, spoofing attempts, rate limits and session policy.' },
@@ -23548,6 +23579,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const SCENES = {
       overview: '<div class="gv gv-deck"><i></i><i></i><i></i><b></b><b></b><b></b></div>',
       users: '<div class="gv gv-ids"><i><s></s></i><i><s></s></i><i><s></s></i></div>',
+      proxy: GPX_SCENES.browser,
       ai: GPX_SCENES.ask,
       memory: '<div class="gv gv-mem"><div class="gv-mem-rig"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><span></span></div>',
       security: '<div class="gv gv-shield"><i></i><b></b></div>',
@@ -23884,16 +23916,42 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             + `<div class="gps-seg gpx-seg-inline" role="group" aria-label="Filter users">${['all', 'active', 'accounts', 'flagged'].map((f) => `<button class="gps-seg-btn gac-uf" data-uf="${f}">${{ all: 'All', active: 'Seen today', accounts: 'Accounts', flagged: 'Flagged' }[f]}</button>`).join('')}</div>`
             + `<select id="gac-user-sort" class="gpa-input" aria-label="Sort users"><option value="lastSeen">Last seen</option><option value="requestsToday">Requests today</option><option value="memoryItems">Memory</option><option value="user">Name</option></select></div>`
             + `<div id="gac-user-list" class="gac-user-list"></div><div id="gac-inspector" class="gac-inspector" hidden></div>`
-            + card('Proxy activity by user', `<div class="gac-proxy-day-head"><p class="gps-hint" id="gac-proxy-day-sum">Loading…</p><input type="date" class="gpa-input" id="gac-proxy-day-pick" aria-label="Day"></div><div id="gac-proxy-day-list"></div>`, 'globe', 'gac-proxy-day')
             + `<div id="gac-legacy-users"></div>`;
-          b.querySelector('#gac-proxy-day-pick').addEventListener('change', (e) => renderProxyDay(e.target.value));
           b.querySelector('#gac-user-q').addEventListener('input', renderUserList);
           b.querySelector('#gac-user-sort').addEventListener('change', renderUserList);
           b.addEventListener('click', (e) => { const f = e.target.closest('.gac-uf'); if (f) { state.userFilter = f.dataset.uf; renderUserList(); } });
           placeLegacy('users');
         }
         renderUserList();
-        renderProxyDay(state.proxyDay || '');
+      },
+      // Proxy monitor: who is on the Proxy now (and the site), then the
+      // day's activity by user; pressing a name opens their day's history.
+      // Refreshes itself every 10 seconds while it's open.
+      async proxy() {
+        const b = body('proxy');
+        if (!b.querySelector('.gac-pm')) {
+          b.innerHTML = `<div class="gac-pm"><div class="gac-kpis" id="gac-pm-kpis"></div>`
+            + card('Live now', '<div id="gac-pm-live" class="gac-pm-list"></div>', 'globe', 'gac-pm-live-card')
+            + `<div class="gac-pm-split">`
+            + card('Activity', `<div class="gac-pm-dayrow"><span class="gps-hint" id="gac-pm-daylabel"></span><input type="date" class="gpa-input" id="gac-pm-day" aria-label="Day"></div><div id="gac-pm-users" class="gac-pm-list"></div>`, 'users', 'gac-pm-users-card')
+            + `<section id="gac-pm-detail" class="gpa-card gpx-card gac-card gac-pm-detail" aria-live="polite"></section></div></div>`;
+          b.querySelector('#gac-pm-day').addEventListener('change', (e) => { state.proxyDay = e.target.value; RENDER.proxy(); });
+          b.addEventListener('click', (e) => {
+            const u = e.target.closest('[data-pm-user]');
+            if (u) { state.proxyUser = u.dataset.pmUser; renderProxyMonitor(); const d = b.querySelector('#gac-pm-detail'); if (d && d.getBoundingClientRect().top > window.innerHeight) d.scrollIntoView({ block: 'nearest' }); }
+          });
+        }
+        const d = await api('/admin/proxy' + (state.proxyDay ? '?day=' + encodeURIComponent(state.proxyDay) : ''));
+        state.proxyData = d;
+        setHero('proxy', d.totals.live ? `${d.totals.live} on the Proxy now` : 'Nobody on the Proxy now', 'done');
+        renderProxyMonitor();
+        // Live: refresh while this section stays open.
+        clearInterval(state.proxyTimer);
+        state.proxyTimer = setInterval(() => {
+          const sec = content.querySelector('.gac-sec[data-asec="proxy"]');
+          if (state.section !== 'proxy' || !sec || !sec.classList.contains('active') || !sec.isConnected || !sec.offsetParent) { clearInterval(state.proxyTimer); return; }
+          RENDER.proxy().catch(() => {});
+        }, 10000);
       },
       async ai() {
         const days = state.aiDays || 7;
@@ -24738,23 +24796,51 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       return `<span class="gac-live-dot is-on" aria-hidden="true"></span><b>Using the Proxy now</b> · ${l.mode === 'blank' ? 'in an about:blank window' : 'in the Proxy tab'} · `
         + (l.site ? `on <b>${esc(l.site)}</b>` : 'on the proxy’s start page') + (l.since ? ` · since ${esc(new Date(l.since).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}` : '');
     }
-    // Admin → Users: the Proxy tab's activity for one day, by user (who is in
-    // it now first, then most recent), each with their launches and sites.
-    async function renderProxyDay(day) {
-      const sum = $a('#gac-proxy-day-sum'), list = $a('#gac-proxy-day-list'), pick = $a('#gac-proxy-day-pick');
-      if (!sum || !list) return;
-      state.proxyDay = day || '';
-      let d;
-      try { d = await api('/admin/proxy' + (day ? '?day=' + encodeURIComponent(day) : '')); }
-      catch (e) { sum.textContent = e.message; return; }
-      if (pick) { pick.max = d.today; pick.value = d.day; }
-      const label = d.day === d.today ? 'Today' : new Date(d.day + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-      sum.textContent = `${label}: ${num(d.totals.users)} ${d.totals.users === 1 ? 'person' : 'people'} · ${num(d.totals.launches)} launches · ${num(d.totals.visits)} sites opened` + (d.day === d.today ? ` · ${num(d.totals.live)} using it now` : '');
-      list.innerHTML = d.users.length ? d.users.map((u) => `<details class="gac-proxy-user" data-user="${esc(u.user)}"><summary><b>${esc(u.user)}</b>`
-          + `<span class="gac-proxy-meta">${u.live ? `<span class="gac-live-dot is-on" aria-hidden="true"></span>Live${u.live.site ? ' on ' + esc(u.live.site) : ''} (${u.live.mode === 'blank' ? 'about:blank' : 'tab'}) · ` : ''}${num(u.launches)} launch${u.launches === 1 ? '' : 'es'} · ${num(u.visits)} site${u.visits === 1 ? '' : 's'}${u.lastAt ? ' · last ' + esc(ago(u.lastAt)) : ''}</span></summary>`
-          + `<ol class="gac-timeline">${u.entries.map((x) => `<li><time title="${esc(when(x.at))}">${esc(new Date(x.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time><b>${x.ev === 'launch' ? 'Launched' : 'Visited'}</b><em>${x.ev === 'launch' ? (x.mode === 'blank' ? 'in an about:blank window' : 'in the tab') : esc(x.url || '')}</em></li>`).join('')}</ol>`
-          + `<button class="gps-btn" data-open-user="${esc(u.user.toLowerCase())}" type="button">Open profile</button></details>`).join('')
-        : `<p class="gps-hint">Nobody used the Proxy ${d.day === d.today ? 'today' : 'that day'}.</p>`;
+    // https://www.tiktok.com/@x → { host: 'tiktok.com', path: '/@x' }.
+    const siteParts = (u) => { try { const x = new URL(u); return { host: x.hostname.replace(/^www\./, ''), path: x.pathname === '/' ? '' : x.pathname }; } catch (e) { return { host: String(u || ''), path: '' }; } };
+    const pmTime = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const pmWhere = (mode) => (mode === 'blank' ? 'about:blank window' : 'Proxy tab');
+    const pmSite = (u, cls) => { const p = siteParts(u); return `<span class="gac-pm-site ${cls || ''}"><b>${esc(p.host)}</b>${p.path ? `<span>${esc(p.path)}</span>` : ''}</span>`; };
+    function renderProxyMonitor() {
+      const d = state.proxyData, b = body('proxy');
+      if (!d || !b) return;
+      const isToday = d.day === d.today;
+      const live = d.users.filter((u) => u.live);
+      b.querySelector('#gac-pm-kpis').innerHTML = kpi('On the Proxy now', num(isToday ? d.totals.live : 0), isToday ? 'live' : 'only for today', live.length ? 'ok' : '')
+        + kpi(isToday ? 'People today' : 'People', num(d.totals.users)) + kpi('Launches', num(d.totals.launches)) + kpi('Sites opened', num(d.totals.visits));
+      // Live now: name, the site they're on (domain first), where, since.
+      b.querySelector('#gac-pm-live').innerHTML = !isToday ? '<p class="gps-hint">Live status is shown for today. Pick today’s date to see it.</p>'
+        : live.length ? live.map((u) => `<button type="button" class="gac-pm-row is-live${state.proxyUser === u.user.toLowerCase() ? ' is-on' : ''}" data-pm-user="${esc(u.user.toLowerCase())}">`
+          + `<span class="gac-avatar" aria-hidden="true">${esc(u.user.slice(0, 1).toUpperCase())}</span>`
+          + `<span class="gac-pm-main"><span class="gac-pm-name">${esc(u.user)}<span class="gac-live-dot is-on" aria-label="live"></span></span>`
+          + `<span class="gac-pm-sub">${u.live.site ? 'Proxied ' + pmSite(u.live.site) + ' · on it now' : 'On the proxy’s start page'}</span></span>`
+          + `<span class="gac-pm-meta"><span class="gac-pm-chip">${esc(pmWhere(u.live.mode))}</span>${u.live.since ? `<span>since ${esc(pmTime(u.live.since))}</span>` : ''}</span></button>`).join('')
+          : '<p class="gps-hint">Nobody is on the Proxy right now.</p>';
+      // Activity: everyone that day, with the domains they proxied.
+      const label = isToday ? 'Today' : new Date(d.day + 'T12:00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+      b.querySelector('#gac-pm-daylabel').textContent = label;
+      const pick = b.querySelector('#gac-pm-day');
+      pick.max = d.today; if (document.activeElement !== pick && (pick.getRootNode().activeElement !== pick)) pick.value = d.day;
+      b.querySelector('#gac-pm-users').innerHTML = d.users.length ? d.users.map((u) => {
+        const hosts = [...new Set(u.entries.filter((x) => x.ev === 'visit').map((x) => siteParts(x.url).host))];
+        return `<button type="button" class="gac-pm-row${state.proxyUser === u.user.toLowerCase() ? ' is-on' : ''}" data-pm-user="${esc(u.user.toLowerCase())}">`
+          + `<span class="gac-avatar" aria-hidden="true">${esc(u.user.slice(0, 1).toUpperCase())}</span>`
+          + `<span class="gac-pm-main"><span class="gac-pm-name">${esc(u.user)}${u.live ? '<span class="gac-live-dot is-on" aria-label="live"></span>' : ''}</span>`
+          + `<span class="gac-pm-sub">${num(u.launches)} launch${u.launches === 1 ? '' : 'es'} · ${num(u.visits)} site${u.visits === 1 ? '' : 's'}${u.lastAt ? ' · last ' + esc(pmTime(u.lastAt)) : ''}</span>`
+          + (hosts.length ? `<span class="gac-pm-chips">${hosts.slice(0, 6).map((h) => `<span class="gac-pm-chip">${esc(h)}</span>`).join('')}${hosts.length > 6 ? `<span class="gac-pm-chip">+${hosts.length - 6}</span>` : ''}</span>` : '')
+          + `</span><span class="gac-pm-chev" aria-hidden="true">›</span></button>`;
+      }).join('') : `<p class="gps-hint">Nobody used the Proxy ${isToday ? 'today' : 'that day'}.</p>`;
+      // History: the pressed person's day, newest first.
+      const det = b.querySelector('#gac-pm-detail');
+      const sel = d.users.find((u) => u.user.toLowerCase() === state.proxyUser);
+      if (!sel) { det.innerHTML = `<div class="gpx-card-head">${GPS_ICONS.note}<div class="gpa-card-title">History</div></div><p class="gps-hint">Press a name to see their Proxy history for ${isToday ? 'today' : 'that day'}.</p>`; return; }
+      det.innerHTML = `<div class="gac-pm-dhead"><span class="gac-avatar" aria-hidden="true">${esc(sel.user.slice(0, 1).toUpperCase())}</span><div><h3>${esc(sel.user)}</h3>`
+        + `<p class="gps-hint">${esc(label)} · ${num(sel.launches)} launch${sel.launches === 1 ? '' : 'es'} · ${num(sel.visits)} site${sel.visits === 1 ? '' : 's'}</p></div>`
+        + `<button class="gps-btn" type="button" data-open-user="${esc(sel.user.toLowerCase())}">Profile</button></div>`
+        + (sel.live && isToday ? `<p class="gac-proxy-live"><span class="gac-live-dot is-on" aria-hidden="true"></span><b>On the Proxy now</b> · ${esc(pmWhere(sel.live.mode))} · ${sel.live.site ? 'on ' + pmSite(sel.live.site) : 'start page'}</p>` : '')
+        + (sel.entries.length ? `<ol class="gac-timeline gac-pm-tl">${sel.entries.map((x) => `<li><time title="${esc(when(x.at))}">${esc(pmTime(x.at))}</time>`
+          + (x.ev === 'launch' ? `<b>Launched</b> <em>${x.mode === 'blank' ? 'in an about:blank window' : 'in the Proxy tab'}</em>` : `<b>Proxied</b> ${pmSite(x.url)}`) + `</li>`).join('')}</ol>`
+          : '<p class="gps-hint">No launches or sites recorded for this day.</p>');
     }
     async function openUser(key) {
       await showAdminSection('users');
@@ -24874,6 +24960,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           if (!el.isConnected) { const again = find(); if (again) { el = again; flashEl(el); } }
         }, 150);
       };
+      if (sec === 'proxy') {
+        if (user) state.proxyUser = user;
+        await showAdminSection('proxy');
+        await land(() => body('proxy') && body('proxy').querySelector(user ? '#gac-pm-detail' : '.gac-pm'));
+        return;
+      }
       if (sec === 'users' && user) {
         await openUser(user);
         const box = $a('#gac-inspector');
