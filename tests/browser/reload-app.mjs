@@ -1,7 +1,7 @@
 // "Push reload to all clients" from the web app (/console/), with the owner
 // signed in by PIN only — no admin token typed, as on the owner's phone.
 //   1. the button sends the push using the signed-in session and says so
-//   2. another open copy restarts; the owner's own copy does not
+//   2. every open copy restarts, the owner's own included
 //   3. it restarts once, not in a loop
 import fs from 'node:fs';
 import path from 'node:path';
@@ -68,10 +68,11 @@ try {
   await R(o.page, (r) => { const t = r.querySelector('.gps-tab[data-asec="system"]'); if (t) t.click(); });
   await o.page.waitForTimeout(1500);
   await R(o.page, (r) => r.querySelector('#gpa-adm-force-reload').click());
-  await o.page.waitForTimeout(2500);
+  // Read the toast right away: this copy restarts itself soon after.
+  const toast = await o.page.waitForFunction(() => { const h = document.getElementById('gpa-root-host'); return !!h && [...h.shadowRoot.querySelectorAll('*')].some((n) => /Reload pushed/.test(n.textContent || '') && n.children.length === 0); }, null, { timeout: 5000 }).then(() => true, () => false);
+  await o.page.waitForTimeout(1000);
   const after = (await admin('/admin/config', {})).config.reloadVersion || 0;
   check('pressing Push reload raises the counter using the owner’s session', after === before + 1, before + ' → ' + after);
-  const toast = await R(o.page, (r) => [...r.querySelectorAll('*')].some((n) => /Reload pushed/.test(n.textContent || '') && n.children.length === 0));
   check('…and says so where the owner can see it', toast);
 
   const reloaded = await (async () => {
@@ -80,8 +81,12 @@ try {
     return false;
   })();
   check('the other open copy restarts', reloaded, loadsU + ' → ' + u.page._loads);
-  await o.page.waitForTimeout(2000);
-  check('the owner’s own copy does not restart', o.page._loads === loadsO, loadsO + ' → ' + o.page._loads);
+  const ownReloaded = await (async () => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 25000) { if (o.page._loads > loadsO) return true; await new Promise((r) => setTimeout(r, 500)); }
+    return false;
+  })();
+  check('the owner’s own copy restarts too', ownReloaded, loadsO + ' → ' + o.page._loads);
 
   // Restarts once, then stays put (no reload loop on the next polls).
   await u.page.waitForTimeout(4000);

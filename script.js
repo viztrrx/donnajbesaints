@@ -25650,10 +25650,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
     panel.querySelector('#gpa-adm-force-reload').addEventListener('click', async () => {
       if (!confirm('Make every open copy re-fetch the script and restart?')) return;
-      const cfg = await postConfig({ bumpReload: true }, 'Reload pushed — everyone else updates within ~15s.');
-      // This copy sent it: don't restart in the owner's hands. Use the
-      // console's own Reload button to update here.
-      if (cfg && typeof cfg.reloadVersion === 'number') reloadBaseline = cfg.reloadVersion;
+      await postConfig({ bumpReload: true }, 'Reload pushed — everyone updates within ~15s, this copy too.');
     });
 
     // ---- Diagnostics tab ----

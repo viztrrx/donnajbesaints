@@ -3401,12 +3401,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             const where = [rec.region, rec.country !== '??' ? rec.country : ''].filter(Boolean).join(', ');
             const detailLine = [ownerTime(env, now), where, rec.host ? 'on ' + rec.host : ''].filter(Boolean).join(' · ');
             if (!prev) notify({ cat: 'newuser', title: 'New user: ' + user, body: 'First sign-in · ' + detailLine, url: adminLink('users', { user }) });
-            // A pushed reload makes every open copy re-open at once; those
-            // aren't sign-ins, so don't alert staff for them.
-            if (!(cfg.reloadAt && now - cfg.reloadAt < 2 * 60e3)) {
-              notify({ cat: 'signin', title: user + ' signed in', body: detailLine, url: adminLink('users', { user }),
-                throttle: { key: 'signin:' + userLower, seconds: 600 } });
-            }
+            notify({ cat: 'signin', title: user + ' signed in', body: detailLine, url: adminLink('users', { user }),
+              throttle: { key: 'signin:' + userLower, seconds: 600 } });
           }
           if (!prev && cfg.approvalMode && userLower !== OWNER) {
             notify({ cat: 'approval', title: user + ' is waiting for approval', body: 'New user held by the approval queue · ' + ownerTime(env, now) + '. Approve them in Admin.', url: adminLink('users', { user, focus: 'actions' }) });
@@ -3788,7 +3784,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (Array.isArray(body.allowedOrigins)) cfg.allowedOrigins = body.allowedOrigins.map((o) => String(o || '').slice(0, 200)).filter(Boolean).slice(0, 100);
       // Bumping this makes every client notice it is out of date on its next
       // status poll and pull the latest script.
-      if (body.bumpReload) { cfg.reloadVersion = (cfg.reloadVersion || 0) + 1; cfg.reloadAt = Date.now(); }
+      if (body.bumpReload) cfg.reloadVersion = (cfg.reloadVersion || 0) + 1;
       await kv.put('config', JSON.stringify(cfg));
       const diff = {};
       Object.keys(cfg).forEach((k) => { if (JSON.stringify(cfg[k]) !== JSON.stringify(cfgBefore[k])) diff[k] = { before: cfgBefore[k], after: cfg[k] }; });
