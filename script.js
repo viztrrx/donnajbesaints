@@ -4024,7 +4024,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <header class="gpx-pl-head">
                 <span class="gpx-pl-icon" aria-hidden="true"><img src="${SAINTS_LOGO}" alt="" draggable="false"></span>
                 <h2 class="gpx-pl-title">Proxy</h2>
-                <p class="gpx-pl-lede">Browse the web through the Scramjet proxy.</p>
+                <p class="gpx-pl-lede">Browse the web through the Scramjet proxy. Sites you open are logged and visible to the owner.</p>
               </header>
               <div class="gpx-pl-opts">
                 <div class="gpx-pl-opt">
@@ -4049,7 +4049,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               </div>
               <div id="gpa-proxy-launch-error" class="gpx-inline-error" role="alert" style="display:none;"></div>
               <p class="gpx-pl-tip">${GPS_ICONS.bolt}<span>If the proxy won’t load in this tab, launch it in a new window (about:blank) instead.</span></p>
-              <p class="gpx-pl-note">${GPS_ICONS.eye}<span>Launches and the sites you open are recorded on your account, where the owner can see them.</span></p>
             </div>
           </section>
           <section id="gpa-proxy-stage" class="gpx-browser" style="display:none;">
