@@ -4024,7 +4024,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <header class="gpx-pl-head">
                 <span class="gpx-pl-icon" aria-hidden="true"><img src="${SAINTS_LOGO}" alt="" draggable="false"></span>
                 <h2 class="gpx-pl-title">Proxy</h2>
-                <p class="gpx-pl-lede">Browse the web through the Scramjet proxy. Sites you open are logged and visible to the owner.</p>
+                <p class="gpx-pl-lede">Browse the web through the Scramjet proxy.</p>
               </header>
               <div class="gpx-pl-opts">
                 <div class="gpx-pl-opt">
