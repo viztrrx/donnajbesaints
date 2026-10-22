@@ -923,7 +923,7 @@ The **Proxy** tab browses through the **Saints proxy Worker**, a separate Cloudf
 - **Doesn't work:** sign-ins and forms, sites that need cookies or storage, single-page apps and JavaScript `fetch`, WebSockets, and sites that forbid embedding (use **Open in a new tab**). For approved YouTube watch/short links the Worker offers YouTube's official embedded player with a direct-open fallback; YouTube's full website is not supported by the lightweight proxy. See `proxy-worker/README.md`.
 - **Connection settings:** the **Proxy Worker address** (empty means the Saints proxy; old `localhost:4141` settings move automatically) and an optional **Proxy access key**, if the Worker sets `PROXY_KEY`.
 
-**Research mode** lives here: the AI picks a few authoritative sources, the Worker fetches each one server\-side, and you get back a brief with citations.
+The tab shows only the **Browse** card (Enter Fullscreen, Launch Proxy Here, Launch in about:blank) or, once launched, the browser, filling the page. Research from the selection assistant now goes to **Notes**, which reads the text, researches it and writes notes.
 
 ### Music {#music}
 
@@ -1083,7 +1083,7 @@ To ship a change, add one entry to `CHANGELOG`. Every chip, the Advanced table a
 An optional Cloudflare Worker that does two small things the browser can't do on its own:
 
 - **`/v1/*`** — forwards to `api.openai.com` and adds the CORS header. Direct browser → OpenAI calls are frequently blocked by ad blockers, antivirus shields, and network filters, which surface as confusing CORS errors. It also answers `OPTIONS` preflights itself, because forwarding those upstream returns a response that doesn't allow the `Authorization` header, which makes the browser block the real request.
-- **`/read?url=…`** — fetches a page server\-side and returns its HTML, so research mode can read sources the browser isn't allowed to fetch cross\-origin. HTML and plain text only, capped at 3MB.
+- **`/read?url=…`** — fetches a page server\-side and returns its HTML, so Notes' research can read sources the browser isn't allowed to fetch cross\-origin. HTML and plain text only, capped at 3MB.
 - **`/eagler/*`** — the Eaglercraft tab: the game's frame page and loader, your own client build (passed through from `EAGLER_CLIENT`), and a WebSocket proxy for game servers and Shared World relays. Optional; see [eaglercraft/README.md](eaglercraft/README.md) for its variables.
 
 ### Deploying it {#deploying-it}

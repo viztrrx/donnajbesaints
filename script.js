@@ -129,7 +129,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     'Its features: PAGE INSIGHTS — reads the current page\'s text and/or a screenshot, summarizes, analyzes, answers questions about the page, solves quizzes and multiple-choice questions found on the page (answer grid with highlights on the page), auto-fills form fields with mock values, extracts tables to CSV, watches the page for changes the user cares about, and follows natural-language page commands like "click the third link".',
     'ASK AI — general chat like this conversation, with voice input and spoken answers.',
     'MUSIC — plays songs via YouTube search, SoundCloud links, or a local audio library.',
-    'PROXY — browses the owner-approved sites through the Saints proxy, launched in the tab or in an about:blank window while the console is fullscreen, plus research mode that reads sources automatically and writes a cited brief.',
+    'PROXY — browses the owner-approved sites through the Saints proxy, launched in the tab or in an about:blank window while the console is fullscreen.',
     'EAGLERCRAFT — Minecraft 1.8 (EaglercraftX) in the console: singleplayer, servers and Shared Worlds with friends, launched in the tab or in an about:blank window. The console has to be fullscreen to play.',
     'STUDY — generates flashcard decks from the current page with spaced practice.',
     'NOTES — the user pastes a passage; the AI reads it, researches it across the web, writes organized study notes, and then remembers the passage, notes and research so follow-up questions about the text are answered with full context.',
@@ -849,7 +849,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       browser: ['feature', 'Type a site into the proxy’s start page and press Enter: it opens through the proxy, and an address field appears on top that keeps what you typed as its placeholder (the proxy’s own address never shows); type another site there like in a browser'],
       admin: ['feature', 'Users → a user → Proxy activity: when they launched the Proxy (in the tab or about:blank) and the sites they opened'] } },
     { at: '2026-10-23T02:00:00-04:00', commit: '', title: 'Proxy: live status, alerts and a by-user day view in Admin', parts: {
-      admin: ['feature', 'A user’s profile shows whether they’re using the Proxy right now, where, and the site they’re on; Users → Proxy activity by user lists each day’s launches and sites per person; push alerts for Proxy launches and sites opened (Proxy tab: launches and sites opened)'] } }
+      admin: ['feature', 'A user’s profile shows whether they’re using the Proxy right now, where, and the site they’re on; Users → Proxy activity by user lists each day’s launches and sites per person; push alerts for Proxy launches and sites opened (Proxy tab: launches and sites opened)'] } },
+    { at: '2026-10-23T09:30:00-04:00', commit: '', title: 'Proxy tab: just the launcher, filling the page', parts: {
+      browser: ['redesign', 'The Proxy tab drops its header art and Research mode: only the Browse card (with Enter Fullscreen) or, once launched, the browser, filling the page'],
+      selection: ['fix', 'Research from the selection assistant goes to Notes (read, research and make notes)'] } }
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -1400,6 +1403,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpx-browser-view .gpa-iframe { flex: 1; border: none; border-radius: 0; min-height: 280px; height: auto; background: var(--gpa-bg); }
       .gpx-browser .gpx-details { border: none; border-top: 1px solid var(--gpa-border); border-radius: 0; background: transparent; }
 
+      /* The Proxy tab is just the launcher, or the browser once launched;
+         either one fills the pane. */
+      .gpx-proxy-room > .gpx-proxy-launcher { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+      .gpx-proxy-launch-inner { width: 100%; max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+      .gpx-proxy-launch-inner > * { margin: 0; }
+      .gpx-proxy-launch-inner .gpa-row { flex-wrap: wrap; }
+      .gpx-proxy-room > .gpx-browser { flex: 1 1 auto; }
       /* Proxy launched here: the browser takes the launcher's place. */
       .gpx-room[data-px="here"] > .gpx-proxy-launcher { display: none; }
       /* The proxy's about:blank window: the browser moved into it, under a
@@ -3943,20 +3953,22 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       </div>
 
       <div class="gpa-pane" data-pane="browser">
-        <div class="gpx-room">
-          ${gpxHero({ room: 'browser', title: 'Proxy', status: 'Not connected',
-            desc: 'Browse through the Saints proxy on Cloudflare. It opens only the sites approved on the proxy (set by the owner) and nothing else, and the console has to be fullscreen to use it.',
-            actions: `<button id="gpa-proxy-fs" class="gpa-btn primary">${gpxLbl('maximize', 'Enter Fullscreen')}</button>` })}
+        <div class="gpx-room gpx-proxy-room">
           <section class="gpa-card gpx-card gpx-proxy-launcher">
-            <div class="gpx-card-head">${GPS_ICONS.globe}<div class="gpa-card-title">Browse</div><span id="gpa-proxy-fs-chip" class="gpx-chip">Fullscreen off</span></div>
-            <p id="gpa-proxy-gate" class="gpa-sub">The proxy requires fullscreen mode. Enter fullscreen, then launch.</p>
-            <div class="gpa-row">
-              <button id="gpa-proxy-launch-here" class="gpa-btn primary" disabled>${gpxLbl('globe', 'Launch Proxy Here')}</button>
-              <button id="gpa-proxy-launch-blank" class="gpa-btn" disabled>${gpxLbl('external', 'Launch in about:blank')}</button>
-              <button id="gpa-proxy-end" class="gpa-btn" style="display:none;">${gpxLbl('x', 'Close Proxy')}</button>
+            <div class="gpx-proxy-launch-inner">
+              <div class="gpx-card-head">${GPS_ICONS.globe}<div class="gpa-card-title">Browse</div><span id="gpa-proxy-fs-chip" class="gpx-chip">Fullscreen off</span></div>
+              <p id="gpa-proxy-gate" class="gpa-sub">The proxy requires fullscreen mode. Enter fullscreen, then launch.</p>
+              <div class="gpa-row">
+                <button id="gpa-proxy-fs" class="gpa-btn primary">${gpxLbl('maximize', 'Enter Fullscreen')}</button>
+              </div>
+              <div class="gpa-row">
+                <button id="gpa-proxy-launch-here" class="gpa-btn primary" disabled>${gpxLbl('globe', 'Launch Proxy Here')}</button>
+                <button id="gpa-proxy-launch-blank" class="gpa-btn" disabled>${gpxLbl('external', 'Launch in about:blank')}</button>
+                <button id="gpa-proxy-end" class="gpa-btn" style="display:none;">${gpxLbl('x', 'Close Proxy')}</button>
+              </div>
+              <p class="gpa-sub gpx-field-hint">Launching the proxy and the sites you open in it are recorded on your account, where the owner can see them.</p>
+              <div id="gpa-proxy-launch-error" class="gpx-inline-error" role="alert" style="display:none;"></div>
             </div>
-            <p class="gpa-sub gpx-field-hint">Launching the proxy and the sites you open in it are recorded on your account, where the owner can see them.</p>
-            <div id="gpa-proxy-launch-error" class="gpx-inline-error" role="alert" style="display:none;"></div>
           </section>
           <section id="gpa-proxy-stage" class="gpx-browser" style="display:none;">
             <div class="gpx-browser-bar">
@@ -3987,15 +3999,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               <label class="gpx-field-label" for="gpa-proxy-key">Proxy access key (optional)</label>
               <input id="gpa-proxy-key" class="gpa-input" type="password" placeholder="Only if the proxy asks for one" autocomplete="off" spellcheck="false" />
             </details>
-          </section>
-          <section class="gpa-card gpx-card">
-            <div class="gpx-card-head">${GPS_ICONS.lab}<div class="gpa-card-title">Research mode</div></div>
-            <p class="gpa-sub">The AI reads web sources on a topic and writes you a brief with citations.</p>
-            <div class="gpa-row gpx-composer">
-              <input id="gpa-research-input" class="gpa-input" placeholder="Topic or question to research…" aria-label="Topic or question to research" />
-              <button id="gpa-research-btn" class="gpa-btn primary">Research</button>
-            </div>
-            <div id="gpa-research-out" class="gpa-output" style="max-height:260px;"></div>
           </section>
         </div>
       </div>
@@ -7414,7 +7417,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // news, and a small ambient 3D accent. Weather calls Open-Meteo directly
   // (no worker involved — see worker.js's content-type-locked /read route);
   // news reuses the app's own "AI picks a real URL -> worker /read -> AI
-  // summarizes only what's there" research pattern from the Proxy tab.
+  // summarizes only what's there" research pattern Notes uses.
   function renderWelcomeGreeting() {
     const greetEl = panel.querySelector('#gpa-welcome-greeting');
     const subEl = panel.querySelector('#gpa-welcome-sub');
@@ -16176,7 +16179,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { id: 'practice', label: 'Practice quiz', short: 'Practice', group: 'learning', icon: 'cap', sys: 'Write three multiple-choice practice questions that test understanding of the selected text. Number them, give four options (A–D) each, and list the answers at the end under "Answers:".' },
     { id: 'study', label: 'Make flashcards', short: 'Cards', group: 'learning', icon: 'cards', flags: ['study'], run: 'study' },
     { id: 'search', label: 'Search the web', short: 'Search', group: 'research', icon: 'search', run: 'search' },
-    { id: 'research', label: 'Research', short: 'Research', group: 'research', icon: 'network', flags: ['research', 'browser'], run: 'research' },
+    { id: 'research', label: 'Research', short: 'Research', group: 'research', icon: 'network', flags: ['research', 'notes'], run: 'research' },
     { id: 'insights', label: 'Ask in Page Insights', short: 'Insights', group: 'research', icon: 'scan', run: 'insights' },
     { id: 'save', label: 'Save', short: 'Save', group: 'productivity', icon: 'pin', run: 'save' },
     { id: 'notes', label: 'Add to Notes', short: 'Notes', group: 'productivity', icon: 'pen', flags: ['notes'], run: 'notes' },
@@ -16627,10 +16630,11 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         return;
       }
       if (t.run === 'research') {
-        openConsoleTab('browser');
-        const input = panel.querySelector('#gpa-research-input');
-        const go = panel.querySelector('#gpa-research-btn');
-        if (input && go) { input.value = text.slice(0, 300); go.click(); }
+        // Notes reads the text, researches it across the web and writes notes.
+        openConsoleTab('notes');
+        const input = panel.querySelector('#gpa-notes-input');
+        const go = panel.querySelector('#gpa-notes-go');
+        if (input && go) { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); go.click(); }
         hide();
         return;
       }
@@ -17269,49 +17273,6 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     });
     render();
   })();
-
-  // Research mode (Proxy tab): the AI picks 3 authoritative sources, the
-  // worker fetches them (pages block browser-side fetches with CORS), and
-  // the AI writes a brief with sources. Needs OPENAI_PROXY to be set.
-  panel.querySelector('#gpa-research-btn').addEventListener('click', async () => {
-    const q = panel.querySelector('#gpa-research-input').value.trim();
-    const out = panel.querySelector('#gpa-research-out');
-    if (!q) { out.textContent = 'Type a topic or question first.'; return; }
-    if (!OPENAI_PROXY) { out.textContent = 'Research mode needs the worker proxy (OPENAI_PROXY) to fetch pages.'; return; }
-    out.textContent = '🔎 Planning sources…';
-    try {
-      const planOut = await callAI(`I need to research: "${q}". Suggest 3 specific, authoritative web page URLs (direct articles or docs, not search result pages) that would contain good information about it. Respond ONLY with a JSON array of 3 URL strings.`, 'You are a research librarian.');
-      const urls = JSON.parse(planOut.match(/\[[\s\S]*\]/)[0]).slice(0, 3);
-      const srcs = [];
-      for (const u of urls) {
-        out.textContent = `🔎 Reading ${srcs.length + 1}/${urls.length}: ${u.slice(0, 60)}…`;
-        try {
-          const r = await rawFetch(`${OPENAI_PROXY}/read?url=${encodeURIComponent(u)}`, {
-            headers: authHeaders()
-          });
-          if (!r.ok) continue;
-          const html = await r.text();
-          const doc = new DOMParser().parseFromString(html, 'text/html');
-          doc.querySelectorAll('script,style,noscript,svg,nav,footer,header').forEach((el) => el.remove());
-          const txt = (doc.body.innerText || '').replace(/\s+\n/g, '\n').trim();
-          if (txt.length > 200) srcs.push({ url: u, text: txt.slice(0, 8000) });
-        } catch (e) { /* skip unreadable sources */ }
-      }
-      if (!srcs.length) { out.textContent = 'Could not read any of the suggested sources. Try rephrasing the topic.'; return; }
-      out.textContent = '✍️ Writing the report…';
-      const sys = 'You write tight research briefs. Plain text with short sections: SUMMARY (2-3 sentences), KEY POINTS (lines starting with "-"), then SOURCES (list the URLs). No markdown symbols.';
-      const body = srcs.map((s) => `SOURCE ${s.url}:\n${s.text}`).join('\n\n');
-      const report = await callAI(`TOPIC: ${q}\n\n${body.slice(0, 24000)}`, sys);
-      const clean = stripConfidence(report);
-      out.innerHTML = '';
-      const rep = document.createElement('div');
-      rep.className = 'gpa-msg ai';
-      out.appendChild(rep);
-      typeText(rep, clean, out, () => { appendModelBadge(rep); addSaveButton(rep, clean); speak(clean); });
-    } catch (e) {
-      showError(out, e, currentProviderLabel());
-    }
-  });
 
   // ---- Notes maker (Notes tab) ----------------------------------------------
   // Paste a passage → the AI reads it (title included), extracts structure,
@@ -23238,8 +23199,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // Quiz/tutor can be switched off without hiding the whole tab.
     [
       ['quiz', '#gpa-quiz-btn'], ['tutor', '#gpa-tutor-btn'],
-      ['watch', '#gpa-watch-btn'], ['autofill', '[data-action="autofill"]'],
-      ['research', '#gpa-research-btn']
+      ['watch', '#gpa-watch-btn'], ['autofill', '[data-action="autofill"]']
     ].forEach(([flag, sel]) => {
       const btn = panel.querySelector(sel);
       if (!btn) return;
@@ -25572,7 +25532,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const FLAGS = [
       ['quiz', 'Quiz solver'], ['tutor', 'Tutor mode'], ['games', 'Games'],
       ['music', 'Music'], ['browser', 'Proxy'], ['eaglercraft', 'Eaglercraft'], ['notes', 'Notes'], ['study', 'Study'],
-      ['watch', 'Page watcher'], ['autofill', 'Form auto-fill'], ['research', 'Research mode'], ['selection', 'Selection assistant']
+      ['watch', 'Page watcher'], ['autofill', 'Form auto-fill'], ['research', 'Research (selection assistant → Notes)'], ['selection', 'Selection assistant']
     ];
     let knownFlags = {};
     function renderFlags() {
