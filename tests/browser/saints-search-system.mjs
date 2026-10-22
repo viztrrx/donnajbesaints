@@ -11,7 +11,7 @@
 // Checks: the proxy (a site through Scramjet, Back, Home), saved sessions
 // (signed in through the console, a site's cookie saved, cleared by a new
 // session and brought back by Resume), the AI block and its "Use Saints
-// Service AI", the Google sign-in block and Go back, the Games tab (a game,
+// Service AI", "Continue with Google" going through, the Games tab (a game,
 // Back), and Eaglercraft from the Games tab through the Worker's /eagler/
 // frame with WASD and typing, in the tab and in about:blank.
 import fs from 'node:fs';
@@ -214,16 +214,15 @@ try {
     await ss.click('#sj-home-btn');
   });
 
-  await step('google sign-in block', async () => {
+  await step('google sign-in', async () => {
     await go(ss, SITE + '/one');
     await siteText(a.page, '#ok', /Hello/);
     const sf = await siteFrame(a.page);
     await sf.click('#google');
-    const shown = await ss.waitForSelector('#sj-block:not([hidden])', { timeout: 15000 }).then(() => true, () => false);
-    check('Google sign-in: "Continue with Google" shows the notice', shown && /doesn’t support signing in with Google/.test(await ss.innerText('#sj-block')), await ss.innerText('#sj-block').catch(() => ''));
-    await ss.click('#sj-block-back');
-    const back = await siteText(a.page, '#ok', /Hello/);
-    check('…Go back returns to the site to sign in another way', /Hello/.test(back) && await ss.isHidden('#sj-block'));
+    // No internet here, so Google itself can't load; what matters is that
+    // Saints Search lets the sign-in through instead of blocking it.
+    const went = await ss.waitForFunction(() => /^https:\/\/accounts\.google\.com\//.test(document.getElementById('sj-address').value), null, { timeout: 15000 }).then(() => true, () => false);
+    check('Google sign-in: "Continue with Google" goes on to Google, with no blocking notice', went && await ss.isHidden('#sj-block'), await ss.inputValue('#sj-address'));
     await ss.click('#sj-home-btn');
   });
 
