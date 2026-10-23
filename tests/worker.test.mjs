@@ -3,7 +3,9 @@
 // auth, permissions, memory, quotas and audit are exercised end to end.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../worker.js';
+import realWorker from '../worker.js';
+import { signedIn } from './signed-in.mjs';
+const worker = signedIn(realWorker);
 
 // ---- In-memory KV with the subset of the Workers KV API the worker uses ----
 function makeKV() {
@@ -226,8 +228,10 @@ test('identity: a session wins over an asserted username (spoofing is recorded)'
   const a = (await signUp(c, 'carol')).data.token;
   const r = await c.call('/track', { method: 'POST', body: { user: 'mallory', session: a, event: 'open', sid: 's1' } });
   assert.equal(r.data.session, 'ok', 'session accepted from the heartbeat body');
-  const legacy = await c.call('/track', { method: 'POST', body: { user: 'olduser', event: 'open', sid: 's2' } });
-  assert.equal(legacy.data.ok, true, 'legacy clients still work while requireSessions is off');
+  // A username with no session counts for nobody: the console is told to sign in.
+  const legacy = await realWorker.fetch(new Request('https://worker.test/track', { method: 'POST', body: JSON.stringify({ user: 'olduser', event: 'open', sid: 's2' }) }), env, { waitUntil() {} }).then((x) => x.json());
+  assert.equal(legacy.ok, false, 'a bare username is refused');
+  assert.equal(legacy.sessionRequired, true, 'and the console is told to sign in on the server');
   assert.equal(r.data.ok, true);
   assert.ok(await env.TELEMETRY.get('user:carol', 'json'));
   assert.equal(await env.TELEMETRY.get('user:mallory', 'json'), null);
@@ -654,7 +658,7 @@ test('allowed users: only listed names (and the owner) get in; others see "Unabl
   // Sign-in screen check.
   assert.deepEqual((await c.call('/access?user=stranger')).data, { allowed: false, error: 'Unable to create account', request: null });
   assert.deepEqual((await c.call('/access?user=Kj')).data, { allowed: true, sessionRequired: true }, 'case-insensitive; must sign in with the PIN');
-  assert.equal((await c.call('/access?user=boss')).data.sessionRequired, false, 'the owner keeps several devices'); 
+  assert.equal((await c.call('/access?user=boss')).data.sessionRequired, true, 'the owner signs in on the server too (and still keeps several devices)');
   assert.equal((await c.call('/access?user=boss')).data.allowed, true, 'the owner is always allowed');
 
   // Server accounts.
@@ -674,24 +678,24 @@ test('allowed users: only listed names (and the owner) get in; others see "Unabl
   assert.equal(beat.data.notAllowed, true);
   assert.equal(await env.TELEMETRY.get('user:stranger', 'json'), null);
   assert.equal(await env.TELEMETRY.get('session:x1'), null);
-  const st = await c.call('/status?user=stranger');
+  const st = await c.call('/status?user=stranger', { headers: { 'X-Test-Bare': '1' } });
   assert.equal(st.data.notAllowed, true);
   assert.equal(st.data.reason, 'Unable to create account');
   // A listed name alone (no PIN-checked session) gets nothing.
-  const bare = await c.call('/status?user=sam');
+  const bare = await c.call('/status?user=sam', { headers: { 'X-Test-Bare': '1' } });
   assert.equal(bare.data.notAllowed, true);
   assert.equal(bare.data.sessionRequired, true);
   assert.equal((await c.call('/status?user=kj', { headers: sess(kjTok) })).data.state, 'active');
 
   // Chat, page reading and AI are refused too.
-  assert.equal((await c.call('/chat/send', { method: 'POST', body: { user: 'stranger', text: 'hi', room: 'public' } })).data.ok, false);
-  assert.equal((await c.call('/chat/poll?room=public&since=0&user=stranger')).status, 403);
+  assert.equal((await c.call('/chat/send', { method: 'POST', headers: { 'X-Test-Bare': '1' }, body: { user: 'stranger', text: 'hi', room: 'public' } })).data.ok, false);
+  assert.equal((await c.call('/chat/poll?room=public&since=0&user=stranger', { headers: { 'X-Test-Bare': '1' } })).status, 403);
   assert.equal((await c.call('/chat/poll?room=public&since=0')).status, 403, 'anonymous readers too');
-  assert.equal((await c.call('/chat/poll?room=public&since=0&user=dub')).status, 403, 'a listed name without its PIN');
+  assert.equal((await c.call('/chat/poll?room=public&since=0&user=dub', { headers: { 'X-Test-Bare': '1' } })).status, 403, 'a listed name without its PIN');
   assert.equal((await c.call('/chat/poll?room=public&since=0&user=kj&s=' + encodeURIComponent(kjTok))).data.ok, true, 'session as ?s='); 
-  assert.equal((await c.call('/read?url=https://example.com', { headers: { 'X-GPA-User': 'stranger' } })).status, 403);
+  assert.equal((await c.call('/read?url=https://example.com', { headers: { 'X-GPA-User': 'stranger', 'X-Test-Bare': '1' } })).status, 403);
   const ai = await c.call('/v1/chat/completions', { method: 'POST', headers: { 'X-GPA-User': 'stranger', ...userKey }, body: { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'hi' }] } });
-  assert.equal(ai.status, 403);
+  assert.ok([401, 403].includes(ai.status), 'refused: ' + ai.status);
 
   // Blocked attempts show up in the security log.
   const sec = await c.call('/admin/security', { headers: owner });
@@ -1095,7 +1099,7 @@ test('free access: owner, admins and moderators can let someone in for free (no 
   await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'mod2', action: 'setrole', role: 'moderator' } });
   await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['pal', 'mod2'] } } });
   assert.equal((await free({ action: 'give', user: 'pal' }, sess(joeTok))).status, 403, 'a regular user is refused');
-  assert.equal((await free({ action: 'give', user: 'pal' }, {})).status, 401, 'nobody signed in is refused');
+  assert.equal((await free({ action: 'give', user: 'pal' }, { 'X-Test-Bare': '1' })).status, 401, 'nobody signed in is refused');
   const modLogin = await c.call('/auth/login', { method: 'POST', body: { user: 'mod2', verifier: verifierFor('mod2', '1234'), takeover: true } });
   assert.equal(modLogin.status, 200);
   const modTok = modLogin.data.token;
@@ -1369,7 +1373,7 @@ test('subscribers: a chosen start date, changing it later, amounts paid, and the
     assert.equal(r.data.subscriptions.find((x) => x.user === 'dub').startedAt, Date.now());
 
     // renzo sees his own countdown; dub's is his own; the owner and others see none.
-    const mine = (await c.call('/status?user=renzo')).data;
+    const mine = (await c.call('/status?user=renzo', { headers: { 'X-Test-Bare': '1' } })).data;
     assert.equal(mine.sessionRequired, true, 'listed names need a session');
     const reg = await signUp(c, 'renzo');
     s = (await c.call('/status?user=renzo', { headers: sess(reg.data.token) })).data.subscription;
@@ -1458,23 +1462,23 @@ test('proxy activity: launches and visits are logged per user and shown on their
   assert.equal((await log({ event: 'visit', url: 'https://example.com/page?q=secret#x' })).data.ok, true);
   assert.equal((await log({ event: 'visit', url: 'javascript:alert(1)' })).status, 400);
   assert.equal((await log({ event: 'other' })).status, 400);
-  // An older client that only sends the username is accepted too (the same
-  // identity rules as chat and AI; the owner can require sessions instead).
-  await c.call('/proxy/log', { method: 'POST', body: { user: 'pia', event: 'launch', mode: 'here' } });
+  // An older client that only sends the username is refused: it must sign in.
+  const bareLog = await c.call('/proxy/log', { method: 'POST', headers: { 'X-Test-Bare': '1' }, body: { user: 'pia', event: 'launch', mode: 'here' } });
+  assert.notEqual(bareLog.data.ok, true, 'a bare username writes nothing');
   // Another user's name can't be used to write into pia's log.
   const b = (await signUp(c, 'bob')).data.token;
   await c.call('/proxy/log', { method: 'POST', headers: sess(b), body: { user: 'pia', event: 'visit', url: 'https://evil.example/' } });
   const p = (await c.call('/admin/user?u=pia', { headers: owner })).data.proxy;
-  assert.equal(p.launches, 3);
+  assert.equal(p.launches, 2);
   assert.equal(p.visits, 1);
-  assert.deepEqual(p.recent.map((x) => [x.ev, x.mode || x.url]), [['launch', 'here'], ['visit', 'https://example.com/page'], ['launch', 'blank'], ['launch', 'here']]);
-  // With "Require verified sessions" on, a username alone is refused again.
+  assert.deepEqual(p.recent.map((x) => [x.ev, x.mode || x.url]), [['visit', 'https://example.com/page'], ['launch', 'blank'], ['launch', 'here']]);
+  // With "Require verified sessions" on, a username alone is still refused.
   await c.call('/admin/config', { method: 'POST', headers: owner, body: { requireSessions: true } });
-  assert.equal((await c.call('/proxy/log', { method: 'POST', body: { user: 'pia', event: 'launch', mode: 'here' } })).data.ok, false);
-  assert.equal((await c.call('/admin/user?u=pia', { headers: owner })).data.proxy.launches, 3);
+  assert.equal((await c.call('/proxy/log', { method: 'POST', headers: { 'X-Test-Bare': '1' }, body: { user: 'pia', event: 'launch', mode: 'here' } })).data.ok, false);
+  assert.equal((await c.call('/admin/user?u=pia', { headers: owner })).data.proxy.launches, 2);
   await c.call('/admin/config', { method: 'POST', headers: owner, body: { requireSessions: false } });
   // The owner's name can't be claimed without proof.
-  assert.equal((await c.call('/proxy/log', { method: 'POST', body: { user: 'boss', event: 'launch', mode: 'here' } })).data.ok, false);
+  assert.equal((await c.call('/proxy/log', { method: 'POST', headers: { 'X-Test-Bare': '1' }, body: { user: 'boss', event: 'launch', mode: 'here' } })).data.ok, false);
   assert.equal((await c.call('/admin/user?u=bob', { headers: owner })).data.proxy.recent[0].url, 'https://evil.example/', 'bob’s report went to bob');
   // Users can't read the log; deleting the user deletes it.
   assert.equal((await c.call('/admin/user?u=pia', { headers: sess(a) })).status >= 400, true);
@@ -1520,5 +1524,6 @@ test('proxy activity: live status from the heartbeat, and today by user in /admi
   assert.equal(livedata.entries[0].q, 'funny cats');
   assert.equal(livedata.entries[0].url, 'https://www.google.com/search', 'the resolved URL is still stored, query stripped');
   const { PUSH_CATEGORIES } = await import('../web/console/push.js');
-  assert.equal(PUSH_CATEGORIES.proxy.on, true, 'owner devices get Proxy alerts by default');
+  assert.equal(PUSH_CATEGORIES.proxylaunch.on, true, 'owner devices get Proxy launch alerts by default');
+  assert.equal(PUSH_CATEGORIES.proxysites.on, true, 'and sites opened');
 });

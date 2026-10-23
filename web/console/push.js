@@ -27,11 +27,13 @@ export const PUSH_CATEGORIES = {
   access: { label: 'Access requests', group: 'People', on: true },
   subs: { label: 'Subscriptions ending', group: 'People', on: true },
   presence: { label: 'Who’s online (live)', group: 'People', on: false },
-  proxy: { label: 'Proxy tab: launches and sites opened', group: 'People', on: true },
+  proxylaunch: { label: 'Proxy launches (in the tab or about:blank)', group: 'Proxy', on: true },
+  proxysites: { label: 'Sites opened and searches in the Proxy', group: 'Proxy', on: true },
   aierror: { label: 'AI request failures', group: 'AI', on: true },
   limits: { label: 'Rate limits and quotas reached', group: 'AI', on: true },
   error: { label: 'Worker errors', group: 'System', on: true },
   security: { label: 'Security alerts', group: 'System', on: true },
+  pinhelp: { label: 'PIN resets and account unlocks', group: 'System', on: true },
   admin: { label: 'Actions by your admins', group: 'System', on: true },
   jobs: { label: 'Failed scheduled jobs', group: 'System', on: true },
   digest: { label: 'Daily summary at 12 PM', group: 'System', on: true },
@@ -152,13 +154,19 @@ export function validSubscription(s) {
     return b64u.dec(keys.p256dh || '').length === 65 && b64u.dec(keys.auth || '').length === 16;
   } catch (e) { return false; }
 }
+// Categories that were split later: a device's choice for the old one still
+// counts for the new ones until it picks them separately ("proxy" became
+// proxylaunch + proxysites; PIN help used to be part of "security").
+const LEGACY_CATEGORY = { proxylaunch: 'proxy', proxysites: 'proxy', pinhelp: 'security' };
+const pick = (given, k) => (typeof given[k] === 'boolean' ? given[k]
+  : LEGACY_CATEGORY[k] && typeof given[LEGACY_CATEGORY[k]] === 'boolean' ? given[LEGACY_CATEGORY[k]] : PUSH_CATEGORIES[k].on);
 export function cleanCategories(cats) {
   const out = {};
   const given = cats && typeof cats === 'object' ? cats : {};
-  for (const [k, c] of Object.entries(PUSH_CATEGORIES)) out[k] = typeof given[k] === 'boolean' ? given[k] : c.on;
+  for (const k of Object.keys(PUSH_CATEGORIES)) out[k] = pick(given, k);
   return out;
 }
-const wants = (s, cat) => (s.categories && typeof s.categories[cat] === 'boolean' ? s.categories[cat] : PUSH_CATEGORIES[cat].on);
+const wants = (s, cat) => (PUSH_CATEGORIES[cat] ? pick(s.categories && typeof s.categories === 'object' ? s.categories : {}, cat) : true);
 // Quiet hours: { start, end } whole hours in the owner's time zone, or null.
 export function cleanQuiet(q) {
   if (!q || typeof q !== 'object') return null;
@@ -322,9 +330,46 @@ export async function pushOnDevice(env, user, ua, isOwner) {
 }
 export async function userHasAlerts(env, user) { return (await readUserSubs(env.TELEMETRY, user)).length > 0; }
 // event: { title, body, url, tag? }. Never throws.
+// Personal alerts (Settings → Account → Mention alerts) per person, for all
+// their devices. Everyone has the chat ones; staff also get the alerts the
+// Worker sends to the owner's admins. Anything else a staff alert carries
+// falls under "staff".
+export const USER_ALERT_CATEGORIES = {
+  dm: { label: 'Direct and group messages', group: 'Chat', on: true },
+  mentions: { label: 'Mentions of you (@name)', group: 'Chat', on: true },
+  everyone: { label: '@everyone messages', group: 'Chat', on: true },
+  proxylaunch: { label: 'Proxy launches (in the tab or about:blank)', group: 'Proxy', on: true, staff: true },
+  proxysites: { label: 'Sites opened and searches in the Proxy', group: 'Proxy', on: true, staff: true },
+  security: { label: 'Security alerts (lockouts, spoofing)', group: 'Staff', on: true, staff: true },
+  pinhelp: { label: 'PIN resets and account unlocks', group: 'Staff', on: true, staff: true },
+  newuser: { label: 'New subscribers and their emails', group: 'Staff', on: true, staff: true },
+  staff: { label: 'Other staff alerts', group: 'Staff', on: true, staff: true }
+};
+const prefsKey = (user) => 'pushprefs:' + String(user || '').trim().toLowerCase().slice(0, 40);
+export function userAlertDefs(staff) {
+  const out = {};
+  for (const [k, c] of Object.entries(USER_ALERT_CATEGORIES)) if (staff || !c.staff) out[k] = { label: c.label, group: c.group, on: c.on };
+  return out;
+}
+export async function getUserPrefs(kv, user) {
+  let saved = {};
+  try { saved = (await kv.get(prefsKey(user), 'json')) || {}; } catch (e) { saved = {}; }
+  const out = {};
+  for (const [k, c] of Object.entries(USER_ALERT_CATEGORIES)) out[k] = typeof saved[k] === 'boolean' ? saved[k] : c.on;
+  return out;
+}
+export async function setUserPrefs(kv, user, patch) {
+  const cur = await getUserPrefs(kv, user);
+  for (const k of Object.keys(USER_ALERT_CATEGORIES)) if (patch && typeof patch[k] === 'boolean') cur[k] = patch[k];
+  await kv.put(prefsKey(user), JSON.stringify(cur));
+  return cur;
+}
+const userCat = (cat) => (USER_ALERT_CATEGORIES[cat] ? cat : cat === 'mention' ? 'mentions' : 'staff');
+
 export async function notifyUser(env, user, event, origin) {
   try {
     const kv = env && env.TELEMETRY;
+    if (event && event.cat !== 'test' && (await getUserPrefs(kv, user))[userCat(event.cat)] === false) return { sent: 0, off: true };
     const subs = await readUserSubs(kv, user);
     if (!subs.length) return { sent: 0 };
     const keys = await vapidKeys(env);

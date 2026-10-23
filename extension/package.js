@@ -1,15 +1,59 @@
 // Server-side packaging of the existing Saints Service script as an installable
 // Chrome Manifest V3 extension. The executable script is placed inside the ZIP
 // at download time; the installed extension never loads remote JavaScript.
-const manifest = {
+//
+// The script is the same file the bookmarklet runs, so every console feature
+// ships in the ZIP. This file adds only what an extension context needs on
+// top: the version Chrome shows, libraries the script would otherwise add as
+// a page <script> (those land in the page's world, where the extension's copy
+// of the script can't see them), and a Reload button that doesn't eval.
+const manifestFor = (version) => ({
   manifest_version: 3,
   name: 'Saints Service',
-  version: '1.0.0',
+  version: version.chrome,
+  version_name: 'v' + version.app,
   description: 'Open the Saints Service interface on the current page when you choose.',
   permissions: ['activeTab', 'scripting'],
-  action: { default_popup: 'popup.html', default_title: 'Saints Service' }
+  action: { default_popup: 'popup.html', default_title: 'Saints Service v' + version.app }
+});
+
+// script.js computes its version from CHANGELOG at runtime (computeVersions).
+// The console-wide number needs only each entry's time and its strongest
+// kind, so it is recomputed here the same way: the first entry is 1.0.0,
+// redesign bumps major, feature/added minor, fix patch. Chrome takes up to
+// four integers; the entry count is the fourth, so every new release of the
+// script installs over the old ZIP as an update.
+const KIND_RANK = { fix: 1, feature: 2, added: 2, redesign: 3 };
+export function scriptVersion(script) {
+  const fallback = { app: '1.0.0', chrome: '1.0.0' };
+  const start = script.indexOf('const CHANGELOG = [');
+  const end = start < 0 ? -1 : script.indexOf('\n  ];', start);
+  if (end < 0) return fallback;
+  const entries = script.slice(start, end).split("{ at: '").slice(1).map((chunk) => {
+    const kinds = [...chunk.matchAll(/\['(added|feature|fix|redesign)'/g)].map((m) => KIND_RANK[m[1]]);
+    return { at: Date.parse(chunk.slice(0, chunk.indexOf("'"))), top: Math.max(1, ...kinds) };
+  }).filter((e) => Number.isFinite(e.at)).sort((a, b) => a.at - b.at);
+  if (!entries.length) return fallback;
+  let v = [1, 0, 0];
+  for (const e of entries.slice(1)) {
+    if (e.top === 3) v = [v[0] + 1, 0, 0];
+    else if (e.top === 2) v = [v[0], v[1] + 1, 0];
+    else v = [v[0], v[1], v[2] + 1];
+  }
+  const app = v.join('.');
+  return { app, chrome: app + '.' + Math.min(entries.length, 65535) };
+}
+
+// three.js for the Welcome globe. script.js loads it as a page <script>,
+// which defines THREE in the page's world, not the extension's, so the globe
+// never mounts (and strict-CSP pages refuse the CDN outright). routes.js
+// fetches this exact build and checks the hash; the popup injects it into the
+// extension's world before script.js, and loadThreeJs() finds THREE ready.
+export const THREE_JS = {
+  url: 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
+  sha256: '170c6789f43217c96b3170f4b42fafe135de7f7cd48497a4218f9757ee1d49fa'
 };
-const popupHtml = `<!doctype html>
+const popupHtmlFor = (version) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Saints Service</title><style>
 :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;width:310px;padding:18px;background:#101318;color:#edf2f7;font:14px/1.5 system-ui,-apple-system,sans-serif}
@@ -24,8 +68,9 @@ small{display:block;margin-top:14px;color:#788995;line-height:1.5}
 <button id="toggle" type="button">Open / hide Saints Service</button>
 <p id="status" role="status" aria-live="polite"></p>
 <small>Chrome protects its own pages, the Web Store, and some restricted sites. The extension cannot run there. This extension never opens automatically.</small>
+<small>Saints Service v${version.app}</small>
 <script src="popup.js"></script></body></html>`;
-const popupJs = `'use strict';
+const popupJsFor = (files) => `'use strict';
 const button = document.getElementById('toggle');
 const status = document.getElementById('status');
 button.addEventListener('click', async () => {
@@ -40,7 +85,7 @@ button.addEventListener('click', async () => {
     }
     await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: false },
-      files: ['script.js'],
+      files: ${JSON.stringify(files)},
       world: 'ISOLATED'
     });
     status.textContent = 'Done. Use the floating panel on the page.';
@@ -66,8 +111,12 @@ Install:
 No site access is requested until you click the extension. Chrome's own pages,
 the Chrome Web Store and certain restricted websites cannot be injected.
 Your existing settings and session may be specific to each website origin.
+Every ZIP holds the Saints Service script as it was when you downloaded it,
+with all of its features. The popup and chrome://extensions show which
+version you have, the same number as Settings > Advanced > Version history.
 To update, download a new ZIP, extract to the same folder (or replace it),
-then click Reload under chrome://extensions.
+then click Reload under chrome://extensions. The console's own Reload button
+can't update an extension; it tells you to do this instead.
 
 The code is bundled with the ZIP at download time, not downloaded and executed
 from a remote address by the installed extension. The extension does not grant
@@ -121,21 +170,35 @@ function zip(files) {
   put32(e, 12, centralSize); put32(e, 16, offset); put16(e, 20, 0);
   return new Blob([...localParts, ...centralParts, end], { type: 'application/zip' });
 }
-export function buildSaintsExtensionZip(script) {
+// `three` is the three.js build from THREE_JS (already hash-checked by the
+// caller). Without it the ZIP still works; only the Welcome globe is missing.
+export function buildSaintsExtensionZip(script, { three } = {}) {
   if (typeof script !== 'string' || script.length < 10000 || !script.includes('gpa-root-host')) {
     throw new Error('Invalid Saints Service script');
   }
   // A packaged extension cannot eval remote JS: the "Reload" action must not
   // bypass MV3's prohibition. Other features continue using the local script.
+  // If script.js ever renames reloadInterface, refuse to build rather than
+  // ship a Reload button that tries to eval.
+  const reloadHook = 'async function reloadInterface(btn) {';
+  if (!script.includes(reloadHook)) throw new Error('Saints Service script has no reloadInterface()');
   const bundled = script.replace(
-    'async function reloadInterface(btn) {',
-    "async function reloadInterface(btn) {\n    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {\n      showToast('Update this Chrome extension by downloading its latest ZIP from Settings, then reload it in chrome://extensions.');\n      return;\n    }"
+    reloadHook,
+    reloadHook + "\n    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {\n      showToast('Update this Chrome extension by downloading its latest ZIP from Settings → Account (or Admin → Extension & Access), then reload it in chrome://extensions.');\n      return;\n    }"
   );
+  const version = scriptVersion(script);
+  const files = [];
+  if (typeof three === 'string' && three.includes('three.js')) {
+    // The r160 build opens with a console.warn about its own deprecation,
+    // joined to the bundle by a comma; `void 0` keeps the expression intact.
+    files.push(['three.min.js', three.replace(/^console\.warn\([^\n]*?\),\n/, 'void 0,\n')]);
+  }
+  files.push(['script.js', bundled]);
   return zip([
-    ['manifest.json', JSON.stringify(manifest, null, 2) + '\n'],
-    ['popup.html', popupHtml],
-    ['popup.js', popupJs],
-    ['script.js', bundled],
+    ['manifest.json', JSON.stringify(manifestFor(version), null, 2) + '\n'],
+    ['popup.html', popupHtmlFor(version)],
+    ['popup.js', popupJsFor(files.map(([name]) => name))],
+    ...files,
     ['README.txt', installText]
   ]);
 }

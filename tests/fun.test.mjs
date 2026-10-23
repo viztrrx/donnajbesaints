@@ -3,7 +3,9 @@
 // Run with `npm test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { ChatRoom } from '../worker.js';
+import realWorker, { ChatRoom } from '../worker.js';
+import { signedIn } from './signed-in.mjs';
+const worker = signedIn(realWorker);
 import { TRIVIA } from '../chat/trivia.js';
 
 function makeKV() {

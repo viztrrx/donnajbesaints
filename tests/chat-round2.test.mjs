@@ -2,7 +2,9 @@
 // @mention alerts for everyone, voice messages. Run with `npm test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { ChatRoom } from '../worker.js';
+import realWorker, { ChatRoom } from '../worker.js';
+import { signedIn } from './signed-in.mjs';
+const worker = signedIn(realWorker);
 import { b64u } from '../web/console/push.js';
 
 function makeKV() {
@@ -223,4 +225,52 @@ test('voice messages: real audio only, Range streaming for Safari', async () => 
   assert.equal(whole.status, 200);
   assert.equal(whole.headers.get('Accept-Ranges'), 'bytes');
   assert.equal((await whole.arrayBuffer()).byteLength, 4000);
+});
+
+test('personal alert settings: everyone picks chat alerts; staff also pick proxy and staff alerts', async () => {
+  const t = setup();
+  const v = (u) => (u + '0'.repeat(64)).slice(0, 64).replace(/[^0-9a-f]/g, 'a');
+  const reg = async (u) => (await t.call('/auth/register', { method: 'POST', body: { user: u, verifier: v(u) } })).data.token;
+  const maya = await reg('maya');
+  await reg('adi');
+  await t.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'adi', action: 'setrole', role: 'admin' } });
+  // A new role ends old sign-ins: sign in again as the admin.
+  const adi = (await t.call('/auth/login', { method: 'POST', body: { user: 'adi', verifier: v('adi'), takeover: true } })).data.token;
+  const S = (tok) => ({ 'X-GPA-Session': tok });
+  // A regular person sees only the chat alerts.
+  const mine = (await t.call('/push/me/prefs', { method: 'POST', headers: S(maya), body: {} })).data;
+  assert.deepEqual(Object.keys(mine.defs), ['dm', 'mentions', 'everyone']);
+  assert.equal((await t.call('/push/me/prefs', { method: 'POST', body: {} })).status, 401, 'needs a session');
+  // Mentions off: no mention alert for maya.
+  await t.call('/push/me/subscribe', { method: 'POST', headers: S(maya), body: { subscription: await makeDevice(), name: 'iPhone' } });
+  const off = (await t.call('/push/me/prefs', { method: 'POST', headers: S(maya), body: { categories: { mentions: false } } })).data;
+  assert.equal(off.categories.mentions, false);
+  pushes.length = 0;
+  await send(t, 'kj', 'hey @maya');
+  await t.settle();
+  assert.equal(pushes.length, 0, 'mentions off means no alert');
+  await t.call('/push/me/prefs', { method: 'POST', headers: S(maya), body: { categories: { mentions: true } } });
+  await send(t, 'zed', 'hey @maya');
+  await t.settle();
+  assert.equal(pushes.length, 1, 'back on');
+  // An admin also gets the proxy and staff toggles, and they work.
+  const adm = (await t.call('/push/me/prefs', { method: 'POST', headers: S(adi), body: {} })).data;
+  for (const k of ['proxylaunch', 'proxysites', 'security', 'pinhelp', 'newuser', 'staff']) assert.ok(k in adm.defs, k);
+  await t.call('/push/me/subscribe', { method: 'POST', headers: S(adi), body: { subscription: await makeDevice(), name: 'Browser' } });
+  const ria = await reg('ria');
+  pushes.length = 0;
+  await t.call('/proxy/log', { method: 'POST', headers: S(ria), body: { user: 'ria', event: 'launch', mode: 'blank' } });
+  await t.settle();
+  assert.equal(pushes.length, 1, 'the admin is told about a launch');
+  await t.call('/push/me/prefs', { method: 'POST', headers: S(adi), body: { categories: { proxylaunch: false } } });
+  pushes.length = 0;
+  await t.call('/proxy/log', { method: 'POST', headers: S(ria), body: { user: 'ria', event: 'launch', mode: 'here' } });
+  await t.settle();
+  assert.equal(pushes.length, 0, 'launch alerts off');
+  await t.call('/proxy/log', { method: 'POST', headers: S(ria), body: { user: 'ria', event: 'visit', url: 'https://example.com/' } });
+  await t.settle();
+  assert.equal(pushes.length, 1, 'site alerts are separate and still on');
+  // A regular person can't switch staff alerts on for themselves.
+  const tried = (await t.call('/push/me/prefs', { method: 'POST', headers: S(maya), body: { categories: { proxylaunch: true } } })).data;
+  assert.ok(!('proxylaunch' in tried.categories));
 });

@@ -3,7 +3,9 @@
 // the owner-only routes and the events that trigger alerts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { ChatRoom } from '../worker.js';
+import realWorker, { ChatRoom } from '../worker.js';
+import { signedIn } from './signed-in.mjs';
+const worker = signedIn(realWorker);
 import { b64u, encryptPayload, validSubscription } from '../web/console/push.js';
 
 const enc = new TextEncoder();
@@ -220,6 +222,9 @@ test('push: private rooms, mentions, approval queue, quiet hours, who\'s online 
     const sub = data.subscription;
     assert.equal(sub.categories.presence, true);
     const got = async () => { await t.settle(); const out = []; for (const p of t.pushes.splice(0)) out.push(await decrypt(d, p.body)); return out; };
+    // Their server accounts exist before the alerts below are counted.
+    for (const u of ['kj', 'amy', 'zed']) await t.call('/status?user=' + u);
+    await got();
 
     // Private room messages are their own kind and name the room.
     const room = await t.call('/admin/rooms', { method: 'POST', headers: owner, body: { action: 'create', name: 'Study Group' } });
@@ -397,7 +402,7 @@ test('push: subscriptions — a reminder 3 days before, and an alert when one en
   } finally { Date.now = realNow; t.restore(); }
 });
 
-test('push: the Proxy tab — a launch (tab or about:blank) and each site opened alert the owner', async () => {
+test('push: the Proxy tab — a launch (tab or about:blank) and each site opened alert the owner, each with its own toggle', async () => {
   const t = setup();
   try {
     await t.call('/push/key');
@@ -408,23 +413,33 @@ test('push: the Proxy tab — a launch (tab or about:blank) and each site opened
     await got();   // sign-up alerts aren't this test's
     const S = { 'X-GPA-Session': tok };
     await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'launch', mode: 'blank' } });
-    let n = (await got()).filter((m) => m.cat === 'proxy');
+    let n = (await got()).filter((m) => /^proxy/.test(m.cat));
     assert.equal(n.length, 1);
     assert.equal(n[0].title, 'ria launched the Proxy');
     assert.match(n[0].body, /^In an about:blank window · \d{1,2}:\d{2} [AP]M/);
     assert.equal(n[0].url, '/console/#tab=admin&sec=proxy&user=ria');
     await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'visit', url: 'https://example.com/news?id=7' } });
-    n = (await got()).filter((m) => m.cat === 'proxy');
+    n = (await got()).filter((m) => /^proxy/.test(m.cat));
     assert.equal(n[0].title, 'ria opened example.com/news');
     assert.match(n[0].body, /^https:\/\/example\.com\/news · in an about:blank window · /);
     // The same page again within a minute (a reload) doesn't alert again.
     await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'visit', url: 'https://example.com/news' } });
-    assert.equal((await got()).filter((m) => m.cat === 'proxy').length, 0);
-    // A device that turned Proxy alerts off gets none.
-    const subs = JSON.parse(t.env.TELEMETRY.store.get('push:subs'));
-    subs[0].categories = { ...(subs[0].categories || {}), proxy: false };
-    t.env.TELEMETRY.store.set('push:subs', JSON.stringify(subs));
+    assert.equal((await got()).filter((m) => /^proxy/.test(m.cat)).length, 0);
+    // Launches off: no launch alert, but sites still come.
+    const setCats = (cats) => { const subs = JSON.parse(t.env.TELEMETRY.store.get('push:subs')); subs[0].categories = cats; t.env.TELEMETRY.store.set('push:subs', JSON.stringify(subs)); };
+    setCats({ proxylaunch: false });
     await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'launch', mode: 'here' } });
-    assert.equal((await got()).filter((m) => m.cat === 'proxy').length, 0);
+    assert.equal((await got()).filter((m) => /^proxy/.test(m.cat)).length, 0, 'launch alert off');
+    await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'visit', url: 'https://example.org/' } });
+    assert.deepEqual((await got()).map((m) => m.cat), ['proxysites'], 'sites still on');
+    // Sites off too.
+    setCats({ proxylaunch: false, proxysites: false });
+    await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'visit', url: 'https://example.net/' } });
+    assert.equal((await got()).length, 0, 'site alert off');
+    // A device that turned the old single "proxy" toggle off keeps both off.
+    setCats({ proxy: false });
+    await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'launch', mode: 'blank' } });
+    await t.call('/proxy/log', { method: 'POST', headers: S, body: { user: 'ria', event: 'visit', url: 'https://example.com/other' } });
+    assert.equal((await got()).length, 0, 'old proxy:false still means off');
   } finally { t.restore(); }
 });

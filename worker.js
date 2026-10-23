@@ -7,7 +7,7 @@ import { parseYouTubeLink, videoDetails, rightsNote } from './web/mp3.js';
 import { smsReady, normPhone, prettyPhone, sendSms, telnyxSignatureOk, smsKeyword, namesList } from './web/sms.js';
 import { readPlaylist, readLists, writeLists, newList, listSummary, publicList, searchYouTube, matchCacheKey, LISTS_MAX, MATCH_BATCH, MATCH_SCAN } from './web/playlists.js';
 import { audiusSearch, audiusStream, listLibrary, addToLibrary, removeFromLibrary, serveLibraryFile, audioKind, listMine, mineUsage, addToMine, removeFromMine, editMine, editLibrary, MINE_DAILY_UPLOADS } from './web/music.js';
-import { PUSH_CATEGORIES, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime, cleanCategories, anySubscriberWants,
+import { PUSH_CATEGORIES, userAlertDefs, getUserPrefs, setUserPrefs, vapidKeys, validSubscription, addSubscription, updateSubscription, removeSubscription, getSubscription, sendPush, notifyOwner, ownerTime, cleanCategories, anySubscriberWants,
   ownerHour, addUserSubscription, findUserSubscription, removeUserSubscription, userHasAlerts, notifyUser, rememberUserDevice, pushOnDevice } from './web/console/push.js';
 import { validateMutation } from './mobile/backend/validation.js';
 import { handleClaudeAdmin, handleClaudeCallback } from './web/console/claude.js';
@@ -1227,6 +1227,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         await noteSec('session_required', { user: claimed, note: sessionProblem || 'no session' });
         return { user: '', verified: false, refused: true, sessionRequired: true };
       }
+      // With server accounts set up, a username alone never counts for
+      // anyone: every console (including older copies already open, and
+      // Chrome extensions built from an older script) that is signed in
+      // without a PIN-checked session is told sessionRequired and signs out.
+      if (sessionKey() && claimed.trim()) return { user: '', verified: false, refused: true, sessionRequired: true };
       return { user: claimed, verified: false };
     };
 
@@ -2592,7 +2597,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         await noteSec(matched ? 'pin_reset_by_student' : 'pin_request', { user: acct.user, note: email });
         await signinLog({ type: matched ? 'pinauto' : 'pinreq', user: acct.user, email, detail: matched ? 'new PIN set: student number matched' : 'waiting for approval (no student number on file)' });
         const where = sameDevice ? 'their usual device' : sameBrowser ? 'the same kind of browser, another network' : 'a device they haven’t used before';
-        notifyStaff({ cat: 'security', urgent: !matched, tag: 'pinreq-' + acct.user.toLowerCase(), title: matched ? acct.user + ' reset their PIN' : acct.user + ' forgot their PIN',
+        notifyStaff({ cat: 'pinhelp', urgent: !matched, tag: 'pinreq-' + acct.user.toLowerCase(), title: matched ? acct.user + ' reset their PIN' : acct.user + ' forgot their PIN',
           body: matched ? 'Student number ' + email + ' matched, so the new PIN works now (from ' + where + ').' : 'No student number on file (gave ' + email + '). From ' + where + '. Approve or deny in Admin → Security → Sign-in help.',
           url: adminLink('security', { focus: 'signinhelp', user: acct.user }) });
         return json({ ok: true, ticket, approved: matched });
@@ -2631,7 +2636,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         await kv.put(usedKey, '1', { expirationTtl: 2 * 24 * 3600 });
         await noteSec('acct_unlock_self', { user: acct.user });
         await signinLog({ type: 'acctunlockself', user: acct.user, email: sid + '@' + SCHOOL_DOMAIN, detail: 'unlocked with their school email' });
-        notifyStaff({ cat: 'security', tag: 'acctlock-' + u, title: acct.user + ' unlocked their account', body: 'With their school email ' + sid + '@' + SCHOOL_DOMAIN + ' (once a day). If it locks again today, only you or an admin can unlock it.', url: adminLink('security', { focus: 'signinhelp', user: acct.user }) });
+        notifyStaff({ cat: 'pinhelp', tag: 'acctlock-' + u, title: acct.user + ' unlocked their account', body: 'With their school email ' + sid + '@' + SCHOOL_DOMAIN + ' (once a day). If it locks again today, only you or an admin can unlock it.', url: adminLink('security', { focus: 'signinhelp', user: acct.user }) });
         return json({ ok: true });
       }
       // Is this device locked (sign-in screen poll)?
@@ -2688,7 +2693,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           await kv.put(acctKey(acct.user), JSON.stringify(acct));
           await kv.delete(pinResetKey(acct.user));   // used up
           await noteSec('pin_reset_done', { user: acct.user });
-          notify({ cat: 'security', title: acct.user + ' set a new PIN', body: 'With the reset code you gave them.', url: adminLink('security', { focus: 'allow', user: acct.user }) });
+          notify({ cat: 'pinhelp', title: acct.user + ' set a new PIN', body: 'With the reset code you gave them.', url: adminLink('security', { focus: 'allow', user: acct.user }) });
           ok = true;
         }
         if (!ok) {
@@ -3462,7 +3467,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       // (which only lets the owner and admins in) before it opens.
       // (Not for the owner's name: the owner may use the app without a server
       // account, as before.)
-      if (ok) return json({ allowed: true, sessionRequired: singleSession(cfg, name), ...(appGateOn(cfg) && fromApp() && name.trim().toLowerCase() !== OWNER ? { appStaffOnly: true } : {}) });
+      // sessionRequired for every name (the owner's too) whenever server
+      // accounts exist, so older consoles also sign in on the server first.
+      if (ok) return json({ allowed: true, sessionRequired: singleSession(cfg, name) || !!sessionKey(), ...(appGateOn(cfg) && fromApp() && name.trim().toLowerCase() !== OWNER ? { appStaffOnly: true } : {}) });
       if (name) await noteSec('not_allowed', { user: name, note: 'sign-in screen' });
       const nowLocked = name && dev ? await deviceFail(dev, 'notAllowed', name) : null;
       if (nowLocked) return json({ allowed: false, deviceLocked: true, until: nowLocked.until, error: 'This device is locked after too many sign-in attempts. The owner has been told.' });
@@ -3577,6 +3584,14 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           if (!validSubscription(body.subscription)) return json({ error: 'That is not a push subscription from a supported browser.' }, 400);
           await vapidKeys(env, { create: true });
           return json({ ok: true, subscription: await addUserSubscription(env, p.user, body.subscription, body.name, (await deviceHashes()).uaH) });
+        }
+        // Which personal alerts this person wants (all their devices).
+        if (url.pathname === '/push/me/prefs') {
+          const staff = ['owner', 'admin', 'moderator'].includes(p.role);
+          const prefs = body && body.categories && typeof body.categories === 'object'
+            ? await setUserPrefs(env.TELEMETRY, p.user, body.categories) : await getUserPrefs(env.TELEMETRY, p.user);
+          const defs = userAlertDefs(staff);
+          return json({ ok: true, defs, categories: Object.fromEntries(Object.keys(defs).map((k) => [k, prefs[k]])) });
         }
         const mid = String(body.id || ''), mkey = String(body.key || '');
         if (url.pathname === '/push/me/unsubscribe') return json({ ok: await removeUserSubscription(env, p.user, mid, mkey) });
@@ -4254,7 +4269,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           const changed = (rec.emailChanges || 0) > 0;
           const alert = { title: (changed ? 'Email changed: ' : 'New subscriber email: ') + user, body: email + ' · Share the setup Google Doc with them in Admin → Security → New subscribers.', url: adminLink('security', { focus: 'emails', user }), tag: 'subemail-' + key };
           await notifyOwner(env, { cat: 'newuser', ...alert }, url.origin).catch(() => {});
-          for (const a of await adminNames(kv)) await notifyUser(env, a, alert, url.origin).catch(() => {});
+          for (const a of await adminNames(kv)) await notifyUser(env, a, { cat: 'newuser', ...alert }, url.origin).catch(() => {});
           return json({ ok: true, email });
         }
         if (url.pathname === '/subscribe/status' && req.method === 'GET') {
@@ -4843,7 +4858,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             const tk = 'push:mrl:' + userLower + ':' + n;
             if (await kv.get(tk)) continue;
             await kv.put(tk, '1', { expirationTtl: 60 });
-            await notifyUser(env, n, { title: conv.kind === 'group' ? user + ' in ' + conv.name : user, body: said, url: linkTo, tag: 'dm-' + access.id }, url.origin);
+            await notifyUser(env, n, { cat: 'dm', title: conv.kind === 'group' ? user + ' in ' + conv.name : user, body: said, url: linkTo, tag: 'dm-' + access.id }, url.origin);
           }
         })().catch(() => {}));
       }
@@ -4862,7 +4877,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             if (!n || n === userLower || n === OWNER || n === 'anonymous') continue;
             if (access.id === STAFF_ROOM) { const a = await getAcct(kv, n); if (!a || (ROLE_RANK_V2[a.role] || 0) < ROLE_RANK_V2.moderator) continue; }
             if (!(await userHasAlerts(env, n))) continue;
-            await notifyUser(env, n, { title: user + ' → @everyone in ' + where, body: said, url: linkTo, tag: 'everyone-' + access.id }, url.origin);
+            await notifyUser(env, n, { cat: 'everyone', title: user + ' → @everyone in ' + where, body: said, url: linkTo, tag: 'everyone-' + access.id }, url.origin);
             sent++;
           }
         })().catch(() => {}));
@@ -4879,7 +4894,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           const tk = 'push:mrl:' + userLower + ':' + n;
           if (await kv.get(tk)) continue;   // one alert per sender → person per minute
           await kv.put(tk, '1', { expirationTtl: 60 });
-          const p = notifyUser(env, n, { title: user + ' mentioned you in ' + where, body: said, url: appLink('chat', { room: access.id }), tag: 'mention-' + access.id }, url.origin);
+          const p = notifyUser(env, n, { cat: 'mentions', title: user + ' mentioned you in ' + where, body: said, url: appLink('chat', { room: access.id }), tag: 'mention-' + access.id }, url.origin);
           if (ctx && ctx.waitUntil) ctx.waitUntil(p);
         }
       }
@@ -5064,7 +5079,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       log.recent = [entry, ...(log.recent || [])].slice(0, PROXY_LOG_MAX);
       await kv.put(key, JSON.stringify(log), { expirationTtl: PROXY_LOG_TTL });
       if (!repeat) {
-        // The owner's devices (category "proxy") and every admin with alerts
+        // The owner's devices (categories "proxylaunch" / "proxysites") and every admin with alerts
         // on, except the person who did it.
         const where = log.mode === 'blank' ? 'in an about:blank window' : 'in the Proxy tab';
         const alert = ev === 'launch'
@@ -5072,7 +5087,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           : entry.q
             ? { title: user + ' searched "' + entry.q + '"', body: 'Through the proxy · ' + where + ' · ' + ownerTime(env, entry.at) }
             : { title: user + ' opened ' + entry.url.replace(/^https:\/\//, '').replace(/\/$/, ''), body: entry.url + ' · ' + where + ' · ' + ownerTime(env, entry.at) };
-        const pushEv = { cat: 'proxy', tag: 'proxy-' + user.toLowerCase(), url: adminLink('proxy', { user }), ...alert };
+        const pushEv = { cat: ev === 'launch' ? 'proxylaunch' : 'proxysites', tag: 'proxy-' + user.toLowerCase(), url: adminLink('proxy', { user }), ...alert };
         const p = (async () => {
           if (user.toLowerCase() !== OWNER) await notifyOwner(env, pushEv, url.origin).catch(() => {});
           for (const a of await adminNamesCached(kv)) if (a.toLowerCase() !== user.toLowerCase()) await notifyUser(env, a, pushEv, url.origin).catch(() => {});
@@ -5599,7 +5614,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           security: { today: secToday.counts || {}, last7Total: sec7 },
           health: {
             kvReadMs, kvBound: true, adminToken: !!(env && env.ADMIN_TOKEN), coadminToken: !!(env && env.COADMIN_TOKEN),
-            ownerCode: !!(env && env.OWNER_CODE), sessions: !!sessionKey(), requireSessions: !!cfg.requireSessions,
+            ownerCode: !!(env && env.OWNER_CODE), sessions: !!sessionKey(), requireSessions: !!cfg.requireSessions || !!sessionKey(),
             maintenance: !!(cfg.maintenance && cfg.maintenance.on), memoryEnabled: cfg.memoryEnabled !== false, privateMode: !!cfg.privateMode
           },
           recentAudit: can(principal, 'audit.view') ? await auditRecent(8) : [],
@@ -5903,7 +5918,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           ok: true, days, recent: recent.sort((a, b) => b.ts - a.ts).slice(0, 150), lockouts,
           sessions: { accounts: accts.length, active: accts.reduce((n, a) => n + (a.value.sessions || []).length, 0), disabled: accts.filter((a) => a.value.disabled).length, globalEpoch: cfg.sessionEpoch || 0 },
           config: {
-            requireSessions: !!cfg.requireSessions, appStaffOnly: appGateOn(cfg), ownerCode: !!(env && env.OWNER_CODE), coadminToken: !!(env && env.COADMIN_TOKEN),
+            requireSessions: !!cfg.requireSessions || !!sessionKey(), appStaffOnly: appGateOn(cfg), ownerCode: !!(env && env.OWNER_CODE), coadminToken: !!(env && env.COADMIN_TOKEN),
             legacyQueryToken: env && env.ALLOW_QUERY_TOKEN === '1', approvalMode: !!cfg.approvalMode, privateMode: !!cfg.privateMode,
             allowlist: { on: !!(cfg.allowlist && cfg.allowlist.on), users: (cfg.allowlist && cfg.allowlist.users) || [] },
             // Per listed name: has someone set a PIN for it yet, and is it
@@ -5989,7 +6004,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         await logAudit(kv, { route: url.pathname, action: 'diagnostics', target: null, meta: { write: !!body.write } });
         return json({
           ok: true, version: WORKER_VERSION, features: WORKER_FEATURES, colo: (req.cf && req.cf.colo) || null, checks,
-          flags: cfg.features || {}, config: { privateMode: !!cfg.privateMode, maintenance: cfg.maintenance || null, requireSessions: !!cfg.requireSessions, memoryEnabled: cfg.memoryEnabled !== false, dailyQuota: cfg.dailyQuota || 0, monthlyQuota: cfg.monthlyQuota || 0, rpm: cfg.rpm || 0 },
+          flags: cfg.features || {}, config: { privateMode: !!cfg.privateMode, maintenance: cfg.maintenance || null, requireSessions: !!cfg.requireSessions || !!sessionKey(), memoryEnabled: cfg.memoryEnabled !== false, dailyQuota: cfg.dailyQuota || 0, monthlyQuota: cfg.monthlyQuota || 0, rpm: cfg.rpm || 0 },
           recentFailures: failing, recentSecurity: (sec.recent || []).slice(-10).reverse(),
           buffered: { usageKeys: pendingUsage.size, securityKeys: pendingSec.size, sinceFlushMs: Date.now() - lastFlushAt }
         });

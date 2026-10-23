@@ -1,7 +1,8 @@
 // Focused Manifest V3 package and download authorization smoke tests.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSaintsExtensionZip } from '../extension/package.js';
+import { readFileSync } from 'node:fs';
+import { buildSaintsExtensionZip, scriptVersion } from '../extension/package.js';
 import worker from '../worker.js';
 
 const data = '/* Saints Service */\n(function () { /* gpa-root-host */ async function reloadInterface(btn) {} })();\n' + ' '.repeat(10500);
@@ -42,6 +43,34 @@ test('generated Chrome extension uses minimal click-to-activate MV3 permissions'
   assert.ok(!('host_permissions' in manifest));
   assert.match(entries.get('popup.js'), /chrome\.scripting\.executeScript/);
   assert.match(entries.get('script.js'), /Update this Chrome extension by downloading/);
+});
+
+test('extension is versioned like the console and bundles three.js for the Welcome globe', async () => {
+  const real = readFileSync(new URL('../script.js', import.meta.url), 'utf8');
+  const version = scriptVersion(real);
+  assert.match(version.app, /^\d+\.\d+\.\d+$/);
+  assert.match(version.chrome, /^\d+\.\d+\.\d+\.\d+$/);
+  assert.ok(version.chrome.split('.').every((n) => Number(n) <= 65535));
+  // Same rules as computeVersions in script.js: 1.0.0, then major/minor/patch.
+  const log = (...e) => 'x'.repeat(10500) + 'gpa-root-host async function reloadInterface(btn) {}\n  const CHANGELOG = [\n'
+    + e.map(([at, kind]) => `    { at: '${at}', commit: '', title: 't', parts: { chat: ['${kind}'] } },\n`).join('') + '  ];\n';
+  assert.deepEqual(scriptVersion(log(['2026-01-03T00:00:00Z', 'fix'], ['2026-01-01T00:00:00Z', 'added'], ['2026-01-02T00:00:00Z', 'feature'])),
+    { app: '1.1.1', chrome: '1.1.1.3' });
+  assert.equal(scriptVersion(log(['2026-01-01T00:00:00Z', 'added'], ['2026-01-02T00:00:00Z', 'redesign'])).app, '2.0.0');
+
+  const three = "console.warn('Scripts \"build/three.js\" are deprecated'),\n/* three.js */\n!function(t){t.THREE={}}(this);\n";
+  const entries = zipEntries(new Uint8Array(await buildSaintsExtensionZip(real, { three }).arrayBuffer()));
+  assert.deepEqual([...entries.keys()], ['manifest.json', 'popup.html', 'popup.js', 'three.min.js', 'script.js', 'README.txt']);
+  const manifest = JSON.parse(entries.get('manifest.json'));
+  assert.equal(manifest.version, version.chrome);
+  assert.equal(manifest.version_name, 'v' + version.app);
+  assert.match(entries.get('popup.html'), new RegExp('v' + version.app.replace(/\./g, '\\.')));
+  assert.match(entries.get('popup.js'), /files: \["three\.min\.js","script\.js"\]/);
+  assert.ok(!entries.get('three.min.js').includes('console.warn'));
+  assert.match(entries.get('three.min.js'), /^void 0,\n/);
+  assert.match(entries.get('script.js'), /Update this Chrome extension by downloading/);
+  assert.ok(!/files: \["three/.test(zipEntries(new Uint8Array(await buildSaintsExtensionZip(real).arrayBuffer())).get('popup.js')));
+  assert.throws(() => buildSaintsExtensionZip(real.replace('async function reloadInterface(btn) {', 'async function reloadIt(btn) {')));
 });
 
 test('extension routes reject anonymous and regular sessions without the allowlist', async () => {

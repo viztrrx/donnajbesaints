@@ -1,4 +1,4 @@
-import { buildSaintsExtensionZip } from './package.js';
+import { buildSaintsExtensionZip, THREE_JS } from './package.js';
 import { CONSOLE_SCRIPT_SRC } from '../web/console/handler.js';
 
 // Unlike /admin/*, /extension/* also accepts explicitly approved regular
@@ -65,7 +65,21 @@ export async function extensionRoute(req, url, env, { principal, kv, json, audit
   } catch (e) {
     return json({ error: 'Could not package the current Saints Service script.' }, 502);
   }
-  const archive = buildSaintsExtensionZip(script);
+  // Optional: the Welcome globe's library, only if it is byte-for-byte the
+  // pinned build. Any failure just leaves it out of the ZIP.
+  let three;
+  try {
+    const r = await fetch(THREE_JS.url, { cf: { cacheTtl: 86400, cacheEverything: true } });
+    if (r.ok) {
+      const bytes = await r.arrayBuffer();
+      const hex = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+        .map((b) => b.toString(16).padStart(2, '0')).join('');
+      if (hex === THREE_JS.sha256) three = new TextDecoder().decode(bytes);
+    }
+  } catch (_) { /* package without it */ }
+  let archive;
+  try { archive = buildSaintsExtensionZip(script, { three }); }
+  catch (e) { return json({ error: 'Could not package the current Saints Service script.' }, 502); }
   await audit(kv, {
     route: url.pathname, action: 'extension_download',
     target: username || 'owner-token', admin: principal.role, result: 'ok'

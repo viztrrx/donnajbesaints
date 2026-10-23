@@ -2,7 +2,9 @@
 // Run with `npm test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { ChatRoom } from '../worker.js';
+import realWorker, { ChatRoom } from '../worker.js';
+import { signedIn } from './signed-in.mjs';
+const worker = signedIn(realWorker);
 
 function makeKV() {
   const store = new Map();
