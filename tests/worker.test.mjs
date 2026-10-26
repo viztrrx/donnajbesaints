@@ -190,6 +190,71 @@ test('a locked account can unlock itself once a day with its school email', asyn
   assert.match(nk.data.error, /no school email saved/);
 });
 
+test('Saints Search sign-in: a proxy-only token that keeps the console signed in', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  // One sign-in per name is on: a second console sign-in would be refused.
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['alice'] } } });
+  const reg = await signUp(c, 'alice', '7731');
+  const consoleToken = reg.data.token;
+  assert.equal((await c.call('/auth/me', { headers: sess(consoleToken) })).status, 200);
+  const dev = (i) => String(i).padStart(32, 'b');
+  const px = (body, ip = '5.5.5.5') => c.call('/auth/proxy-login', { method: 'POST', body: { device: dev(1), ...body }, ip });
+
+  assert.equal((await px({ user: 'alice', verifier: verifierFor('alice', '0000') })).status, 401, 'wrong PIN');
+  assert.equal((await px({ user: 'nobody', verifier: verifierFor('nobody', '7731') })).status, 403, 'the allowed-users list applies');
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: false, users: ['alice'] } } });
+  assert.equal((await px({ user: 'ghost', verifier: verifierFor('ghost', '7731') })).data.missing, true, 'no account: made in the console first');
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['alice'] } } });
+
+  const good = await px({ user: 'Alice', verifier: verifierFor('alice', '7731') });
+  assert.equal(good.status, 200);
+  const pxToken = good.data.token;
+  assert.ok(pxToken && pxToken !== consoleToken);
+  assert.equal(good.data.account.needsStudentId, true, 'the student number rule comes back as in the console');
+  // The console is still signed in (the name's one console sign-in is untouched).
+  assert.equal((await c.call('/auth/me', { headers: sess(consoleToken) })).status, 200);
+
+  // The proxy-only token opens saved sessions and nothing else.
+  const me = await c.call('/auth/me', { headers: sess(pxToken) });
+  assert.equal(me.status, 401); assert.equal(me.data.reason, 'proxy_only');
+  assert.equal((await c.call('/auth/revoke', { method: 'POST', headers: sess(pxToken) })).status, 401);
+  assert.equal((await c.call('/auth/logout', { method: 'POST', headers: sess(pxToken) })).status, 401);
+  const pm = await c.call('/auth/proxy-me', { headers: sess(pxToken) });
+  assert.equal(pm.data.kind, 'proxy'); assert.equal(pm.data.account.user, 'alice');
+  const cm = await c.call('/auth/proxy-me', { headers: sess(consoleToken) });
+  assert.equal(cm.data.kind, 'console'); assert.equal(cm.data.account.user, 'alice');
+
+  // The student number is saved with the proxy-only token, as the console does it.
+  const sid = await c.call('/auth/student-id', { method: 'POST', headers: sess(pxToken), body: { studentId: '313131', confirm: '313131' } });
+  assert.equal(sid.data.ok, true);
+  assert.equal((await c.call('/auth/proxy-me', { headers: sess(pxToken) })).data.account.needsStudentId, false);
+
+  // Signing out of Saints Search ends that token only.
+  const second = (await px({ user: 'alice', verifier: verifierFor('alice', '7731') }, '5.5.5.6')).data.token;
+  assert.equal((await c.call('/auth/proxy-logout', { method: 'POST', headers: sess(pxToken) })).status, 200);
+  assert.equal((await c.call('/auth/proxy-me', { headers: sess(pxToken) })).status, 401);
+  assert.equal((await c.call('/auth/proxy-me', { headers: sess(second) })).status, 200);
+  assert.equal((await c.call('/auth/me', { headers: sess(consoleToken) })).status, 200);
+  // Revoking the account's sign-ins (in the console) ends proxy-only ones too.
+  assert.equal((await c.call('/auth/revoke', { method: 'POST', headers: sess(consoleToken) })).status, 200);
+  assert.equal((await c.call('/auth/proxy-me', { headers: sess(second) })).status, 401);
+  // A forged "proxy" flag on a console token doesn't make one.
+  const [p, sig] = consoleToken.split('.');
+  const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(p, 'base64url')), k: 'px' })).toString('base64url') + '.' + sig;
+  assert.equal((await c.call('/auth/proxy-me', { headers: sess(forged) })).status, 401);
+  assert.ok((await c.call('/health')).data.features.includes('proxy-sessions'));
+});
+
+test('Saints Search sign-in counts toward the same lockouts as the console', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  await signUp(c, 'alice', '7731');
+  const dev = (i) => String(i).padStart(32, 'c');
+  for (let i = 0; i < 8; i++) await c.call('/auth/proxy-login', { method: 'POST', body: { user: 'alice', verifier: verifierFor('x', 'p' + i), device: dev(i) }, ip: '4.4.4.' + i });
+  const locked = await c.call('/auth/proxy-login', { method: 'POST', body: { user: 'alice', verifier: verifierFor('alice', '7731'), device: dev(50) }, ip: '3.3.3.3' });
+  assert.equal(locked.status, 423, 'the account is locked after 8 wrong PINs, from any network');
+  assert.equal((await c.call('/auth/login', { method: 'POST', body: { user: 'alice', verifier: verifierFor('alice', '7731'), device: dev(51) }, ip: '3.3.3.4' })).status, 423, 'and the console sign-in with it');
+});
+
 test('owner name can only be claimed with OWNER_CODE', async () => {
   const env = makeEnv(); const c = makeClient(env);
   assert.equal((await signUp(c, 'boss')).status, 403);

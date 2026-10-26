@@ -141,7 +141,7 @@ const jsonResponse = (obj, status) => new Response(JSON.stringify(obj), {
 // handleRequest where it can reuse the existing closures.
 // ============================================================================
 const WORKER_VERSION = '2026.10.12-web-v1';   // Eaglercraft routes, binary WebSocket fix, Wrangler deploys
-const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs', 'eaglercraft', 'mobile-admin', 'home-screen-admin', 'one-session', 'chat-live'];
+const WORKER_FEATURES = ['sessions', 'memory', 'admin-v2', 'reports', 'jobs', 'eaglercraft', 'mobile-admin', 'home-screen-admin', 'one-session', 'chat-live', 'proxy-sessions'];
 
 // ---- Permissions ------------------------------------------------------------
 // The single source of truth for who may do what. Roles come from a verified
@@ -1168,6 +1168,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (st) {
         const p = await verifySessionToken(st);
         if (!p) sessionProblem = 'invalid_or_expired';
+        // A proxy-only token (Saints Search's own sign-in, /auth/proxy-login)
+        // opens saved proxy sessions and nothing else.
+        else if (p.k === 'px') sessionProblem = 'proxy_only';
         else {
           const acct = await getAcct(kv, p.u);
           const cfg = await getConfig(kv);
@@ -2588,7 +2591,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         if (matched) {
           // The student number matches: the new PIN is theirs now.
           acct.salt = rec.salt; acct.verifier = rec.verifier;
-          acct.epoch = (acct.epoch || 0) + 1; acct.sessions = [];
+          acct.epoch = (acct.epoch || 0) + 1; acct.sessions = []; acct.proxySessions = [];
           await kv.put(acctKey(acct.user), JSON.stringify(acct));
           await kv.delete(pinResetKey(acct.user));
         }
@@ -2690,6 +2693,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           acct.salt = salt;
           acct.verifier = await sha256hex(salt + '|' + verifier);
           acct.sessions = [];
+          acct.proxySessions = [];
           await kv.put(acctKey(acct.user), JSON.stringify(acct));
           await kv.delete(pinResetKey(acct.user));   // used up
           await noteSec('pin_reset_done', { user: acct.user });
@@ -2739,8 +2743,96 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         return json({ ok: true, token: s.token, exp: s.exp, account: view(acct, roleOf(acct)) });
       }
 
-      const p = await resolvePrincipal();
-      if (!p || p.kind !== 'session') return json({ ok: false, error: 'not signed in', reason: sessionProblem || 'no_session' }, 401);
+      // ---- Saints Search's own sign-in (proxy-only) ----------------------------
+      // Saints Search (the proxy frontend) opened on its own, outside the
+      // console, signs in with the same name and PIN to use the account's
+      // saved proxy sessions. It gets a proxy-only token (k: "px"): it doesn't
+      // take the name's one console sign-in (the console stays signed in), and
+      // every other route refuses it (resolveSession). Same checks as
+      // /auth/login: network, device and account lockouts, the allowed-users
+      // list, disabled accounts. The student number rule is the console's:
+      // needsStudentId comes back in the account, /auth/student-id takes this
+      // token, and the frontend won't use it until the number is saved.
+      // Revoking (epochs) or clearing the account's sign-ins ends these too.
+      const PROXY_SESSIONS_MAX = 5;
+      const resolveProxySession = async () => {
+        const st = req.headers.get('X-GPA-Session') || '';
+        const t = st ? await verifySessionToken(st) : null;
+        if (!t || t.k !== 'px') return null;
+        const acct = await getAcct(kv, t.u);
+        if (!acct || acct.disabled) return null;
+        const cfg = await getConfig(kv);
+        if ((acct.epoch || 0) !== (t.e || 0) || (cfg.sessionEpoch || 0) !== (t.g || 0)) return null;
+        if (!(acct.proxySessions || []).some((x) => x.id === t.s)) return null;
+        return { kind: 'proxy', role: roleOf(acct), actor: acct.user, user: acct.user, sid: t.s, acct, payload: t };
+      };
+      const signProxy = async (acct, sid) => {
+        const cfg = await getConfig(kv);
+        return signSession({ u: acct.user, s: sid, e: acct.epoch || 0, g: cfg.sessionEpoch || 0, exp: Date.now() + SESSION_MS, k: 'px' });
+      };
+      if (url.pathname === '/auth/proxy-login' && req.method === 'POST') {
+        if (await isLockedOut(kv, 'login', ip)) { await noteSec('login_lockout'); return json({ ok: false, error: 'too many attempts — try again later' }, 429); }
+        const body = await readJson();
+        const user = String(body.user || '').trim();
+        const dev = deviceId(body.device);
+        const locked = await deviceLock(dev);
+        if (locked) return lockedResponse(locked);
+        if (!allowedUser(await getConfig(kv), user)) {
+          await noteSec('not_allowed', { user, note: 'proxy login' });
+          const l = await deviceFail(dev, 'notAllowed', user);
+          if (l) return lockedResponse(l);
+          return json({ ok: false, error: ACCESS_DENIED, notAllowed: true }, 403);
+        }
+        const verifier = String(body.verifier || '');
+        const acct = await getAcct(kv, user);
+        if (!acct) return json({ ok: false, error: 'There’s no Saints account with that name. Create it in the Saints console first.', missing: true }, 404);
+        const alock = await accountLock(acct.user);
+        if (alock) { await noteSec('login_account_locked', { user: acct.user, note: 'proxy login' }); return accountLockedResponse(alock, acct); }
+        if (!(await timingSafeEqualStr(await sha256hex(acct.salt + '|' + verifier), acct.verifier))) {
+          await noteFailure(kv, 'login', ip);
+          await noteSec('login_failed', { user: acct.user, note: 'proxy login' });
+          const al = await accountFailure(acct.user, 'PINs');
+          if (al) return accountLockedResponse(al, acct);
+          const l = await deviceFail(dev, 'wrong', acct.user);
+          if (l) return lockedResponse(l);
+          // A PIN the owner reset is set in the console, with their reset code.
+          const reset = await kv.get(pinResetKey(acct.user), 'json');
+          if (reset && reset.until > Date.now()) return json({ ok: false, error: 'The owner reset this PIN. Set your new PIN in the Saints console first.', pinReset: true }, 403);
+          return json({ ok: false, error: 'wrong PIN for this account' }, 401);
+        }
+        if (acct.disabled) { await noteSec('login_disabled', { user: acct.user, note: 'proxy login' }); return json({ ok: false, error: 'this account is disabled' }, 403); }
+        await clearFailures(kv, 'login', ip);
+        await clearAccountFailures(acct.user);
+        const now = Date.now();
+        const cf = req.cf || {};
+        const sid = randHex(8);
+        acct.proxySessions = [{ id: sid, createdAt: now, country: cf.country || '??', ua: String(req.headers.get('User-Agent') || '').slice(0, 80) }, ...(acct.proxySessions || [])].slice(0, PROXY_SESSIONS_MAX);
+        await kv.put(acctKey(acct.user), JSON.stringify(acct));
+        await noteSec('proxy_signin', { user: acct.user });
+        return json({ ok: true, token: await signProxy(acct, sid), exp: now + SESSION_MS, account: view(acct, roleOf(acct)) });
+      }
+      // Who a token belongs to, for Saints Search's saved sessions: a
+      // console token (its one-sign-in rules as everywhere) or a proxy-only one.
+      if (url.pathname === '/auth/proxy-me' && req.method === 'GET') {
+        const px = await resolveProxySession();
+        if (px) {
+          const renewed = px.payload.exp - Date.now() < SESSION_MS / 2 ? await signProxy(px.acct, px.sid) : null;
+          return json({ ok: true, kind: 'proxy', account: view(px.acct, px.role), token: renewed });
+        }
+        const sp = await resolveSession();
+        if (!sp) return json({ ok: false, error: 'not signed in', reason: sessionProblem === 'proxy_only' ? 'invalid_or_expired' : (sessionProblem || 'no_session') }, 401);
+        return json({ ok: true, kind: 'console', account: view(sp.acct, sp.role) });
+      }
+      if (url.pathname === '/auth/proxy-logout' && req.method === 'POST') {
+        const px = await resolveProxySession();
+        if (!px) return json({ ok: true });
+        px.acct.proxySessions = (px.acct.proxySessions || []).filter((x) => x.id !== px.sid);
+        await kv.put(acctKey(px.acct.user), JSON.stringify(px.acct));
+        return json({ ok: true });
+      }
+
+      const p = (await resolvePrincipal()) || (url.pathname === '/auth/student-id' ? await resolveProxySession() : null);
+      if (!p || (p.kind !== 'session' && !(p.kind === 'proxy' && url.pathname === '/auth/student-id'))) return json({ ok: false, error: 'not signed in', reason: sessionProblem || 'no_session' }, 401);
 
       // The signed-in person's school student number (6 digits), asked for once
       // at sign-in and required before the console opens; only the owner or an
@@ -2782,6 +2874,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (url.pathname === '/auth/revoke' && req.method === 'POST') {
         p.acct.epoch = (p.acct.epoch || 0) + 1;
         p.acct.sessions = [];
+        p.acct.proxySessions = [];
         await kv.put(acctKey(p.acct.user), JSON.stringify(p.acct));
         return json({ ok: true });
       }
@@ -5758,7 +5851,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         }
         if (action === 'revokesessions') {
           if (!a) return json({ error: 'no account' }, 404);
-          a.epoch = (a.epoch || 0) + 1; a.sessions = [];
+          a.epoch = (a.epoch || 0) + 1; a.sessions = []; a.proxySessions = [];
           await kv.put(acctKey(u), JSON.stringify(a));
           await logAudit(kv, { route: url.pathname, action, target: u });
           return json({ ok: true });
@@ -5766,7 +5859,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         if (action === 'disable' || action === 'enable') {
           if (!a) return json({ error: 'no account' }, 404);
           a.disabled = action === 'disable';
-          if (a.disabled) { a.epoch = (a.epoch || 0) + 1; a.sessions = []; }
+          if (a.disabled) { a.epoch = (a.epoch || 0) + 1; a.sessions = []; a.proxySessions = []; }
           await kv.put(acctKey(u), JSON.stringify(a));
           await logAudit(kv, { route: url.pathname, action, target: u, meta: { reason: String(body.reason || '').slice(0, 200) } });
           return json({ ok: true, disabled: a.disabled });
@@ -5791,7 +5884,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           const code = makeInviteCode(), until = Date.now() + 7 * 864e5;
           await kv.put(pinResetKey(u), JSON.stringify({ code, until, at: Date.now(), by: OWNER }), { expirationTtl: 7 * 24 * 3600 });
           await kv.delete('acctlock:' + u.toLowerCase()); await kv.delete('acctfail:' + u.toLowerCase());
-          a.epoch = (a.epoch || 0) + 1; a.sessions = [];
+          a.epoch = (a.epoch || 0) + 1; a.sessions = []; a.proxySessions = [];
           await kv.put(acctKey(u), JSON.stringify(a));
           await logAudit(kv, { route: url.pathname, action, target: u });
           return json({ ok: true, code, until });
@@ -5803,7 +5896,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           if (action === 'pinapprove') {
             if (!a) return json({ error: 'no account' }, 404);
             a.salt = rq.salt; a.verifier = rq.verifier;
-            a.epoch = (a.epoch || 0) + 1; a.sessions = [];
+            a.epoch = (a.epoch || 0) + 1; a.sessions = []; a.proxySessions = [];
             // Approving also keeps the student number they gave (if none was on file).
             if (!a.studentId && rq.studentId && !(await kv.get('sid:' + rq.studentId))) { a.studentId = rq.studentId; await kv.put('sid:' + rq.studentId, a.user.toLowerCase()); }
             await kv.put(acctKey(u), JSON.stringify(a));
