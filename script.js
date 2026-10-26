@@ -867,6 +867,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       browser: ['fix', 'The proxy frame allows encrypted media and picture-in-picture'] } },
     { at: '2026-10-26T12:00:00-04:00', commit: '', title: 'Proxy ignores old localhost addresses', parts: {
       browser: ['fix', 'A localhost proxy address saved by an older version (any port) is ignored, so the Proxy opens frontend.viztrrx.workers.dev instead of “localhost refused to connect”'] } },
+    { at: '2026-10-26T19:00:00-04:00', commit: '', title: 'Message people who aren’t on your list', parts: {
+      console: ['feature', 'A name that isn’t allowed gets a “Message the owner” box on the sign-in screen (and on the locked-device screen): the owner can write to them, and they can write back'],
+      admin: ['feature', 'Security → Messages from people not on your list: everyone who tried to sign in, with a conversation and reply box for each (also from Message on an access request); their messages come to your phone and open that conversation'] } },
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -2422,6 +2425,19 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gpa-req-send { margin-top: 8px; width: 100%; }
       .gpa-req-send:disabled { opacity: 0.7; cursor: default; }
       .gpa-login-request[data-state="denied"] { border-color: color-mix(in srgb, var(--gpa-danger, #e5453a) 40%, var(--gpa-border)); }
+      /* Sign-in: messages with the owner (a name that isn't allowed) */
+      .gpa-achat[hidden], .gpa-achat-err[hidden] { display: none; }
+      .gpa-achat { margin: 2px 0 12px; padding: 12px; border-radius: calc(12px * var(--gpa-rs)); border: 1px solid var(--gpa-border); background: var(--gpa-field); text-align: left; }
+      .gpa-achat-log { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; margin: 0 0 8px; overscroll-behavior: contain; }
+      .gpa-achat-log:empty { display: none; }
+      .gpa-achat-msg { max-width: 85%; padding: 6px 10px; border-radius: 12px; font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--gpa-text); background: color-mix(in srgb, var(--gpa-text) 7%, transparent); align-self: flex-start; }
+      .gpa-achat-msg.is-me { align-self: flex-end; background: color-mix(in srgb, var(--gpa-accent) 22%, transparent); }
+      .gpa-achat-msg small { display: block; font-size: 10.5px; color: var(--gpa-sub); margin-bottom: 1px; }
+      .gpa-achat-form { display: flex; gap: 6px; margin: 0; }
+      .gpa-achat-form .gpa-login-input { flex: 1; min-width: 0; margin: 0; }
+      .gpa-achat-form .gpa-login-primary { width: auto; margin: 0; padding-inline: 14px; }
+      .gpa-achat-err { margin-top: 6px; font-size: 12px; color: var(--gpa-danger, #e5453a); }
+      .gpa-device-lock .gpa-achat { margin: 14px 0 0; }
 
       /* ---- Sign-in: "already signed in on this computer" ---- */
       .gpa-login-move[hidden] { display: none; }
@@ -2449,6 +2465,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       .gac-req-actions { display: flex; gap: 8px; margin-top: 8px; }
       .gac-req-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--gpa-border); color: var(--gpa-sub); text-transform: capitalize; }
       .gac-req-badge.pending { color: var(--gpa-accent); border-color: color-mix(in srgb, var(--gpa-accent) 50%, var(--gpa-border)); }
+      /* Admin → Security → Messages (people not on the list) */
+      .gac-achat-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .gac-achat-log { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; margin: 10px 0; padding: 8px; border: 1px solid var(--gpa-border); border-radius: var(--gps-r2, 10px); overscroll-behavior: contain; }
+      .gac-achat-msg { max-width: 85%; padding: 6px 10px; border-radius: 12px; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-wrap; background: color-mix(in srgb, var(--gpa-text) 7%, transparent); align-self: flex-start; }
+      .gac-achat-msg.is-me { align-self: flex-end; background: color-mix(in srgb, var(--gpa-accent) 22%, transparent); }
+      .gac-achat-msg small { display: block; font-size: 10.5px; color: var(--gpa-sub); margin-bottom: 1px; }
+      .gac-achat-form textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 52px; font: inherit; }
 
       /* ---- Admin → Security → Allowed users ---- */
       .gac-allow-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; font-size: 13px; }
@@ -17725,8 +17748,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       reqSend.textContent = 'Send request';
       reqSend.disabled = false;
     }
+    openAccessChat(user);
   }
-  function hideAccessRequest() { reqBox.hidden = true; reqFor = ''; }
+  function hideAccessRequest() { reqBox.hidden = true; reqFor = ''; closeAccessChat(); }
   loginUserInput.addEventListener('input', () => { if (reqFor && loginUserInput.value.trim().toLowerCase() !== reqFor.toLowerCase()) hideAccessRequest(); });
   reqSend.addEventListener('click', async () => {
     const user = (loginUserInput.value.trim() || reqFor);
@@ -17736,7 +17760,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     try {
       const r = await fetch(telemetryEndpoint() + '/access/request', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user, message: reqMsg.value })
+        body: JSON.stringify({ user, message: reqMsg.value, chat: accessChatKey() })
       });
       const d = await r.json().catch(() => ({}));
       if (d.allowed) { hideAccessRequest(); showLoginMsg('You’re on the list now. Sign in or create your account.'); return; }
@@ -17748,6 +17772,114 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       showAccessRequest(user, null);
       showLoginMsg('Couldn’t reach the owner’s server. Check your connection.', true);
     }
+  });
+
+  // ---- Messages with the owner (a name that isn't allowed) -----------------
+  // Whoever is refused can write to the owner here, and the owner can write
+  // to them first (Admin → Security → Messages; their messages reach the
+  // owner's phone). The conversation belongs to this browser: the Worker
+  // keeps it under a random key stored here, so the same name typed on
+  // another computer doesn't show it. It stays open on the locked-device
+  // screen too.
+  const ACHAT_KEY_STORE = 'gpa_access_chat_key';
+  const ACHAT_USER_STORE = 'gpa_access_chat_user';
+  const ACHAT_POLL_MS = 8000;
+  function accessChatKey() {
+    try {
+      let k = localStorage.getItem(ACHAT_KEY_STORE);
+      if (!/^[0-9a-f]{32}$/.test(k || '')) {
+        k = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+        localStorage.setItem(ACHAT_KEY_STORE, k);
+      }
+      return k;
+    } catch (e) { return ''; }
+  }
+  const achatEl = document.createElement('div');
+  achatEl.className = 'gpa-achat';
+  achatEl.hidden = true;
+  achatEl.innerHTML = `<div class="gpa-login-request-head">${GPS_ICONS.chat}<span>Message the owner</span></div>`
+    + `<p class="gpa-login-request-text gpa-achat-hint"></p>`
+    + `<div class="gpa-achat-log" role="log" aria-live="polite"></div>`
+    + `<form class="gpa-achat-form" autocomplete="off"><input class="gpa-login-input gpa-achat-input" maxlength="500" placeholder="Write to the owner…" aria-label="Message to the owner" autocomplete="off" /><button class="gpa-login-primary gpa-achat-send" type="submit">Send</button></form>`
+    + `<div class="gpa-achat-err" role="alert" hidden></div>`;
+  reqBox.after(achatEl);
+  const achatHint = achatEl.querySelector('.gpa-achat-hint');
+  const achatLog = achatEl.querySelector('.gpa-achat-log');
+  const achatForm = achatEl.querySelector('.gpa-achat-form');
+  const achatInput = achatEl.querySelector('.gpa-achat-input');
+  const achatSendBtn = achatEl.querySelector('.gpa-achat-send');
+  const achatErr = achatEl.querySelector('.gpa-achat-err');
+  let achatFor = '', achatTimer = 0, achatShown = '';
+  const achatShowErr = (t) => { achatErr.textContent = t || ''; achatErr.hidden = !t; };
+  function renderAccessChat(d) {
+    const msgs = Array.isArray(d && d.msgs) ? d.msgs : [];
+    achatHint.textContent = d && d.allowed
+      ? 'You’re on the list now. Sign in as “' + achatFor + '”.'
+      : msgs.length ? 'Answers from the owner show up here.' : 'The owner can message you here, and you can write to them. Say who you are.';
+    const sig = JSON.stringify(msgs.map((m) => [m.from, m.ts]));
+    if (sig === achatShown) return;
+    achatShown = sig;
+    const atBottom = achatLog.scrollHeight - achatLog.scrollTop - achatLog.clientHeight < 24;
+    achatLog.replaceChildren(...msgs.map((m) => {
+      const el = document.createElement('div');
+      el.className = 'gpa-achat-msg' + (m.from === 'them' ? ' is-me' : '');
+      const who = document.createElement('small');
+      who.textContent = (m.from === 'them' ? 'You' : 'Owner') + ' · ' + new Date(m.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      el.append(who, document.createTextNode(String(m.text || '')));
+      return el;
+    }));
+    if (atBottom || msgs.length) achatLog.scrollTop = achatLog.scrollHeight;
+  }
+  async function accessChatCall(text) {
+    const key = accessChatKey();
+    if (!achatFor || !key || typeof telemetryOn !== 'function' || !telemetryOn()) return null;
+    const r = text === null
+      ? await fetch(telemetryEndpoint() + '/access/chat?user=' + encodeURIComponent(achatFor) + '&chat=' + key, { cache: 'no-store' })
+      : await fetch(telemetryEndpoint() + '/access/chat', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ user: achatFor, chat: key, text }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || 'Couldn’t reach the owner’s server.');
+    return d;
+  }
+  function pollAccessChat() {
+    clearTimeout(achatTimer);
+    achatTimer = setTimeout(async () => {
+      if (!achatFor || achatEl.hidden || currentUser) return;
+      if (!document.hidden) { try { renderAccessChat(await accessChatCall(null)); } catch (e) { /* try again next time */ } }
+      pollAccessChat();
+    }, ACHAT_POLL_MS);
+  }
+  // Opens (or reopens) the conversation for a refused name.
+  async function openAccessChat(user) {
+    user = String(user || '').trim();
+    if (!/^[A-Za-z0-9_.-]{1,40}$/.test(user)) return;
+    const same = achatFor.toLowerCase() === user.toLowerCase();
+    achatFor = user;
+    if (!same) { achatShown = ''; achatLog.replaceChildren(); achatInput.value = ''; }
+    try { localStorage.setItem(ACHAT_USER_STORE, user); } catch (e) { /* ignore */ }
+    achatShowErr('');
+    achatEl.hidden = false;
+    renderAccessChat(null);
+    try { renderAccessChat(await accessChatCall('')); } catch (e) { achatShowErr(e.message); }
+    pollAccessChat();
+  }
+  function closeAccessChat() {
+    clearTimeout(achatTimer);
+    achatEl.hidden = true;
+    achatFor = '';
+    achatShowErr('');
+  }
+  achatForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = achatInput.value.trim();
+    if (!text || !achatFor) return;
+    achatSendBtn.disabled = true;
+    achatShowErr('');
+    try {
+      renderAccessChat(await accessChatCall(text));
+      achatInput.value = '';
+    } catch (err) { achatShowErr(err.message); }
+    achatSendBtn.disabled = false;
+    achatInput.focus();
   });
 
   // Every way in (Sign in, Create, a sync code, a remembered sign-in) is
@@ -18391,13 +18523,28 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       deviceLockEl.setAttribute('role', 'alertdialog');
       deviceLockEl.setAttribute('aria-modal', 'true');
       deviceLockEl.setAttribute('aria-label', 'This device is locked');
-      ['keydown', 'keyup', 'keypress', 'pointerdown', 'mousedown', 'click', 'touchstart', 'wheel'].forEach((ev) => deviceLockEl.addEventListener(ev, (e) => { e.stopPropagation(); if (ev !== 'wheel') e.preventDefault(); }, true));
+      ['keydown', 'keyup', 'keypress', 'pointerdown', 'mousedown', 'click', 'touchstart', 'wheel'].forEach((ev) => deviceLockEl.addEventListener(ev, (e) => {
+        // The owner chat stays usable on this screen.
+        if (e.target && e.target.closest && e.target.closest('.gpa-achat')) { e.stopPropagation(); return; }
+        e.stopPropagation(); if (ev !== 'wheel') e.preventDefault();
+      }, true));
       panel.appendChild(deviceLockEl);
     }
     const when = until ? new Date(until).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '12:00 PM';
+    // Already showing with the owner chat in it: only the time changes, so a
+    // message being typed isn't lost when this is checked again.
+    if (!deviceLockEl.hidden && deviceLockEl.contains(achatEl)) {
+      const t = deviceLockEl.querySelector('.gpa-lock-until');
+      if (t) t.textContent = when;
+      return;
+    }
     deviceLockEl.innerHTML = `<div class="gpa-gate-card"><div class="gpa-gate-icon" aria-hidden="true">🔒</div><h2>This device is locked</h2>`
       + `<p>There were too many sign-in attempts here with names or PINs that aren’t allowed. Only people the owner has approved can use Saints Service.</p>`
-      + `<p>The owner and admins have been notified. This device stays locked until <b>${escapeHtml(when)}</b> (the end of the school day session), unless they unlock it sooner.</p></div>`;
+      + `<p>The owner and admins have been notified. This device stays locked until <b class="gpa-lock-until">${escapeHtml(when)}</b> (the end of the school day session), unless they unlock it sooner.</p></div>`;
+    // The last refused name's conversation with the owner, if there is one.
+    let chatUser = '';
+    try { chatUser = localStorage.getItem(ACHAT_USER_STORE) || ''; } catch (e) { /* ignore */ }
+    if (chatUser) { deviceLockEl.querySelector('.gpa-gate-card').appendChild(achatEl); openAccessChat(chatUser); }
     deviceLockEl.hidden = false;
     [...panel.children].forEach((c) => { if (c !== deviceLockEl) c.inert = true; });
     // Belt and braces: the sign-in fields and buttons themselves are off too.
@@ -18410,6 +18557,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function hideDeviceLock() {
     clearInterval(deviceLockTimer);
     if (deviceLockEl) deviceLockEl.hidden = true;
+    if (deviceLockEl && deviceLockEl.contains(achatEl)) { closeAccessChat(); reqBox.after(achatEl); }
     [...panel.children].forEach((c) => { c.inert = false; });
     panel.querySelectorAll('[data-lock-off]').forEach((el) => { el.disabled = false; delete el.dataset.lockOff; });
     try { localStorage.removeItem('gpa_device_locked'); } catch (e) { /* ignore */ }
@@ -23347,6 +23495,10 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     const state = { who: null, section: 'overview', cache: {}, users: [], inspecting: null, pollTimer: 0 };
     const can = (perm) => !!state.who && (state.who.perms.includes('*') || state.who.perms.includes(perm));
     const isOwner = () => !!state.who && state.who.role === 'owner';
+    // Security → Messages: the conversation open there ('' = the list).
+    let accessChatOpen = '';
+    // Opens one of those conversations (set once Security is drawn).
+    let openAdminChat = () => {};
 
     // ---- Transport ----
     const base = () => ((admGet(ADMIN_KEYS.TELE_ENDPOINT) || '').trim() || TELEMETRY_ENDPOINT || '').replace(/\/+$/, '');
@@ -23881,6 +24033,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           + (isOwner() ? card('Phone app', `<div class="gac-allow-row"><span>Only you and admins can use the app</span><button class="gps-switch${d.config.appStaffOnly !== false ? ' primary' : ''}" id="gac-app-staff" type="button" aria-pressed="${d.config.appStaffOnly !== false}" aria-label="Only you and admins can use the app">Only you and admins can use the app</button></div>`
             + `<p class="gps-hint">The home-screen app (<code>/console/</code>) signs in with a name and PIN. With this on, only you and people with the <b>admin</b> role get in; everyone else is told to use the console on a computer. To make someone an admin: Users → their name → Role: admin → Change role (they sign in again once). Admins never need the admin token: the Admin panel opens from their role, and they can be signed in on their phone and a computer at the same time.</p>`, 'account', 'gac-app-card') : '')
           + (isOwner() ? card('Access requests', `<div id="gac-access-req"><p class="gps-hint">Loading…</p></div>`, 'key') : '')
+          + (isOwner() ? card('Messages from people not on your list', `<div id="gac-access-chat"><p class="gps-hint">Loading…</p></div>`, 'chat') : '')
           + (can('users.manage') ? helpCard() : '')
           + (can('users.manage') ? emailsCard() : '')
           + freeCard()
@@ -24088,7 +24241,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
               + r.requests.map((q) => `<li class="gac-req" data-user="${esc(q.user)}"><div class="gac-req-top"><span class="gac-req-name">${esc(q.user)}</span><span class="gac-req-badge ${esc(q.status)}">${esc(q.status)}</span></div>`
                 + `<div class="gac-req-meta">${ago(q.ts)}${q.region || q.country ? ' · ' + esc([q.region, q.country].filter(Boolean).join(', ')) : ''}${q.count > 1 ? ' · asked ' + q.count + ' times' : ''}</div>`
                 + (q.message ? `<p class="gac-req-msg">“${esc(q.message)}”</p>` : '')
-                + `<div class="gac-req-actions">${q.status === 'pending' ? '<button class="gps-btn primary" data-act="approve" type="button">Approve</button><button class="gps-btn" data-act="deny" type="button">Deny</button>' : ''}<button class="gps-btn" data-act="clear" type="button">Clear</button></div></li>`).join('')
+                + `<div class="gac-req-actions">${q.status === 'pending' ? '<button class="gps-btn primary" data-act="approve" type="button">Approve</button><button class="gps-btn" data-act="deny" type="button">Deny</button>' : ''}${q.chatId ? `<button class="gps-btn" data-act="message" data-chat-id="${esc(q.chatId)}" type="button">Message</button>` : ''}<button class="gps-btn" data-act="clear" type="button">Clear</button></div></li>`).join('')
               + `</ul>`;
           } catch (e) { reqEl.innerHTML = '<p class="gps-hint">Couldn’t load requests: ' + esc(e.message) + '</p>'; }
         };
@@ -24097,6 +24250,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             const btn = e.target.closest('button[data-act]');
             if (!btn) return;
             const user = btn.closest('.gac-req').dataset.user;
+            if (btn.dataset.act === 'message') { openAdminChat(btn.dataset.chatId, true); return; }
             btn.disabled = true;
             try {
               await api('/admin/access-requests/decide', { method: 'POST', body: { user, action: btn.dataset.act } });
@@ -24106,6 +24260,113 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
             } catch (err) { btn.disabled = false; showToast(err.message, { type: 'danger' }); }
           });
           loadRequests();
+        }
+        // Messages with people who aren't on the list (the chat box on their
+        // sign-in screen): the list, or one conversation with a reply box. An
+        // open conversation refreshes every few seconds while it's on screen.
+        const chatEl = b.querySelector('#gac-access-chat');
+        let chatPoll = 0;
+        const chatWhere = (c) => [c.region, c.country].filter(Boolean).join(', ');
+        const chatTime = (ts) => new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const loadChats = async () => {
+          if (!chatEl) return;
+          clearInterval(chatPoll);
+          accessChatOpen = '';
+          try {
+            const r = await api('/admin/access-chats');
+            if (!r.chats.length) { chatEl.innerHTML = '<p class="gps-hint">No one yet. When someone who isn’t on your list tries to sign in, they show up here and you can message them; they can write to you from the sign-in screen, and you get it as a phone notification.</p>'; return; }
+            chatEl.innerHTML = `<p class="gps-hint">${r.unread ? esc(r.unread + ' unread.') : 'Nothing unread.'} People who tried to sign in without being on your list.</p><ul class="gac-req-list">`
+              + r.chats.map((c) => `<li class="gac-req gac-achat-row" data-user="${esc(c.user)}" data-id="${esc(c.id)}"><div class="gac-req-top"><span class="gac-req-name">${esc(c.user)}</span><span class="gac-req-badge ${c.unread ? 'pending' : ''}">${esc(c.unread ? c.unread + ' new' : c.allowed ? 'Allowed now' : c.count ? c.count + (c.count === 1 ? ' message' : ' messages') : 'Tried to sign in')}</span></div>`
+                + `<div class="gac-req-meta">${ago(c.lastTs)}${chatWhere(c) ? ' · ' + esc(chatWhere(c)) : ''}${c.tries > 1 ? ' · ' + esc(c.tries + ' sign-in tries') : ''}</div>`
+                + (c.last ? `<p class="gac-req-msg">${c.last.from === 'owner' ? 'You: ' : ''}${esc(c.last.text)}</p>` : '')
+                + `<div class="gac-req-actions"><button class="gps-btn primary" data-chat="open" type="button">${c.count ? 'Open' : 'Message'}</button></div></li>`).join('')
+              + '</ul>';
+          } catch (e) { chatEl.innerHTML = '<p class="gps-hint">Couldn’t load messages: ' + esc(e.message) + '</p>'; }
+        };
+        const paintChat = (c) => {
+          const box = chatEl.querySelector('.gac-achat');
+          if (!box) return;
+          box.querySelector('.gac-req-meta').textContent = 'First tried ' + chatTime(c.firstTs) + (c.tries > 1 ? ' · ' + c.tries + ' sign-in tries' : '') + (chatWhere(c) ? ' · ' + chatWhere(c) : '') + (c.allowed ? ' · on your list now' : ' · not on your list');
+          const log = box.querySelector('.gac-achat-log');
+          const sig = JSON.stringify(c.msgs.map((m) => [m.from, m.ts]));
+          if (log.dataset.sig === sig) return;
+          log.dataset.sig = sig;
+          if (!c.msgs.length) { log.innerHTML = '<p class="gps-hint">No messages yet. Write first: they see it on their sign-in screen.</p>'; return; }
+          log.replaceChildren(...c.msgs.map((m) => {
+            const el = document.createElement('div');
+            el.className = 'gac-achat-msg' + (m.from === 'owner' ? ' is-me' : '');
+            const who = document.createElement('small');
+            who.textContent = (m.from === 'owner' ? (m.by && m.by !== 'owner' ? m.by : 'You') : c.user) + ' · ' + chatTime(m.ts);
+            el.append(who, document.createTextNode(String(m.text || '')));
+            return el;
+          }));
+          log.scrollTop = log.scrollHeight;
+        };
+        const refreshChat = async (id) => {
+          try {
+            const r = await api('/admin/access-chat?id=' + encodeURIComponent(id));
+            if (accessChatOpen === id) paintChat(r.chat);
+          } catch (e) {
+            if (e.status === 404 && accessChatOpen === id) { showToast('That conversation is gone.'); loadChats(); }
+          }
+        };
+        openAdminChat = async (id, scroll) => {
+          if (!chatEl || !id) return;
+          clearInterval(chatPoll);
+          accessChatOpen = id;
+          const user = id.split(':')[0];
+          chatEl.innerHTML = `<div class="gac-achat" data-id="${esc(id)}" data-user="${esc(user)}"><div class="gac-achat-top"><button class="gps-btn" data-chat="back" type="button">← All messages</button><span class="gac-req-name">${esc(user)}</span></div>`
+            + `<div class="gac-req-meta">Loading…</div><div class="gac-achat-log" role="log" aria-live="polite"></div>`
+            + `<form class="gac-achat-form"><textarea class="gps-input" rows="2" maxlength="500" placeholder="Message ${esc(user)}…" aria-label="Message ${esc(user)}"></textarea>`
+            + `<div class="gac-req-actions"><button class="gps-btn primary" type="submit">Send</button><button class="gps-btn" data-chat="delete" type="button">Delete conversation</button></div></form></div>`;
+          if (scroll) flashEl(chatEl.closest('.gac-card'));
+          await refreshChat(id);
+          chatPoll = setInterval(() => {
+            if (!chatEl.isConnected || accessChatOpen !== id) { clearInterval(chatPoll); return; }
+            if (!document.hidden) refreshChat(id);
+          }, 6000);
+        };
+        if (chatEl) {
+          chatEl.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button[data-chat]');
+            if (!btn) return;
+            const what = btn.dataset.chat;
+            if (what === 'open') { openAdminChat(btn.closest('.gac-achat-row').dataset.id); return; }
+            if (what === 'back') { loadChats(); return; }
+            if (what === 'delete') {
+              const box = btn.closest('.gac-achat');
+              if (!confirm('Delete your conversation with ' + box.dataset.user + '? They won’t see it any more either.')) return;
+              btn.disabled = true;
+              try { await api('/admin/access-chat/send', { method: 'POST', body: { id: box.dataset.id, action: 'delete' } }); showToast('Conversation deleted.'); loadChats(); }
+              catch (err) { btn.disabled = false; showToast(err.message, { type: 'danger' }); }
+            }
+          });
+          chatEl.addEventListener('submit', async (e) => {
+            const f = e.target.closest('.gac-achat-form');
+            if (!f) return;
+            e.preventDefault();
+            const box = f.closest('.gac-achat');
+            const ta = f.querySelector('textarea');
+            const text = ta.value.trim();
+            if (!text) return;
+            const send = f.querySelector('button[type="submit"]');
+            send.disabled = true;
+            try {
+              await api('/admin/access-chat/send', { method: 'POST', body: { id: box.dataset.id, message: text } });
+              ta.value = '';
+              await refreshChat(box.dataset.id);
+            } catch (err) { showToast(err.message, { type: 'danger' }); }
+            send.disabled = false;
+            ta.focus();
+          });
+          chatEl.addEventListener('keydown', (e) => {
+            // Enter sends; Shift+Enter is a new line.
+            if (e.key !== 'Enter' || e.shiftKey || !e.target.matches('.gac-achat-form textarea')) return;
+            e.preventDefault();
+            e.target.closest('form').requestSubmit();
+          });
+          const want = accessChatOpen;
+          if (want) openAdminChat(want); else loadChats();
         }
         const appSw = b.querySelector('#gac-app-staff');
         if (appSw) appSw.addEventListener('click', async () => {
@@ -24802,7 +25063,17 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
         return;
       }
       if (sec === 'users' && ['all', 'active', 'accounts', 'flagged'].includes(p.filter)) state.userFilter = p.filter;
+      // A message from someone not on the list: Security opens on that conversation.
+      if (sec === 'security' && p.focus === 'chat' && /^[a-z0-9_.-]{1,40}:[0-9a-f]{16}$/.test(p.id || '')) accessChatOpen = p.id;
       await showAdminSection(sec);
+      if (sec === 'security' && p.focus === 'chat') {
+        if (accessChatOpen && accessChatOpen === p.id && !gac.querySelector('#gac-access-chat .gac-achat')) openAdminChat(p.id);
+        await land(() => {
+          const box = gac.querySelector('#gac-access-chat');
+          if (!box || /Loading/.test(box.textContent)) return null;
+          return box.querySelector('.gac-achat') || (user && byUser('.gac-achat-row', user)) || box.closest('.gac-card');
+        });
+      }
       if (sec === 'security' && p.focus === 'requests') {
         await land(() => {
           const box = gac.querySelector('#gac-access-req');
@@ -25050,7 +25321,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       state.pollTimer = 0;
       if (on && state.who) {
         showAdminSection(state.section);
-        state.pollTimer = setInterval(() => { if (pane.classList.contains('active') && document.visibilityState === 'visible' && ['overview', 'security', 'moderation'].includes(state.section)) loadSection(state.section); }, 60000);
+        state.pollTimer = setInterval(() => { if (pane.classList.contains('active') && document.visibilityState === 'visible' && ['overview', 'security', 'moderation'].includes(state.section) && !(state.section === 'security' && accessChatOpen)) loadSection(state.section); }, 60000);
       }
       if (!on) closePalette();
     });

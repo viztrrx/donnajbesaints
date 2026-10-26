@@ -834,6 +834,60 @@ test('access requests: unlisted users can ask; the owner is notified and can app
   assert.ok(JSON.stringify(audit.data).includes('access_request_approved'));
 });
 
+test('access chat: the owner and someone not on the list can message each other from the sign-in screen', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['kj'] } } });
+  const key = 'a1'.repeat(16), other = 'b2'.repeat(16);
+  // A listed name has nothing to open.
+  assert.deepEqual((await c.call('/access/chat', { method: 'POST', body: { user: 'kj', chat: key } })).data, { ok: true, allowed: true, msgs: [] });
+  assert.equal((await c.call('/access/chat', { method: 'POST', body: { user: 'josue', chat: 'short' } })).status, 400, 'a key is required');
+  // Trying to sign in opens a thread the owner can see, before anyone writes.
+  const open = await c.call('/access/chat', { method: 'POST', body: { user: 'Josue', chat: key } });
+  assert.deepEqual(open.data, { ok: true, allowed: false, msgs: [] });
+  let list = await c.call('/admin/access-chats', { headers: owner });
+  assert.equal(list.data.chats.length, 1);
+  const id = list.data.chats[0].id;
+  assert.equal(list.data.chats[0].user, 'Josue');
+  assert.equal(list.data.chats[0].tries, 1);
+  assert.equal(list.data.chats[0].unread, 0);
+  // Only the owner reads the threads.
+  assert.equal((await c.call('/admin/access-chats', { headers: coadmin })).status, 403);
+  assert.equal((await c.call('/admin/access-chat?id=' + encodeURIComponent(id), { headers: coadmin })).status, 403);
+  // The owner writes first; they see it on the sign-in screen.
+  const sent = await c.call('/admin/access-chat/send', { method: 'POST', headers: owner, body: { id, message: '  who is this?  ' } });
+  assert.equal(sent.data.msg.text, 'who is this?');
+  const read = await c.call('/access/chat?user=josue&chat=' + key);
+  assert.deepEqual(read.data.msgs.map((m) => [m.from, m.text]), [['owner', 'who is this?']]);
+  assert.equal(read.data.allowed, false);
+  // Another browser typing the same name doesn't see the conversation.
+  assert.deepEqual((await c.call('/access/chat?user=josue&chat=' + other)).data.msgs, []);
+  // They answer; it's unread for the owner until opened.
+  const reply = await c.call('/access/chat', { method: 'POST', body: { user: 'josue', chat: key, text: "it's josue from 3rd period" } });
+  assert.equal(reply.data.msgs.length, 2);
+  list = await c.call('/admin/access-chats', { headers: owner });
+  assert.equal(list.data.unread, 1);
+  assert.equal(list.data.chats.find((x) => x.id === id).last.text, "it's josue from 3rd period");
+  const thread = await c.call('/admin/access-chat?id=' + encodeURIComponent(id), { headers: owner });
+  assert.deepEqual(thread.data.chat.msgs.map((m) => m.from), ['owner', 'them']);
+  assert.equal((await c.call('/admin/access-chats', { headers: owner })).data.unread, 0, 'opening it marks it read');
+  // A request from the same screen links to the thread.
+  await c.call('/access/request', { method: 'POST', body: { user: 'josue', message: 'pls', chat: key } });
+  const reqs = await c.call('/admin/access-requests', { headers: owner });
+  assert.equal(reqs.data.requests[0].chatId, id);
+  // Approved: their screen learns it from the chat.
+  await c.call('/admin/access-requests/decide', { method: 'POST', headers: owner, body: { user: 'josue', action: 'approve' } });
+  assert.equal((await c.call('/access/chat?user=josue&chat=' + key)).data.allowed, true);
+  // Flood protection: 30 messages an hour from one network.
+  const codes = [];
+  for (let i = 0; i < 31; i++) codes.push((await c.call('/access/chat', { method: 'POST', body: { user: 'dub', chat: other, text: 'hi ' + i }, ip: '9.9.9.9' })).status);
+  assert.equal(codes.filter((x) => x === 200).length, 30);
+  assert.equal(codes[30], 429);
+  // Delete.
+  assert.equal((await c.call('/admin/access-chat/send', { method: 'POST', headers: owner, body: { id, action: 'delete' } })).data.ok, true);
+  assert.equal((await c.call('/admin/access-chat?id=' + encodeURIComponent(id), { headers: owner })).status, 404);
+  assert.deepEqual((await c.call('/access/chat?user=josue&chat=' + key)).data.msgs, []);
+});
+
 test('one sign-in per name: a listed username is useless without its PIN, and only one device holds it', async () => {
   const env = makeEnv(); const c = makeClient(env);
   await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['kj'] } } });

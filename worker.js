@@ -1558,6 +1558,25 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // (and the owner) may sign in, create an account or use anything here.
     const ACCESS_DENIED = 'Unable to create account';
     const accessReqKey = (u) => 'accessreq:u:' + String(u || '').trim().toLowerCase().slice(0, 40);
+    // Direct messages with someone who isn't on the allowed-users list (the
+    // sign-in screen's chat box). One thread per name and browser: the
+    // browser keeps a random key and the thread is stored under its hash, so
+    // typing someone's name on another computer never shows their messages.
+    //   accesschat:t:<name>:<first 16 of sha256(key)>
+    const ACCESS_CHAT_PREFIX = 'accesschat:t:';
+    const ACCESS_CHAT_TTL = 60 * 60 * 24 * 30;
+    const ACCESS_CHAT_MAX = 200;
+    const accessChatId = (name, h) => String(name).trim().toLowerCase().slice(0, 40) + ':' + h.slice(0, 16);
+    const accessChatKey = (id) => ACCESS_CHAT_PREFIX + id;
+    const accessChatText = (v) => String(v || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').trim().slice(0, 500);
+    // What the person on the sign-in screen sees: who wrote, what, when.
+    const accessChatView = (t) => (t.msgs || []).map((m) => ({ from: m.from, text: m.text, ts: m.ts }));
+    // Their browser's key, checked against the thread it opens.
+    const accessChatAuth = async (name, key) => {
+      if (!/^[A-Za-z0-9_.-]{1,40}$/.test(name) || !/^[0-9a-f]{32,64}$/.test(key)) return null;
+      const h = await sha256hex('accesschat|' + key);
+      return { h, id: accessChatId(name, h) };
+    };
     const inviteKey = (u) => 'invite:' + String(u || '').trim().toLowerCase().slice(0, 40);
     // "K7MQ-4X2P": no 0/O, 1/I/L, easy to read out loud.
     const makeInviteCode = () => {
@@ -1847,6 +1866,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       '/admin/config':         { method: 'POST', perm: 'system.manage' },
       '/admin/access-requests':        { method: 'GET',  perm: 'system.manage' },
       '/admin/access-requests/decide': { method: 'POST', perm: 'system.manage' },
+      '/admin/access-chats':           { method: 'GET',  perm: 'system.manage' },
+      '/admin/access-chat':            { method: 'GET',  perm: 'system.manage' },
+      '/admin/access-chat/send':       { method: 'POST', perm: 'system.manage' },
       '/admin/subscriptions':          { method: 'POST', perm: 'system.manage' },
       '/admin/free-access':            { method: 'POST', perm: 'coadmin' },
       '/admin/sub-emails':             { method: 'POST', perm: 'users.manage' },
@@ -2303,6 +2325,65 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       await kv.put('config', JSON.stringify(cfg));
       await logAudit(kv, { route: url.pathname, action: 'subscription_' + action, target: key, meta: { period, note } });
       return json(view());
+    }
+
+    // Direct messages with people who aren't on the list: every thread
+    // (newest first), one thread (marked read), and the owner's reply or
+    // delete.
+    if (url.pathname === '/admin/access-chats') {
+      const kv = env.TELEMETRY;
+      const items = [];
+      let cursor;
+      do {
+        const page = await kv.list({ prefix: ACCESS_CHAT_PREFIX, cursor });
+        for (const k of page.keys) { const t = await kv.get(k.name, 'json'); if (t) items.push(t); }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor && items.length < 300);
+      const cfg = await getConfig(kv);
+      const rows = items.map((t) => {
+        const msgs = t.msgs || [];
+        const last = msgs[msgs.length - 1] || null;
+        return {
+          id: t.id, user: t.user, firstTs: t.firstTs, lastTs: t.lastTs, tries: t.tries || 0, country: t.country || '', region: t.region || '',
+          unread: msgs.filter((m) => m.from === 'them' && m.ts > (t.ownerSeen || 0)).length,
+          count: msgs.length, last: last ? { from: last.from, text: last.text.slice(0, 140), ts: last.ts } : null,
+          allowed: allowedUser(cfg, t.user)
+        };
+      }).sort((a, b) => (b.unread ? 1 : 0) - (a.unread ? 1 : 0) || b.lastTs - a.lastTs);
+      return json({ ok: true, chats: rows, unread: rows.reduce((n, r) => n + r.unread, 0) });
+    }
+    if (url.pathname === '/admin/access-chat') {
+      const kv = env.TELEMETRY;
+      const id = String(url.searchParams.get('id') || '').slice(0, 80);
+      const t = id ? await kv.get(accessChatKey(id), 'json') : null;
+      if (!t) return json({ error: 'That conversation is gone.' }, 404);
+      const unread = (t.msgs || []).some((m) => m.from === 'them' && m.ts > (t.ownerSeen || 0));
+      if (unread) { t.ownerSeen = Date.now(); await kv.put(accessChatKey(id), JSON.stringify(t), { expirationTtl: ACCESS_CHAT_TTL }); }
+      const cfg = await getConfig(kv);
+      return json({ ok: true, chat: { id: t.id, user: t.user, firstTs: t.firstTs, lastTs: t.lastTs, tries: t.tries || 0, country: t.country || '', region: t.region || '',
+        theySaw: t.themSeen || 0, allowed: allowedUser(cfg, t.user), msgs: (t.msgs || []).map((m) => ({ from: m.from, text: m.text, ts: m.ts, by: m.by || '' })) } });
+    }
+    if (url.pathname === '/admin/access-chat/send') {
+      const kv = env.TELEMETRY;
+      let body = {};
+      try { body = JSON.parse(await req.text()) || {}; } catch (e) { return json({ error: 'invalid request' }, 400); }
+      const id = String(body.id || '').slice(0, 80);
+      const t = id ? await kv.get(accessChatKey(id), 'json') : null;
+      if (!t) return json({ error: 'That conversation is gone.' }, 404);
+      if (body.action === 'delete') {
+        await kv.delete(accessChatKey(id));
+        await logAudit(kv, { route: url.pathname, action: 'access_chat_deleted', target: t.user });
+        return json({ ok: true });
+      }
+      const text = accessChatText(body.message);
+      if (!text) return json({ error: 'Write a message first.' }, 400);
+      const p = await resolvePrincipal();
+      const now = Date.now();
+      t.msgs = [...(t.msgs || []), { from: 'owner', text, ts: now, by: (p && p.user) || 'owner' }].slice(-ACCESS_CHAT_MAX);
+      t.lastTs = now;
+      t.ownerSeen = now;
+      await kv.put(accessChatKey(id), JSON.stringify(t), { expirationTtl: ACCESS_CHAT_TTL });
+      return json({ ok: true, msg: { from: 'owner', text, ts: now } });
     }
 
     if (url.pathname === '/admin/access-requests/decide') {
@@ -3599,8 +3680,11 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         return json({ ok: false, status: 'denied', error: 'The owner declined this request. You can ask again tomorrow.' }, 200);
       }
       const cf = req.cf || {};
+      // Their sign-in screen's chat, so the owner can answer from the request.
+      const chatAuth = await accessChatAuth(name, String(body.chat || ''));
       const rec = {
         user: name, message, status: 'pending', ts: Date.now(), firstTs: (prev && prev.status === 'pending' && prev.firstTs) || Date.now(),
+        chatId: chatAuth ? chatAuth.id : (prev && prev.chatId) || '',
         count: ((prev && prev.status === 'pending' && prev.count) || 0) + 1,
         country: cf.country || '', region: String(cf.region || cf.city || '').slice(0, 60), ip: await ipTag()
       };
@@ -3610,6 +3694,76 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         body: (message ? '“' + message + '” · ' : 'Wants to use the console · ') + ownerTime(env) + (where ? ' · ' + where : ''),
         throttle: { key: 'accessreq:' + name.toLowerCase(), seconds: 600 } });
       return json({ ok: true, status: 'pending' });
+    }
+
+    // The chat box on the sign-in screen for a name that isn't allowed: the
+    // owner can write to whoever tried, and they can write back (pushed to
+    // the owner's phone). POST opens the thread (and sends `text`, if any);
+    // GET reads it. Only that browser's key opens its thread.
+    if (url.pathname === '/access/chat' && (req.method === 'POST' || req.method === 'GET')) {
+      const kv = env && env.TELEMETRY;
+      if (!kv) return json({ ok: false, error: 'storage not configured' }, 503);
+      let body = {};
+      if (req.method === 'POST') {
+        try { const raw = await req.text(); if (raw.length > 4096) throw 0; body = JSON.parse(raw) || {}; } catch (e) { return json({ ok: false, error: 'invalid request' }, 400); }
+      } else {
+        body = { user: url.searchParams.get('user'), chat: url.searchParams.get('chat') };
+      }
+      const name = String(body.user || '').trim().replace(/^@/, '');
+      const auth = await accessChatAuth(name, String(body.chat || ''));
+      if (!auth) return json({ ok: false, error: 'invalid request' }, 400);
+      const key = accessChatKey(auth.id);
+      const cfg = await getConfig(kv);
+      const allowed = allowedUser(cfg, name);
+      let t = await kv.get(key, 'json');
+      if (t && t.h !== auth.h) return json({ ok: false, error: 'invalid request' }, 400);
+      if (req.method === 'GET') {
+        if (!t) return json({ ok: true, allowed, msgs: [] });
+        // Marks the owner's messages as seen (at most once a minute).
+        const lastOwner = (t.msgs || []).reduce((n, m) => m.from === 'owner' ? Math.max(n, m.ts) : n, 0);
+        if (lastOwner > (t.themSeen || 0) && Date.now() - (t.themSeen || 0) > 60000) {
+          t.themSeen = Date.now();
+          await kv.put(key, JSON.stringify(t), { expirationTtl: ACCESS_CHAT_TTL });
+        }
+        return json({ ok: true, allowed, msgs: accessChatView(t) });
+      }
+      const now = Date.now();
+      const netTag = (await sha256hex(clientIp(req) || 'unknown')).slice(0, 28);
+      if (!t) {
+        if (allowed) return json({ ok: true, allowed, msgs: [] });
+        // At most 10 new conversations an hour from one network.
+        const rlKey = 'accesschat:rl:new:' + netTag;
+        const made = parseInt((await kv.get(rlKey)) || '0', 10) || 0;
+        if (made >= 10) return json({ ok: false, error: 'Too many tries. Try again in an hour.' }, 429);
+        await kv.put(rlKey, String(made + 1), { expirationTtl: 3600 });
+        const cf = req.cf || {};
+        t = { id: auth.id, h: auth.h, user: name, firstTs: now, lastTs: now, tries: 0, msgs: [], ownerSeen: 0, themSeen: 0,
+          country: cf.country || '', region: String(cf.region || cf.city || '').slice(0, 60) };
+      }
+      const text = accessChatText(body.text);
+      if (!text) {
+        // Opening it again (another sign-in try) counts as a try, written at most once a minute.
+        if (t.tries && now - (t.lastTry || 0) < 60000) return json({ ok: true, allowed, msgs: accessChatView(t) });
+        t.tries = (t.tries || 0) + 1;
+        t.lastTry = now;
+        t.lastTs = Math.max(t.lastTs || 0, now);
+        await kv.put(key, JSON.stringify(t), { expirationTtl: ACCESS_CHAT_TTL });
+        return json({ ok: true, allowed, msgs: accessChatView(t) });
+      }
+      // At most 30 messages an hour from one network, so the owner's phone
+      // can't be flooded.
+      const rlMsg = 'accesschat:rl:msg:' + netTag;
+      const sent = parseInt((await kv.get(rlMsg)) || '0', 10) || 0;
+      if (sent >= 30) return json({ ok: false, error: 'You’ve sent a lot of messages. Wait a while for the owner to answer.' }, 429);
+      await kv.put(rlMsg, String(sent + 1), { expirationTtl: 3600 });
+      t.msgs = [...(t.msgs || []), { from: 'them', text, ts: now }].slice(-ACCESS_CHAT_MAX);
+      t.lastTs = now;
+      await kv.put(key, JSON.stringify(t), { expirationTtl: ACCESS_CHAT_TTL });
+      notify({ cat: 'access', title: 'Message from ' + name + ' (not on your list)', urgent: true,
+        url: adminLink('security', { focus: 'chat', user: name, id: auth.id }),
+        body: '“' + text.slice(0, 160) + '” · ' + ownerTime(env),
+        throttle: { key: 'accesschat:' + auth.id, seconds: 20 } });
+      return json({ ok: true, allowed, msgs: accessChatView(t) });
     }
 
     if (url.pathname === '/status' && req.method === 'GET') {

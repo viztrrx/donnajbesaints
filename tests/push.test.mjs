@@ -359,6 +359,15 @@ test('push: every alert opens its own spot in the app', async () => {
     await t.call('/access/request', { method: 'POST', body: { user: 'Dub', message: 'let me in' } });
     assert.equal((await ofCat('access')).url, '/console/#tab=admin&sec=security&focus=requests&user=Dub');
 
+    // A message from someone not on the list: that conversation.
+    const chatKey = 'c3'.repeat(16);
+    await t.call('/access/chat', { method: 'POST', body: { user: 'Dub', chat: chatKey } });
+    await t.call('/access/chat', { method: 'POST', body: { user: 'Dub', chat: chatKey, text: 'hello?' } });
+    const dm = await ofCat('access');
+    assert.match(dm.title, /Message from Dub/);
+    assert.match(dm.body, /hello\?/);
+    assert.match(dm.url, /^\/console\/#tab=admin&sec=security&focus=chat&user=Dub&id=dub%3A[0-9a-f]{16}$/);
+
     // Security alerts: wrong PIN → that name under Allowed users; an
     // unlisted name → Access requests.
     await t.call('/auth/register', { method: 'POST', body: { user: 'kj', verifier: 'a'.repeat(64) } });
