@@ -6292,7 +6292,9 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // (default-src 'self' https:, no frame-src set) refuse to frame a plain
   // http: origin outright, no matter what this script does — the proxy
   // server itself has to actually serve HTTPS for embedding to work there.
-  const DEFAULT_PROXY_SERVER = 'https://localhost:4141';
+  // Now the Scramjet frontend on Cloudflare (as in script.js); a saved
+  // localhost address from earlier versions is ignored.
+  const DEFAULT_PROXY_SERVER = 'https://frontend.viztrrx.workers.dev';
 
   const proxyUrlInput = panel.querySelector('#gpa-proxy-url');
   const proxyGoBtn = panel.querySelector('#gpa-proxy-go');
@@ -6307,6 +6309,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   function proxyServerUrl() {
     let v = '';
     try { v = localStorage.getItem(PROXY_SERVER_KEY) || ''; } catch (e) { /* storage unavailable */ }
+    try { if (/^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|0\.0\.0\.0)$/i.test(new URL(v).hostname)) v = ''; } catch (e) { v = ''; }
     return (v || DEFAULT_PROXY_SERVER).replace(/\/+$/, '');
   }
   try { proxyServerInput.value = proxyServerUrl(); } catch (e) { /* ignore */ }

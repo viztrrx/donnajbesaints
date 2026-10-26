@@ -865,6 +865,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-23T18:00:00-04:00', commit: '', title: 'More notification settings; Proxy frame allows protected video', parts: {
       theme: ['feature', 'Account → Mention alerts: choose which alerts come (messages, mentions, @everyone; for staff also proxy launches, sites opened, security, PIN help, new subscribers, other staff alerts). Phone notifications: Proxy launches and Sites opened are separate, and PIN resets have their own toggle'],
       browser: ['fix', 'The proxy frame allows encrypted media and picture-in-picture'] } },
+    { at: '2026-10-26T12:00:00-04:00', commit: '', title: 'Proxy ignores old localhost addresses', parts: {
+      browser: ['fix', 'A localhost proxy address saved by an older version (any port) is ignored, so the Proxy opens frontend.viztrrx.workers.dev instead of “localhost refused to connect”'] } },
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -12381,11 +12383,16 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return u.origin;
   }
   // Cloudflare quick tunnels (*.trycloudflare.com) get a new random address
-  // every time they start, so a saved one has always stopped working.
+  // every time they start, so a saved one has always stopped working. A
+  // localhost address (any port) is a dev server from older versions; there's
+  // no field to set one any more, and framing it shows "refused to connect".
   function isStaleProxyServer(v) {
     v = String(v || '').trim().replace(/\/+$/, '');
     if (LEGACY_PROXY_SERVERS.includes(v)) return true;
-    try { return /(^|\.)trycloudflare\.com$/i.test(new URL(v).hostname); } catch (e) { return false; }
+    try {
+      const host = new URL(v).hostname;
+      return /(^|\.)trycloudflare\.com$/i.test(host) || /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|0\.0\.0\.0)$/i.test(host);
+    } catch (e) { return false; }
   }
   function proxyServerUrl() {
     let v = '';
