@@ -486,6 +486,12 @@ test('models: per-user base/upgraded model and auto-upgrade, and big-model limit
   const one = (await c.call('/admin/models?user=ana', { headers: owner })).data;
   assert.equal(one.user.used.today, 2);
   assert.equal(one.canEdit, true);
+  // Their console reports its own auto-upgrade setting, shown when none is set here.
+  assert.equal(one.user.console, null, 'nothing reported yet');
+  assert.equal((await c.call('/me/console-prefs', { method: 'POST', body: { autoUpgrade: 'off' } })).status, 401, 'needs a sign-in');
+  assert.equal((await c.call('/me/console-prefs', { method: 'POST', headers: sess(ana), body: { autoUpgrade: 'maybe' } })).status, 400);
+  assert.equal((await c.call('/me/console-prefs', { method: 'POST', headers: sess(ana), body: { autoUpgrade: 'off' } })).data.ok, true);
+  assert.equal((await c.call('/admin/models?user=ana', { headers: owner })).data.user.console.autoUpgrade, 'off');
 
   // The owner isn't limited unless they say so.
   const ownerAsk = () => c.call('/v1/chat/completions', { method: 'POST', headers: { ...owner, ...userKey, 'X-GPA-User': 'boss' }, body: { model: 'gpt-6-astra', messages: [{ role: 'user', content: 'x' }] } });
@@ -883,7 +889,7 @@ test('access requests: unlisted users can ask; the owner is notified and can app
   const r = await c.call('/access/request', { method: 'POST', body: { user: 'Josue', message: '  hi it\'s josue from 3rd period  ' } });
   assert.deepEqual(r.data, { ok: true, status: 'pending' });
   assert.deepEqual((await c.call('/access?user=JOSUE')).data.request.status, 'pending', 'the sign-in screen sees the pending request');
-  // Only the owner sees and decides.
+  // The owner and admins see and decide; moderators don't.
   assert.equal((await c.call('/admin/access-requests', { headers: coadmin })).status, 403);
   const list = await c.call('/admin/access-requests', { headers: owner });
   assert.equal(list.data.pending, 1);
@@ -960,6 +966,26 @@ test('access chat: the owner and someone not on the list can message each other 
   // Approved: their screen learns it from the chat.
   await c.call('/admin/access-requests/decide', { method: 'POST', headers: owner, body: { user: 'josue', action: 'approve' } });
   assert.equal((await c.call('/access/chat?user=josue&chat=' + key)).data.allowed, true);
+  // Admins read and answer too (the person sees "Admin"), and can approve or deny.
+  await c.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['kj', 'josue', 'adm'] } } });
+  await signUp(c, 'adm');
+  await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'adm', action: 'setrole', role: 'admin' } });
+  const admTok = (await c.call('/auth/login', { method: 'POST', body: { user: 'adm', verifier: verifierFor('adm', '1234'), takeover: true } })).data.token;
+  assert.ok(admTok, 'the admin signs in');
+  const admList = await c.call('/admin/access-chats', { headers: sess(admTok) });
+  assert.equal(admList.status, 200);
+  assert.ok(admList.data.chats.some((x) => x.id === id));
+  assert.equal((await c.call('/admin/access-chat/send', { method: 'POST', headers: sess(admTok), body: { id, message: 'admin here' } })).data.ok, true);
+  const seenByThem = (await c.call('/access/chat?user=josue&chat=' + key)).data.msgs;
+  assert.deepEqual(seenByThem.map((m) => [m.who || 'them', m.text]).slice(-2), [['them', "it's josue from 3rd period"], ['Admin', 'admin here']].slice(-2));
+  assert.equal(seenByThem.find((m) => m.text === 'who is this?').who, 'Owner');
+  assert.equal(seenByThem.find((m) => m.text === 'admin here').by, undefined, 'no admin names on the sign-in screen');
+  const admThread = (await c.call('/admin/access-chat?id=' + encodeURIComponent(id), { headers: sess(admTok) })).data.chat.msgs;
+  assert.deepEqual(admThread.filter((m) => m.from === 'owner').map((m) => [m.by, m.role]), [['boss', 'owner'], ['adm', 'admin']]);
+  await c.call('/access/request', { method: 'POST', body: { user: 'pat', message: 'hi' }, ip: '6.6.6.6' });
+  const dec = await c.call('/admin/access-requests/decide', { method: 'POST', headers: sess(admTok), body: { user: 'pat', action: 'deny' } });
+  assert.equal(dec.data.request.status, 'denied');
+  assert.equal(dec.data.request.decidedBy, 'adm');
   // Flood protection: 30 messages an hour from one network.
   const codes = [];
   for (let i = 0; i < 31; i++) codes.push((await c.call('/access/chat', { method: 'POST', body: { user: 'dub', chat: other, text: 'hi ' + i }, ip: '9.9.9.9' })).status);

@@ -34,7 +34,7 @@ const sr = (sel) => `#gpa-root-host >> ${sel}`;
 try {
   await W('/admin/config', { token: true, body: { allowlist: { on: true, users: [STAFF, KJ] } } });
   await W('/auth/register', { body: { user: STAFF, verifier: verifier(STAFF, PIN) }, ip: '10.2.1.1' });
-  const kj = (await W('/auth/register', { body: { user: KJ, verifier: verifier(KJ, PIN) }, ip: '10.2.1.2' })).data.token;
+  let kj = (await W('/auth/register', { body: { user: KJ, verifier: verifier(KJ, PIN) }, ip: '10.2.1.2' })).data.token;
   await W('/admin/user/action', { token: true, body: { u: STAFF, action: 'setrole', role: 'admin' } });
 
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
@@ -66,10 +66,19 @@ try {
   check('The model list has the newer and the big (★) models', opts.some((t) => /★ gpt-6-astra/.test(t)) && opts.some((t) => /gpt-5-mini/.test(t)) && opts.some((t) => /★ gpt-5\.6-luna/.test(t)), opts.length + ' options');
   await page.selectOption(sr('#gpa-wmod-form select[data-f="base"]'), 'gpt-4o-mini');
   await page.selectOption(sr('#gpa-wmod-form select[data-f="smart"]'), 'gpt-6-astra');
-  await page.selectOption(sr('#gpa-wmod-form select[data-f="auto"]'), 'on');
   await page.fill(sr('#gpa-wmod-form input[data-f="prem"]'), '0');
-  await page.screenshot({ path: path.join(OUT, '01-set-models.png') });
   await page.click(sr('[data-wm="save"]'));
+  await waitFor(page, (r, u) => !!r.querySelector(`#gpa-wmod .gpa-wsec-item[data-user="${u}"]`), KJ);
+  // Auto-upgrade: their console says off; the switch shows it and turns it on here.
+  await W('/me/console-prefs', { s: kj, body: { autoUpgrade: 'off' } });
+  await page.click(sr('[data-wm="load"]'));
+  const shownOff = await waitFor(page, (r) => { const b = r.querySelector('#gpa-wmod-form [data-wm="auto"]'); return b && b.getAttribute('aria-pressed') === 'false' && /from their console/.test(r.querySelector('#gpa-wmod-form [data-auto-txt]').textContent); });
+  check('The switch shows auto-upgrade is off (from their console)', shownOff);
+  await page.screenshot({ path: path.join(OUT, '01-auto-off.png') });
+  await page.click(sr('#gpa-wmod-form [data-wm="auto"]'));
+  const turnedOn = await waitFor(page, (r) => { const b = r.querySelector('#gpa-wmod-form [data-wm="auto"]'); return b && b.getAttribute('aria-pressed') === 'true' && /Set here/.test(r.querySelector('#gpa-wmod-form [data-auto-txt]').textContent); });
+  check('Tapping it turns auto-upgrade on for them', turnedOn);
+  await page.screenshot({ path: path.join(OUT, '01-set-models.png') });
   const listed = await waitFor(page, (r, u) => !!r.querySelector(`#gpa-wmod .gpa-wsec-item[data-user="${u}"]`), KJ);
   check('Saved: they’re listed under “People with their own models”', listed);
   const srv = (await W('/admin/models?user=' + KJ, { token: true })).data.user.settings;
@@ -80,6 +89,28 @@ try {
   // 3
   const st = (await W('/status?user=' + KJ, { s: kj })).data.models;
   check('The user’s console gets the models from /status', st && st.base === 'gpt-4o-mini' && st.smart === 'gpt-6-astra' && st.autoUpgrade === 'on', JSON.stringify(st));
+  // The user's own console keeps them across a reload (and a fresh inject).
+  // (One sign-in per name: the test's own session for them is ended first.)
+  await W('/admin/user/action', { token: true, body: { u: KJ, action: 'revokesessions' } });
+  const uctx = await browser.newContext({ viewport: { width: 1000, height: 760 }, userAgent: 'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 KJ' });
+  await uctx.addInitScript((u) => { try { localStorage.setItem('gpa_admin_tele_endpoint', u); } catch (e) { /* ignore */ } }, env.workerUrl);
+  const upage = await uctx.newPage();
+  await upage.goto(env.workerUrl + '/console/');
+  await upage.waitForFunction(() => !!document.getElementById('gpa-root-host'), null, { timeout: 30000 });
+  await upage.fill(sr('#gpa-login-user'), KJ);
+  await upage.fill(sr('#gpa-login-pin'), PIN);
+  await upage.click(sr('#gpa-login-btn'));
+  check('The user signs in on their own console', await waitFor(upage, (r) => r.querySelector('#gpa-login').style.display === 'none'));
+  const cached = await upage.waitForFunction(() => { try { const v = JSON.parse(localStorage.getItem('gpa_server_models')); return v && v.base === 'gpt-4o-mini' && v.autoUpgrade === 'on'; } catch (e) { return false; } }, null, { timeout: 30000 }).then(() => true, () => false);
+  check('Their console saves the models it was given', cached);
+  await upage.reload();
+  await upage.waitForFunction(() => !!document.getElementById('gpa-root-host'), null, { timeout: 30000 });
+  const kept = await upage.evaluate(() => { try { return JSON.parse(localStorage.getItem('gpa_server_models')); } catch (e) { return null; } });
+  check('…and still has them right after a reload', kept && kept.base === 'gpt-4o-mini' && kept.smart === 'gpt-6-astra' && kept.autoUpgrade === 'on', JSON.stringify(kept));
+  const reported = (await W('/admin/models?user=' + KJ, { token: true })).data.user.console;
+  check('Their console reported its own auto-upgrade setting', reported && reported.autoUpgrade === 'on', JSON.stringify(reported));
+  await uctx.close();
+  kj = (await W('/auth/login', { body: { user: KJ, verifier: verifier(KJ, PIN), takeover: true }, ip: '10.2.1.2' })).data.token;
 
   // 4
   await page.click(sr('[data-wm="reset"]'));

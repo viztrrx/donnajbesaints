@@ -73,7 +73,7 @@ try {
   const r = await attempt(visitor.page, DUB, 'signup');
   check('Unlisted name is refused', !r.inside && r.msg === 'Unable to create account', r.msg);
   let c = await chatState(visitor.page);
-  check('…and the “Message the owner” box shows', c.shown && /message you here/.test(c.hint), JSON.stringify(c));
+  check('…and the “Message the owner or an admin” box shows', c.shown && /message you here/.test(c.hint), JSON.stringify(c));
   await shot(visitor.page, '01-visitor-chat-box.png');
 
   // 2: the owner's phone app, Admin → Security → Messages.

@@ -1671,7 +1671,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     const accessChatKey = (id) => ACCESS_CHAT_PREFIX + id;
     const accessChatText = (v) => String(v || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').trim().slice(0, 500);
     // What the person on the sign-in screen sees: who wrote, what, when.
-    const accessChatView = (t) => (t.msgs || []).map((m) => ({ from: m.from, text: m.text, ts: m.ts }));
+    // Staff replies say whether the owner or an admin wrote them (no admin names).
+    const accessChatView = (t) => (t.msgs || []).map((m) => ({ from: m.from, text: m.text, ts: m.ts, ...(m.from === 'owner' ? { who: m.role === 'admin' ? 'Admin' : 'Owner' } : {}) }));
     // Their browser's key, checked against the thread it opens.
     const accessChatAuth = async (name, key) => {
       if (!/^[A-Za-z0-9_.-]{1,40}$/.test(name) || !/^[0-9a-f]{32,64}$/.test(key)) return null;
@@ -1965,14 +1966,14 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       '/admin/clearchat':      { method: 'POST', perm: 'moderation.manage' },
       '/admin/rooms':          { method: 'POST', perm: 'moderation.manage' },
       '/admin/config':         { method: 'POST', perm: 'system.manage' },
-      '/admin/access-requests':        { method: 'GET',  perm: 'system.manage' },
-      '/admin/access-requests/decide': { method: 'POST', perm: 'system.manage' },
-      '/admin/access-chats':           { method: 'GET',  perm: 'system.manage' },
+      '/admin/access-requests':        { method: 'GET',  perm: 'security.view' },
+      '/admin/access-requests/decide': { method: 'POST', perm: 'security.manage' },
+      '/admin/access-chats':           { method: 'GET',  perm: 'security.view' },
       '/admin/security-summary':       { method: 'GET',  perm: 'security.view' },
       '/admin/models':                 { method: 'GET',  perm: 'ai.view' },
       '/admin/models/set':             { method: 'POST', perm: 'ai.manage' },
-      '/admin/access-chat':            { method: 'GET',  perm: 'system.manage' },
-      '/admin/access-chat/send':       { method: 'POST', perm: 'system.manage' },
+      '/admin/access-chat':            { method: 'GET',  perm: 'security.view' },
+      '/admin/access-chat/send':       { method: 'POST', perm: 'security.manage' },
       '/admin/subscriptions':          { method: 'POST', perm: 'system.manage' },
       '/admin/free-access':            { method: 'POST', perm: 'coadmin' },
       '/admin/sub-emails':             { method: 'POST', perm: 'users.manage' },
@@ -2096,7 +2097,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     }
 
     // ======================================================================
-    // Access requests (owner): list, approve (adds the name to the allowed
+    // Access requests (owner and admins): list, approve (adds the name to the allowed
     // users), deny, or clear.
     if (url.pathname === '/admin/access-requests') {
       const kv = env.TELEMETRY;
@@ -2226,7 +2227,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
 
     // The Welcome page's Security card (owner and admins): recent security
     // alerts, devices and accounts locked right now, Forgot-PIN requests,
-    // and for the owner the access requests and unread messages from people
+    // and the access requests and unread messages from people
     // not on the list. The buttons on the card use the routes that already
     // do each thing (signin-help, user/action, access-requests/decide).
     if (url.pathname === '/admin/security-summary') {
@@ -2261,7 +2262,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const pinRequests = (await listPrefix('pinreq:')).filter((r) => r.status === 'pending' && r.until > now)
         .map((r) => ({ user: r.user, at: r.at, sameDevice: !!r.sameDevice, note: r.note || '' }));
       let accessRequests = [], unreadChats = 0;
-      if (owner) {
+      {
         accessRequests = (await listPrefix('accessreq:u:')).filter((r) => r.status === 'pending').sort((a, b) => b.ts - a.ts).slice(0, 20)
           .map((r) => ({ user: r.user, ts: r.ts, message: r.message || '', count: r.count || 1, chatId: r.chatId || '' }));
         for (const t of await listPrefix(ACCESS_CHAT_PREFIX, 300)) unreadChats += (t.msgs || []).filter((m) => m.from === 'them' && m.ts > (t.ownerSeen || 0)).length;
@@ -2288,7 +2289,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const usageOf = async (u) => ({ hour: parseInt(await kv.get('prem:h:' + hourKey() + ':' + u), 10) || 0, today: parseInt(await kv.get('prem:d:' + dayKey() + ':' + u), 10) || 0 });
       const detail = async (u) => {
         const m = await getMod(kv, u);
-        return { user: (await getAcct(kv, u) || {}).user || u, role: await roleOfName(u), settings: userModelsOf(m), used: await usageOf(u) };
+        // console: what their own console says about auto-upgrade (it reports it), for when it isn't set here.
+        const cp = await kv.get('consoleprefs:' + u, 'json');
+        return { user: (await getAcct(kv, u) || {}).user || u, role: await roleOfName(u), settings: userModelsOf(m), used: await usageOf(u),
+          console: cp && (cp.autoUpgrade === 'on' || cp.autoUpgrade === 'off') ? { autoUpgrade: cp.autoUpgrade, at: cp.at || 0 } : null };
       };
       if (url.pathname === '/admin/models/set') {
         let body = {};
@@ -2611,7 +2615,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (unread) { t.ownerSeen = Date.now(); await kv.put(accessChatKey(id), JSON.stringify(t), { expirationTtl: ACCESS_CHAT_TTL }); }
       const cfg = await getConfig(kv);
       return json({ ok: true, chat: { id: t.id, user: t.user, firstTs: t.firstTs, lastTs: t.lastTs, tries: t.tries || 0, country: t.country || '', region: t.region || '',
-        theySaw: t.themSeen || 0, allowed: allowedUser(cfg, t.user), msgs: (t.msgs || []).map((m) => ({ from: m.from, text: m.text, ts: m.ts, by: m.by || '' })) } });
+        theySaw: t.themSeen || 0, allowed: allowedUser(cfg, t.user), msgs: (t.msgs || []).map((m) => ({ from: m.from, text: m.text, ts: m.ts, by: m.by || '', role: m.role || 'owner' })) } });
     }
     if (url.pathname === '/admin/access-chat/send') {
       const kv = env.TELEMETRY;
@@ -2629,7 +2633,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       if (!text) return json({ error: 'Write a message first.' }, 400);
       const p = await resolvePrincipal();
       const now = Date.now();
-      t.msgs = [...(t.msgs || []), { from: 'owner', text, ts: now, by: (p && p.user) || 'owner' }].slice(-ACCESS_CHAT_MAX);
+      // from 'owner' = the staff side (the owner or an admin; role says which).
+      const role = p && p.role === 'admin' ? 'admin' : 'owner';
+      t.msgs = [...(t.msgs || []), { from: 'owner', text, ts: now, by: role === 'owner' ? OWNER : String((p && p.user) || 'admin'), role }].slice(-ACCESS_CHAT_MAX);
       t.lastTs = now;
       t.ownerSeen = now;
       await kv.put(accessChatKey(id), JSON.stringify(t), { expirationTtl: ACCESS_CHAT_TTL });
@@ -2659,6 +2665,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       }
       rec.status = action === 'approve' ? 'approved' : 'denied';
       rec.decidedAt = Date.now();
+      { const dp = await resolvePrincipal(); rec.decidedBy = dp && dp.role === 'admin' ? String(dp.user || 'admin') : OWNER; }
       await kv.put(key, JSON.stringify(rec), { expirationTtl: 60 * 60 * 24 * 30 });
       await logAudit(kv, { route: url.pathname, action: 'access_request_' + rec.status, target: rec.user });
       return json({ ok: true, request: (({ ip, ...r }) => r)(rec) });
@@ -3950,6 +3957,23 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // ?since=<ts> hands out the alerts after that time that this person wants
     // (see STAFF_POPUP_DEFS); /staff/popup-prefs reads (GET) or changes (POST
     // { on, cats }) what they want. Separate from their phone notifications.
+    // The console says what its own auto-upgrade setting is (Settings → power
+    // tools), so Welcome → AI models can show whether a person really gets
+    // the upgraded model when it isn't set there. Sent only when it changes.
+    if (url.pathname === '/me/console-prefs' && req.method === 'POST') {
+      const kv = env && env.TELEMETRY;
+      const sp = await resolveSession();
+      if (!sp) return json({ ok: false, error: 'Sign in first.' }, 401);
+      let body = {};
+      try { const raw = await req.text(); if (raw.length > 1024) throw 0; body = JSON.parse(raw) || {}; } catch (e) { return json({ ok: false, error: 'invalid request' }, 400); }
+      if (body.autoUpgrade !== 'on' && body.autoUpgrade !== 'off') return json({ ok: false, error: 'autoUpgrade must be on or off' }, 400);
+      if (!kv) return json({ ok: false, error: 'storage not configured' }, 503);
+      const key = 'consoleprefs:' + String(sp.user).toLowerCase();
+      const cur = (await kv.get(key, 'json')) || {};
+      if (cur.autoUpgrade !== body.autoUpgrade) await kv.put(key, JSON.stringify({ ...cur, autoUpgrade: body.autoUpgrade, at: Date.now() }));
+      return json({ ok: true });
+    }
+
     if (url.pathname === '/staff/alerts' || url.pathname === '/staff/popup-prefs') {
       const kv = env && env.TELEMETRY;
       const sp = await resolveSession();
@@ -4047,7 +4071,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       t.msgs = [...(t.msgs || []), { from: 'them', text, ts: now }].slice(-ACCESS_CHAT_MAX);
       t.lastTs = now;
       await kv.put(key, JSON.stringify(t), { expirationTtl: ACCESS_CHAT_TTL });
-      notify({ cat: 'access', ownerOnly: true, title: 'Message from ' + name + ' (not on your list)', urgent: true,
+      notifyStaff({ cat: 'access', title: 'Message from ' + name + ' (not on your list)', urgent: true,
         url: adminLink('security', { focus: 'chat', user: name, id: auth.id }),
         body: '“' + text.slice(0, 160) + '” · ' + ownerTime(env),
         throttle: { key: 'accesschat:' + auth.id, seconds: 20 } });

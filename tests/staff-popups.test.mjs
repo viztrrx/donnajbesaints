@@ -91,7 +91,7 @@ test('staff pop-ups: the owner and admins get them, filtered by role, actor and 
   const adminSees = (await alerts(adm, before)).alerts;
   assert.ok(adminSees.some((a) => a.cat === 'security' && a.urgent), 'admins see security alerts');
   assert.ok(adminSees.some((a) => a.title === 'Access request: dub'));
-  assert.ok(!adminSees.some((a) => /Message from dub/.test(a.title)), 'messages from people not on the list are the owner’s');
+  assert.ok(adminSees.some((a) => /Message from dub/.test(a.title) && a.urgent), 'admins see messages from people not on the list too (they can answer)');
   assert.ok(adminSees.some((a) => a.title === 'kj launched the Proxy'));
   assert.ok(!adminSees.some((a) => a.title === 'adm launched the Proxy'), 'not their own launch');
 
@@ -119,7 +119,7 @@ test('staff pop-ups: the owner and admins get them, filtered by role, actor and 
   assert.deepEqual((await alerts('owner', latest)).alerts, []);
 });
 
-test('welcome security card: locked devices, accounts and PIN requests for staff; access requests for the owner', async () => {
+test('welcome security card: locked devices, accounts and PIN requests for staff; and access requests for staff', async () => {
   const t = setup();
   await t.call('/admin/config', { method: 'POST', headers: owner, body: { allowlist: { on: true, users: ['adm', 'kj'] } } });
   await t.reg('adm'); await t.reg('kj');
@@ -136,7 +136,7 @@ test('welcome security card: locked devices, accounts and PIN requests for staff
   assert.equal(a.locks.length, 1);
   assert.deepEqual(a.locks[0].names, ['x1', 'x2', 'x3']);
   assert.ok(a.events.some((e) => /Device locked/.test(e.title) && e.urgent), 'the lock alert is in the recent events');
-  assert.deepEqual(a.accessRequests, [], 'access requests are the owner’s');
+  assert.equal(a.accessRequests[0].user, 'dub', 'admins see access requests too (they can approve or deny)');
   const o = (await t.call('/admin/security-summary', { headers: owner })).data;
   assert.equal(o.owner, true);
   assert.equal(o.accessRequests[0].user, 'dub');

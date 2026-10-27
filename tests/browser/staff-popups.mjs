@@ -106,6 +106,29 @@ try {
   const unlocked = await waitFor(page, (r) => !r.querySelector('#gpa-wsec [data-kind="lock"]'));
   check('Approve (unlock) clears it', unlocked);
   await shot(page, '05-welcome-unlocked.png');
+  // 6: someone not on the list asks for access and writes; the admin answers and approves.
+  const DUB = 'dub' + run, chat = 'f1'.repeat(16);
+  await W('/access/chat', { body: { user: DUB, chat }, ip: '4.4.4.4' });
+  await W('/access/request', { body: { user: DUB, message: 'can I join?', chat }, ip: '4.4.4.4' });
+  await W('/access/chat', { body: { user: DUB, chat, text: 'it’s dub from 2nd period' }, ip: '4.4.4.4' });
+  await page.evaluate(() => { location.hash = '#tab=admin&sec=security&focus=requests'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+  const reqShown = await waitFor(page, (r, u) => !!r.querySelector(`#gac-access-req .gac-req[data-user="${u}"] [data-act="approve"]`), DUB);
+  check('The admin sees the access request with Approve and Deny', reqShown);
+  const chatShown = await waitFor(page, (r, u) => !!r.querySelector(`#gac-access-chat .gac-achat-row[data-user="${u}"]`), DUB);
+  check('…and the message from them under Messages', chatShown);
+  await R(page, (r, u) => r.querySelector(`#gac-access-chat .gac-achat-row[data-user="${u}"] [data-chat="open"]`).click(), DUB);
+  await waitFor(page, (r) => !!r.querySelector('#gac-access-chat .gac-achat-form'));
+  await page.fill(sr('#gac-access-chat .gac-achat-form textarea'), 'Hi Dub, approving you now.');
+  await R(page, (r) => r.querySelector('#gac-access-chat .gac-achat-form button[type="submit"]').click());
+  const replied = await waitFor(page, (r) => [...r.querySelectorAll('#gac-access-chat .gac-achat-msg')].some((m) => /approving you now/.test(m.textContent) && /^You/.test(m.textContent)));
+  check('The admin replies from Admin → Security', replied);
+  await R(page, (r) => r.querySelector('#gac-access-chat').closest('.gac-card').scrollIntoView({ block: 'start' }));
+  await shot(page, '06-admin-replies.png');
+  const theySee = (await W('/access/chat?user=' + DUB + '&chat=' + chat)).data.msgs || [];
+  check('The person sees the reply, from “Admin”', theySee.some((m) => m.who === 'Admin' && /approving you now/.test(m.text)), JSON.stringify(theySee.slice(-1)));
+  await R(page, (r, u) => r.querySelector(`#gac-access-req .gac-req[data-user="${u}"] [data-act="approve"]`).click(), DUB);
+  const approved = (await (async () => { for (let i = 0; i < 20; i++) { const a = await W('/access?user=' + DUB); if (a.data.allowed) return true; await new Promise((ok) => setTimeout(ok, 500)); } return false; })());
+  check('The admin approves them: they can sign in now', approved);
   check('No page errors', errors.length === 0, errors.slice(0, 2).join(' | '));
   await ctx.close();
 } finally {
