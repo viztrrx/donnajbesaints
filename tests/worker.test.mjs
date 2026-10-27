@@ -428,6 +428,89 @@ test('memory retrieval: relevance-ranked, budgeted, project-scoped, stripped bef
   assert.ok(!off.fwd.body.messages.some((m) => m.content.startsWith && m.content.startsWith('USER MEMORY')));
 });
 
+test('models: per-user base/upgraded model and auto-upgrade, and big-model limits that switch to a standard model', async () => {
+  const env = makeEnv(); const c = makeClient(env);
+  const ana = (await signUp(c, 'ana')).data.token;
+  await signUp(c, 'bob'); await signUp(c, 'cy');
+  const H = { ...sess(ana), ...userKey };
+  const ask = (model, extra = {}) => c.call('/v1/chat/completions', { method: 'POST', headers: H, body: { model, messages: [{ role: 'user', content: 'x' }], ...extra } });
+  const sent = () => openaiLog.filter((x) => x.path === '/v1/chat/completions').pop().body;
+
+  // Big-model limits (owner): 2 an hour per person.
+  const lim = await c.call('/admin/models/set', { method: 'POST', headers: owner, body: { action: 'limits', perUserHour: 2, perUserDay: 5, totalDay: 50 } });
+  assert.deepEqual(lim.data.limits, { perUserHour: 2, perUserDay: 5, totalDay: 50, includeOwner: false });
+  for (let i = 0; i < 2; i++) {
+    const r = await ask('gpt-6-astra', { reasoning_effort: 'high' });
+    assert.equal(r.status, 200);
+    assert.equal(r.data._gpa_model, undefined, 'within the limit: untouched');
+    assert.equal(sent().model, 'gpt-6-astra');
+  }
+  const over = await ask('gpt-6-astra', { reasoning_effort: 'high' });
+  assert.equal(over.status, 200, 'still answered');
+  assert.deepEqual(over.data._gpa_model, { asked: 'gpt-6-astra', used: 'gpt-4.1-mini', why: 'premium_hour' });
+  assert.equal(sent().model, 'gpt-4.1-mini');
+  assert.equal(sent().reasoning_effort, undefined, 'reasoning_effort dropped for a non-reasoning model');
+  assert.equal((await ask('gpt-5')).data._gpa_model, undefined, 'standard models are not limited');
+
+  // Per-user settings: base gpt-4o-mini, upgraded gpt-5.2, auto-upgrade off.
+  const set = await c.call('/admin/models/set', { method: 'POST', headers: owner, body: { action: 'user', u: 'ana', base: 'gpt-4o-mini', smart: 'gpt-5.2', autoUpgrade: 'off' } });
+  assert.deepEqual(set.data.user.settings, { base: 'gpt-4o-mini', smart: 'gpt-5.2', autoUpgrade: 'off', premiumDay: null });
+  assert.deepEqual((await ask('gpt-5')).data._gpa_model, { asked: 'gpt-5', used: 'gpt-4o-mini', why: 'not_given' });
+  assert.equal((await ask('gpt-5.2')).data._gpa_model.used, 'gpt-4o-mini', 'auto-upgrade off: the upgraded model isn’t used');
+  assert.equal((await ask('gpt-4o-mini')).data._gpa_model, undefined);
+  await c.call('/admin/models/set', { method: 'POST', headers: owner, body: { action: 'user', u: 'ana', autoUpgrade: 'on' } });
+  assert.equal((await ask('gpt-5.2')).data._gpa_model, undefined, 'auto-upgrade on: the upgraded model is allowed');
+  // Swapping to a reasoning model drops temperature and renames max_tokens.
+  await c.call('/admin/models/set', { method: 'POST', headers: owner, body: { action: 'user', u: 'ana', base: 'gpt-5.2', smart: '' } });
+  await ask('gpt-4.1', { temperature: 0.3, max_tokens: 100 });
+  assert.equal(sent().model, 'gpt-5.2');
+  assert.equal(sent().temperature, undefined);
+  assert.equal(sent().max_completion_tokens, 100);
+  assert.equal(sent().max_tokens, undefined);
+  // The console learns its models from /status.
+  assert.deepEqual((await c.call('/status?user=ana', { headers: sess(ana) })).data.models, { base: 'gpt-5.2', smart: '', autoUpgrade: 'on' });
+  // Their own daily allowance: 0 = no big models.
+  await c.call('/admin/models/set', { method: 'POST', headers: owner, body: { action: 'user', u: 'ana', base: '', smart: 'gpt-6-astra', premiumDay: 0 } });
+  const none = await ask('gpt-6-astra');
+  assert.equal(none.data._gpa_model.why, 'premium_day');
+  assert.equal(none.data._gpa_model.used, 'gpt-4.1-mini');
+
+  // Welcome → AI models data.
+  const view = (await c.call('/admin/models', { headers: owner })).data;
+  assert.ok(view.catalog.find((m) => m.id === 'gpt-6-astra').premium);
+  assert.ok(!view.catalog.find((m) => m.id === 'gpt-4.1-mini').premium);
+  assert.ok(view.users.includes('ana') && !view.users.includes('boss'));
+  assert.equal(view.custom[0].user, 'ana');
+  assert.equal(view.totalToday, 2);
+  assert.deepEqual(view.topToday[0], { user: 'ana', today: 2 });
+  const one = (await c.call('/admin/models?user=ana', { headers: owner })).data;
+  assert.equal(one.user.used.today, 2);
+  assert.equal(one.canEdit, true);
+
+  // The owner isn't limited unless they say so.
+  const ownerAsk = () => c.call('/v1/chat/completions', { method: 'POST', headers: { ...owner, ...userKey, 'X-GPA-User': 'boss' }, body: { model: 'gpt-6-astra', messages: [{ role: 'user', content: 'x' }] } });
+  for (let i = 0; i < 3; i++) assert.equal((await ownerAsk()).data._gpa_model, undefined);
+  await c.call('/admin/models/set', { method: 'POST', headers: owner, body: { action: 'limits', includeOwner: true } });
+  for (let i = 0; i < 2; i++) await ownerAsk();
+  assert.equal((await ownerAsk()).data._gpa_model.why, 'premium_hour', 'limited once “limit me too” is on');
+
+  // Admins: can set a user's models, not an admin's or their own, and not the limits.
+  await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'bob', action: 'setrole', role: 'admin' } });
+  await c.call('/admin/user/action', { method: 'POST', headers: owner, body: { u: 'cy', action: 'setrole', role: 'admin' } });
+  const bob = (await c.call('/auth/login', { method: 'POST', body: { user: 'bob', verifier: verifierFor('bob', '1234') } })).data.token;
+  assert.equal((await c.call('/admin/models/set', { method: 'POST', headers: sess(bob), body: { action: 'user', u: 'ana', base: 'gpt-4.1-nano' } })).status, 200);
+  assert.equal((await c.call('/admin/models/set', { method: 'POST', headers: sess(bob), body: { action: 'user', u: 'cy', base: 'gpt-6-astra' } })).status, 403);
+  assert.equal((await c.call('/admin/models/set', { method: 'POST', headers: sess(bob), body: { action: 'user', u: 'bob', base: 'gpt-6-astra' } })).status, 403);
+  assert.equal((await c.call('/admin/models/set', { method: 'POST', headers: sess(bob), body: { action: 'limits', perUserDay: 99 } })).status, 403);
+  assert.equal((await c.call('/admin/models?user=cy', { headers: sess(bob) })).data.canEdit, false);
+  assert.equal((await c.call('/admin/models/set', { method: 'POST', headers: owner, body: { action: 'user', u: 'ana', base: 'bad id!' } })).status, 400);
+  assert.equal((await c.call('/admin/models', { headers: coadmin })).status, 403, 'moderators don’t see it');
+  // Clearing everything removes them from the list.
+  await c.call('/admin/models/set', { method: 'POST', headers: owner, body: { action: 'user', u: 'ana', base: '', smart: '', autoUpgrade: '', premiumDay: null } });
+  assert.deepEqual((await c.call('/admin/models', { headers: owner })).data.custom, []);
+  assert.equal((await c.call('/status?user=ana', { headers: sess(ana) })).data.models, null);
+});
+
 test('quotas, rate limits and model allowlists are enforced by the worker', async () => {
   const env = makeEnv(); const c = makeClient(env);
   const a = (await signUp(c, 'ivan')).data.token;

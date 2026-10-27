@@ -191,6 +191,56 @@ const fromUtf8 = (b) => new TextDecoder().decode(b);
 const hexOf = (buf) => [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, '0')).join('');
 const randHex = (n) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return hexOf(a); };
 const dayKey = (t) => new Date(t || Date.now()).toISOString().slice(0, 10);
+
+// ---- OpenAI models ------------------------------------------------------------
+// The console's model list (Settings → power tools, Welcome → AI models) is
+// served from here so the console and these rules agree. Premium models cost
+// far more per request, so they count against the big-model limits below; an
+// id that isn't listed is premium if it looks like one (gpt-6…, …-pro, o1).
+const DEFAULT_BASE_MODEL = 'gpt-4.1-mini';
+const DEFAULT_SMART_MODEL = 'gpt-5';
+const MODEL_CATALOG = [
+  { id: 'gpt-4.1-nano', label: 'gpt-4.1-nano — cheapest' },
+  { id: 'gpt-4o-mini', label: 'gpt-4o-mini — fast & cheap' },
+  { id: 'gpt-4.1-mini', label: 'gpt-4.1-mini — the default' },
+  { id: 'gpt-4o', label: 'gpt-4o — multimodal' },
+  { id: 'gpt-4.1', label: 'gpt-4.1 — strong' },
+  { id: 'gpt-5-nano', label: 'gpt-5-nano — fast reasoning', reasoning: true },
+  { id: 'gpt-5-mini', label: 'gpt-5-mini — balanced reasoning', reasoning: true },
+  { id: 'gpt-5', label: 'gpt-5 — the default for hard tasks', reasoning: true },
+  { id: 'gpt-5.1', label: 'gpt-5.1', reasoning: true },
+  { id: 'gpt-5.2', label: 'gpt-5.2 — top general', reasoning: true },
+  { id: 'o4-mini', label: 'o4-mini — reasoning (math)', reasoning: true },
+  { id: 'o3', label: 'o3 — deep reasoning', reasoning: true, premium: true },
+  { id: 'gpt-5.5-pro', label: 'gpt-5.5-pro', reasoning: true, premium: true },
+  { id: 'gpt-5.6-sol', label: 'gpt-5.6-sol', reasoning: true, premium: true },
+  { id: 'gpt-5.6-terra', label: 'gpt-5.6-terra', reasoning: true, premium: true },
+  { id: 'gpt-5.6-luna', label: 'gpt-5.6-luna', reasoning: true, premium: true },
+  { id: 'gpt-6-astra', label: 'gpt-6-astra — strongest', reasoning: true, premium: true }
+];
+const MODEL_ID_RE = /^[a-z0-9][a-z0-9._:-]{1,63}$/i;
+const catalogModel = (id) => MODEL_CATALOG.find((m) => m.id === id) || null;
+const isPremiumModel = (id) => { const m = catalogModel(id); return m ? !!m.premium : /^gpt-6|-pro$|^o1(-|$)|^o3-pro/i.test(String(id || '')); };
+const isReasoningModel = (id) => { const m = catalogModel(id); return m ? !!m.reasoning : /^(gpt-5|gpt-6|o\d)/i.test(String(id || '')); };
+// Big-model limits (Welcome → AI models; the owner sets them). Requests, not
+// tokens; null = no limit, 0 = none. Over a limit the request still goes
+// through, on a standard model instead of failing.
+const PREMIUM_DEFAULTS = { perUserHour: 4, perUserDay: 10, totalDay: 60, includeOwner: false };
+const premiumLimitsOf = (cfg) => {
+  const p = (cfg && cfg.premiumLimits) || {};
+  const num = (v, d) => (v === null ? null : Number.isInteger(v) && v >= 0 ? v : d);
+  return { perUserHour: num(p.perUserHour, PREMIUM_DEFAULTS.perUserHour), perUserDay: num(p.perUserDay, PREMIUM_DEFAULTS.perUserDay),
+    totalDay: num(p.totalDay, PREMIUM_DEFAULTS.totalDay), includeOwner: typeof p.includeOwner === 'boolean' ? p.includeOwner : PREMIUM_DEFAULTS.includeOwner };
+};
+// A person's model settings (set by the owner or an admin), stored on their
+// mod record: base and upgraded model, auto-upgrade on/off, and their own
+// daily big-model allowance. Unset fields follow the console's defaults.
+const userModelsOf = (mod) => {
+  const m = (mod && mod.models) || {};
+  return { base: m.base || '', smart: m.smart || '', autoUpgrade: m.autoUpgrade === 'on' || m.autoUpgrade === 'off' ? m.autoUpgrade : '',
+    premiumDay: Number.isInteger(m.premiumDay) && m.premiumDay >= 0 ? m.premiumDay : null };
+};
+const hourKey = (t) => new Date(t || Date.now()).toISOString().slice(0, 13);
 const monthKey = (t) => new Date(t || Date.now()).toISOString().slice(0, 7);
 
 // ---- Secret / sensitive-content detection -----------------------------------
@@ -451,6 +501,57 @@ function appLink(tab, params) {
 }
 const adminLink = (sec, params) => appLink('admin', { sec, ...(params || {}) });
 
+// ---- Staff pop-ups in the console (owner and admins) ---------------------------
+// Every alert the owner's phone gets is also kept in a short feed (the
+// ChatRoom object "inbox-@alerts"), which the console of the owner and each
+// admin checks every few seconds and shows as a pop-up inside the console.
+// What pops up is each person's own choice (staffpopups:<name>), separate
+// from their phone notifications. Admins see the staff kinds only, and
+// nobody gets a pop-up for something they did themselves.
+const ALERT_FEED_ROOM = 'inbox-@alerts';
+const STAFF_FEED_CATS = new Set(['security', 'access', 'pinhelp', 'proxylaunch', 'proxysites', 'signin', 'newuser', 'approval', 'subs', 'reports']);
+// Chat alerts pop up through the console's own message pop-ups already.
+const FEED_SKIP = new Set(['chat', 'chatrooms', 'mentions', 'presence', 'test']);
+const STAFF_POPUP_DEFS = {
+  security: { label: 'Security alerts: unauthorized sign-ins, locked devices and accounts', group: 'Security', on: true, staff: true },
+  access: { label: 'Access requests and messages from people not on your list', group: 'Security', on: true, staff: true },
+  pinhelp: { label: 'PIN resets and account unlocks', group: 'Security', on: true, staff: true },
+  proxylaunch: { label: 'Who launched the Proxy', group: 'Proxy', on: true, staff: true },
+  proxysites: { label: 'Sites opened and searches in the Proxy', group: 'Proxy', on: true, staff: true },
+  newuser: { label: 'New users and accounts', group: 'People', on: true, staff: true },
+  approval: { label: 'Waiting for approval', group: 'People', on: true, staff: true },
+  signin: { label: 'Sign-ins', group: 'People', on: false, staff: true },
+  subs: { label: 'Subscriptions and payments', group: 'People', on: true, staff: true },
+  reports: { label: 'Chat reports', group: 'Chat', on: true, staff: true },
+  admin: { label: 'Actions by your admins', group: 'System', on: true },
+  error: { label: 'Worker errors', group: 'System', on: true },
+  jobs: { label: 'Failed scheduled jobs', group: 'System', on: true },
+  aierror: { label: 'AI request failures', group: 'System', on: false },
+  limits: { label: 'Rate limits and quotas reached', group: 'System', on: false },
+  summary: { label: 'Daily summary and weekly report', group: 'System', on: false },
+  other: { label: 'Other alerts', group: 'System', on: true }
+};
+const popupKey = (cat) => (cat === 'digest' || cat === 'weekly' ? 'summary' : STAFF_POPUP_DEFS[cat] ? cat : 'other');
+const popupDefs = (owner) => Object.fromEntries(Object.entries(STAFF_POPUP_DEFS).filter(([, d]) => owner || d.staff).map(([k, d]) => [k, { label: d.label, group: d.group, on: d.on }]));
+// Security, access requests and their messages pop up as urgent.
+const feedUrgent = (ev) => !!ev.urgent || ev.cat === 'security' || ev.cat === 'access';
+// Never throws: a pop-up must never break the request that caused it.
+async function feedAlert(env, ev) {
+  try {
+    if (!env || !env.CHAT_ROOMS || !ev || FEED_SKIP.has(ev.cat)) return;
+    const staff = ev.staff === true || (STAFF_FEED_CATS.has(ev.cat) && !ev.ownerOnly);
+    await chatRoomCall(env, ALERT_FEED_ROOM, 'alerts_push', {
+      alert: { cat: ev.cat, title: ev.title, body: ev.body, url: ev.url, urgent: feedUrgent(ev), staff, actor: ev.actor || '' },
+      throttle: ev.throttle
+    });
+  } catch (e) { /* best-effort */ }
+}
+// The owner's phone (and computer) push, plus the console pop-up feed.
+async function ownerAlert(env, ev, origin) {
+  const [r] = await Promise.all([notifyOwner(env, ev, origin), feedAlert(env, ev)]);
+  return r;
+}
+
 // ---- Subscribers ---------------------------------------------------------
 // The owner can register a name as a paying subscriber for a set time (a
 // month by default). While the allowed-users list is on, a subscriber gets
@@ -596,8 +697,8 @@ async function autoSubscribeListed(env, cfg, now = Date.now()) {
 // Several alerts at once become one ("5 subscriptions ended: …").
 async function notifySubs(env, items, one, many) {
   if (!items.length) return;
-  if (items.length <= 3) { for (const x of items) await notifyOwner(env, one(x)).catch(() => {}); return; }
-  await notifyOwner(env, many(items)).catch(() => {});
+  if (items.length <= 3) { for (const x of items) await ownerAlert(env, one(x)).catch(() => {}); return; }
+  await ownerAlert(env, many(items)).catch(() => {});
 }
 async function sweepSubscriptions(env, now = Date.now()) {
   const kv = env && env.TELEMETRY;
@@ -662,7 +763,7 @@ async function checkPresence(env, ownerName, origin, { force = false } = {}) {
   const left = last.filter((n) => !lower(now).includes(n.toLowerCase()));
   const list = now.length ? now.slice(0, 12).join(', ') + (now.length > 12 ? ` +${now.length - 12} more` : '') : 'Nobody is using the console right now.';
   const change = [joined.length ? 'Joined: ' + joined.join(', ') : '', left.length ? 'Left: ' + left.join(', ') : ''].filter(Boolean).join(' · ');
-  await notifyOwner(env, {
+  await ownerAlert(env, {
     cat: 'presence', tag: 'presence', badge: now.length, silent: true, url: adminLink('users', { filter: 'active' }),
     title: now.length === 1 ? '1 person online' : `${now.length} people online`,
     body: (change ? change + '\n' : '') + list
@@ -716,7 +817,7 @@ async function sendDailyDigest(env) {
   try { const sec = await kv.get('sec:' + day, 'json'); if (sec && sec.counts) secEvents = Object.values(sec.counts).reduce((a, b) => a + b, 0); } catch (e) { /* none */ }
   const parts = [`${active} ${active === 1 ? 'person' : 'people'} used the console`, `${fresh} new`, `${n} AI requests` + (fail ? ` (${fail} failed)` : ''),
     rl ? `${rl} hit a limit` : '', secEvents ? `${secEvents} security events` : ''].filter(Boolean);
-  return notifyOwner(env, { cat: 'digest', title: 'Daily summary', body: parts.join(' · ') + '.', url: adminLink('overview') });
+  return ownerAlert(env, { cat: 'digest', title: 'Daily summary', body: parts.join(' · ') + '.', url: adminLink('overview') });
 }
 
 // ---- Weekday streaks ---------------------------------------------------------
@@ -859,7 +960,7 @@ async function maybeSendWeeklyReport(env, ts) {
   await kv.put('push:weekly:last', clock.date, { expirationTtl: 10 * 24 * 3600 });   // marked first: one per week
   if (!(await anySubscriberWants(env, 'weekly'))) return null;
   const r = await weeklyReport(env, t);
-  return notifyOwner(env, { cat: 'weekly', title: 'Weekly report', body: r.text, url: adminLink('overview') });
+  return ownerAlert(env, { cat: 'weekly', title: 'Weekly report', body: r.text, url: adminLink('overview') });
 }
 
 // ---- Round 3: daily trivia, game leaderboards, system messages -------------
@@ -914,7 +1015,7 @@ async function reportAiFailure(req, res, env, ctx) {
     message = String(e.message || message).replace(/sk-[A-Za-z0-9_-]{6,}/g, 'sk-…').slice(0, 180);
   } catch (e) { /* non-JSON upstream body */ }
   const isLimit = res.status === 429 || /rate_limit|quota/.test(type);
-  const p = notifyOwner(env, { cat: isLimit ? 'limits' : 'aierror', title: (isLimit ? 'Limit reached: ' : 'AI request failed: ') + user,
+  const p = ownerAlert(env, { cat: isLimit ? 'limits' : 'aierror', title: (isLimit ? 'Limit reached: ' : 'AI request failed: ') + user,
     // Their profile, opened on the card that fixes it: the API key for a
     // failure, the quota for a limit.
     body: `${type} (${res.status}) · ${message} · ${ownerTime(env)}`, url: adminLink('users', { user, focus: isLimit ? 'quota' : 'key' }),
@@ -943,7 +1044,7 @@ export default {
       queueEvent(env,ctx,'backend',3);
       try {
         const path = new URL(req.url).pathname;
-        const p = notifyOwner(env, { cat: 'error', title: 'Worker error', urgent: true, url: adminLink('developer'),
+        const p = ownerAlert(env, { cat: 'error', title: 'Worker error', urgent: true, url: adminLink('developer'),
           body: `${req.method} ${path} · ${String((err && err.message) || err).slice(0, 160)} · ${ownerTime(env)}`,
           throttle: { key: 'err:' + path, seconds: 300 } }, new URL(req.url).origin);
         if (ctx && ctx.waitUntil) ctx.waitUntil(p);
@@ -985,7 +1086,7 @@ export default {
     // can show the schedule and compute the next run.
     ctx.waitUntil((async () => {
       try { await kv.put('job:cron', JSON.stringify({ cron: event.cron || null, ts: Date.now() })); } catch (e) { /* best-effort */ }
-      for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron',env);if(!r.ok){queueEvent(env,ctx,'jobs',3);await notifyOwner(env,{cat:'jobs',title:'Scheduled job failed',url:adminLink('automation',{job:id}),body:`${id} · ${String(r.detail||'no detail').slice(0,160)} · ${ownerTime(env)}`});}}
+      for(const id of ['chat-cleanup','memory-maintenance']) {const r=await runJob(kv,id,'cron',env);if(!r.ok){queueEvent(env,ctx,'jobs',3);await ownerAlert(env,{cat:'jobs',title:'Scheduled job failed',url:adminLink('automation',{job:id}),body:`${id} · ${String(r.detail||'no detail').slice(0,160)} · ${ownerTime(env)}`});}}
     })());
   }
 };
@@ -1315,7 +1416,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     };
     // Owner push notifications (web/console/push.js). Fire and forget.
     const notify = (ev) => {
-      const p = notifyOwner(env, ev, url.origin);
+      const p = ownerAlert(env, ev, url.origin);
       if (ctx && ctx.waitUntil) ctx.waitUntil(p);
       return p;
     };
@@ -1323,7 +1424,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     // app) and to each admin who turned on alerts.
     const notifyStaff = (ev) => {
       const p = (async () => {
-        await notifyOwner(env, ev, url.origin).catch(() => {});
+        await ownerAlert(env, { ...ev, staff: true }, url.origin).catch(() => {});
         for (const a of await adminNames(env.TELEMETRY)) await notifyUser(env, a, ev, url.origin).catch(() => {});
       })();
       if (ctx && ctx.waitUntil) ctx.waitUntil(p);
@@ -1867,6 +1968,9 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       '/admin/access-requests':        { method: 'GET',  perm: 'system.manage' },
       '/admin/access-requests/decide': { method: 'POST', perm: 'system.manage' },
       '/admin/access-chats':           { method: 'GET',  perm: 'system.manage' },
+      '/admin/security-summary':       { method: 'GET',  perm: 'security.view' },
+      '/admin/models':                 { method: 'GET',  perm: 'ai.view' },
+      '/admin/models/set':             { method: 'POST', perm: 'ai.manage' },
       '/admin/access-chat':            { method: 'GET',  perm: 'system.manage' },
       '/admin/access-chat/send':       { method: 'POST', perm: 'system.manage' },
       '/admin/subscriptions':          { method: 'POST', perm: 'system.manage' },
@@ -2029,7 +2133,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       try { body = JSON.parse(await req.text()) || {}; } catch (e) { /* preview */ }
       const r = await weeklyReport(env);
       let sent = false;
-      if (body.send) { await notifyOwner(env, { cat: 'weekly', title: 'Weekly report', body: r.text, url: adminLink('overview') }); sent = true; }
+      if (body.send) { await ownerAlert(env, { cat: 'weekly', title: 'Weekly report', body: r.text, url: adminLink('overview') }); sent = true; }
       return json({ ok: true, report: r, sent });
     }
     // Invite codes (Admin → Security → Allowed users). A listed name with an
@@ -2118,6 +2222,152 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       const auto = [OWNER + ' (owner)', ...(await adminNames(kv))];
       return json({ ok: true, sms: smsReady(env), number: smsReady(env) ? prettyPhone(normPhone(env.TELNYX_FROM)) : '', inbound: !!(env && env.TELNYX_PUBLIC_KEY),
         cashNames: Array.isArray(cfg.cashNames) ? cfg.cashNames : [], autoNames: auto, recent: ((await kv.get('smscash', 'json')) || []).slice(0, 20) });
+    }
+
+    // The Welcome page's Security card (owner and admins): recent security
+    // alerts, devices and accounts locked right now, Forgot-PIN requests,
+    // and for the owner the access requests and unread messages from people
+    // not on the list. The buttons on the card use the routes that already
+    // do each thing (signin-help, user/action, access-requests/decide).
+    if (url.pathname === '/admin/security-summary') {
+      const kv = env.TELEMETRY;
+      const principal = await resolvePrincipal();
+      const owner = principal.role === 'owner';
+      const viewer = String(owner ? OWNER : principal.user || '').toLowerCase();
+      const now = Date.now();
+      const listPrefix = async (prefix, max = 200) => {
+        const out = [];
+        let cursor;
+        for (let i = 0; i < 5 && out.length < max; i++) {
+          const page = await kv.list({ prefix, cursor });
+          for (const k of page.keys) { const v = await kv.get(k.name, 'json'); if (v) out.push(v); }
+          if (page.list_complete || !page.cursor) break;
+          cursor = page.cursor;
+        }
+        return out;
+      };
+      let events = [];
+      if (env.CHAT_ROOMS) {
+        try {
+          const d = await chatRoomCall(env, ALERT_FEED_ROOM, 'alerts_list', { since: now - 2 * 864e5 });
+          events = d.alerts.filter((a) => ['security', 'access', 'pinhelp'].includes(a.cat) && (owner || a.staff) && a.actor !== viewer)
+            .slice(-15).reverse().map(({ staff, actor, ...a }) => a);
+        } catch (e) { events = []; }
+      }
+      const locks = (await listPrefix('devlock:')).filter((l) => l.status === 'locked' && l.until > now)
+        .map((l) => ({ id: l.id, at: l.at, until: l.until, names: l.names || [], ua: l.ua, country: l.country, notAllowed: l.notAllowed || 0, wrong: l.wrong || 0, kept: !!l.kept }));
+      const accountLocks = (await listPrefix('acctlock:')).filter((l) => l.until > now)
+        .map((l) => ({ user: l.user, at: l.at, until: l.until, tries: l.tries || 0 }));
+      const pinRequests = (await listPrefix('pinreq:')).filter((r) => r.status === 'pending' && r.until > now)
+        .map((r) => ({ user: r.user, at: r.at, sameDevice: !!r.sameDevice, note: r.note || '' }));
+      let accessRequests = [], unreadChats = 0;
+      if (owner) {
+        accessRequests = (await listPrefix('accessreq:u:')).filter((r) => r.status === 'pending').sort((a, b) => b.ts - a.ts).slice(0, 20)
+          .map((r) => ({ user: r.user, ts: r.ts, message: r.message || '', count: r.count || 1, chatId: r.chatId || '' }));
+        for (const t of await listPrefix(ACCESS_CHAT_PREFIX, 300)) unreadChats += (t.msgs || []).filter((m) => m.from === 'them' && m.ts > (t.ownerSeen || 0)).length;
+      }
+      return json({ ok: true, owner, events, locks, accountLocks, pinRequests, accessRequests, unreadChats });
+    }
+
+    // Welcome → AI models (owner and admins): the model list, the big-model
+    // limits and today's use, everyone who can be picked, the people with
+    // their own model settings, and (?user=) one person's settings and use.
+    // /admin/models/set: { action: 'user', u, base, smart, autoUpgrade:
+    // 'on'|'off'|'', premiumDay: n|null } or, owner only, { action: 'limits',
+    // perUserHour, perUserDay, totalDay, includeOwner }. Admins can't change
+    // the owner's, another admin's or their own settings.
+    if (url.pathname === '/admin/models' || url.pathname === '/admin/models/set') {
+      const kv = env.TELEMETRY;
+      const principal = await resolvePrincipal();
+      const owner = principal.role === 'owner';
+      const me = String(owner ? OWNER : principal.user || '').toLowerCase();
+      const cfg = await getConfig(kv);
+      const INDEX = 'models:index';
+      const index = new Set((await kv.get(INDEX, 'json')) || []);
+      const roleOfName = async (u) => { if (u === OWNER) return 'owner'; const a = await getAcct(kv, u); return a ? (ROLE_PERMS[a.role] ? a.role : 'user') : 'user'; };
+      const usageOf = async (u) => ({ hour: parseInt(await kv.get('prem:h:' + hourKey() + ':' + u), 10) || 0, today: parseInt(await kv.get('prem:d:' + dayKey() + ':' + u), 10) || 0 });
+      const detail = async (u) => {
+        const m = await getMod(kv, u);
+        return { user: (await getAcct(kv, u) || {}).user || u, role: await roleOfName(u), settings: userModelsOf(m), used: await usageOf(u) };
+      };
+      if (url.pathname === '/admin/models/set') {
+        let body = {};
+        try { body = JSON.parse(await req.text()) || {}; } catch (e) { return json({ error: 'invalid request' }, 400); }
+        if (body.action === 'limits') {
+          if (!owner) return json({ error: 'Only the owner can change the big-model limits.' }, 403);
+          const lim = (v) => (v === null || v === '' ? null : Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 100000 ? Number(v) : undefined);
+          const next = { ...premiumLimitsOf(cfg) };
+          for (const k of ['perUserHour', 'perUserDay', 'totalDay']) if (k in body) { const v = lim(body[k]); if (v === undefined) return json({ error: k + ' must be a whole number or empty' }, 400); next[k] = v; }
+          if (typeof body.includeOwner === 'boolean') next.includeOwner = body.includeOwner;
+          cfg.premiumLimits = next;
+          await kv.put('config', JSON.stringify(cfg));
+          await logAudit(kv, { route: url.pathname, action: 'premium_limits', target: 'all', meta: next });
+          return json({ ok: true, limits: next });
+        }
+        if (body.action !== 'user') return json({ error: 'action must be user or limits' }, 400);
+        const u = String(body.u || '').trim().toLowerCase().slice(0, 40);
+        if (!/^[a-z0-9_.-]{1,40}$/.test(u)) return json({ error: 'Pick a user.' }, 400);
+        const theirRole = await roleOfName(u);
+        if (u === OWNER) return json({ error: 'The owner’s own requests aren’t limited this way. Use Settings → power tools on your device.' }, 400);
+        if (!owner && (theirRole === 'admin' || u === me)) return json({ error: 'Only the owner can change an admin’s models.' }, 403);
+        const pick = (v, name) => { const id = String(v == null ? '' : v).trim(); if (id && !MODEL_ID_RE.test(id)) throw new Error(name + ' isn’t a valid model id.'); return id; };
+        const key = 'mod:' + u;
+        const cur = (await kv.get(key, 'json')) || { state: 'active', reason: '', kickNonce: 0 };
+        const before = userModelsOf(cur);
+        const next = { ...before };
+        try {
+          if ('base' in body) next.base = pick(body.base, 'Base model');
+          if ('smart' in body) next.smart = pick(body.smart, 'Upgraded model');
+        } catch (e) { return json({ error: e.message }, 400); }
+        if ('autoUpgrade' in body) next.autoUpgrade = body.autoUpgrade === 'on' || body.autoUpgrade === 'off' ? body.autoUpgrade : '';
+        if ('premiumDay' in body) {
+          const v = body.premiumDay;
+          if (v === null || v === '') next.premiumDay = null;
+          else if (Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 100000) next.premiumDay = Number(v);
+          else return json({ error: 'The big-model allowance must be a whole number or empty.' }, 400);
+        }
+        const any = next.base || next.smart || next.autoUpgrade || next.premiumDay !== null;
+        if (any) cur.models = next; else delete cur.models;
+        await kv.put(key, JSON.stringify(cur));
+        if (any) index.add(u); else index.delete(u);
+        await kv.put(INDEX, JSON.stringify([...index].slice(0, 1000)));
+        await logAudit(kv, { route: url.pathname, action: 'user_models', target: u, meta: { before, after: next } });
+        return json({ ok: true, user: await detail(u) });
+      }
+      const pickUser = String(url.searchParams.get('user') || '').trim().toLowerCase().slice(0, 40);
+      if (pickUser) {
+        if (!/^[a-z0-9_.-]{1,40}$/.test(pickUser)) return json({ error: 'invalid user' }, 400);
+        const d = await detail(pickUser);
+        return json({ ok: true, user: d, canEdit: pickUser !== OWNER && (owner || (d.role !== 'admin' && pickUser !== me)) });
+      }
+      // Everyone who can be picked: Allowed users and server accounts.
+      const names = new Set(((cfg.allowlist && cfg.allowlist.users) || []).map((x) => String(x).toLowerCase()));
+      let cursor;
+      for (let i = 0; i < 5 && names.size < 1000; i++) {
+        const page = await kv.list({ prefix: 'acct:', cursor });
+        for (const k of page.keys) names.add(k.name.slice(5));
+        if (page.list_complete || !page.cursor) break;
+        cursor = page.cursor;
+      }
+      names.delete(OWNER);
+      const custom = [];
+      for (const u of [...index].slice(0, 200)) {
+        const m = userModelsOf(await getMod(kv, u));
+        if (m.base || m.smart || m.autoUpgrade || m.premiumDay !== null) custom.push({ user: u, ...m, used: await usageOf(u) });
+      }
+      const top = [];
+      cursor = undefined;
+      for (let i = 0; i < 3; i++) {
+        const page = await kv.list({ prefix: 'prem:d:' + dayKey() + ':', cursor });
+        for (const k of page.keys) top.push({ user: k.name.split(':').slice(3).join(':'), today: parseInt(await kv.get(k.name), 10) || 0 });
+        if (page.list_complete || !page.cursor) break;
+        cursor = page.cursor;
+      }
+      top.sort((a, b) => b.today - a.today);
+      return json({ ok: true, owner, catalog: MODEL_CATALOG.map((m) => ({ id: m.id, label: m.label, premium: !!m.premium })),
+        defaults: { base: DEFAULT_BASE_MODEL, smart: DEFAULT_SMART_MODEL }, limits: premiumLimitsOf(cfg),
+        totalToday: parseInt(await kv.get('prem:t:' + dayKey()), 10) || 0, topToday: top.slice(0, 8),
+        users: [...names].sort().slice(0, 1000), custom });
     }
 
     if (url.pathname === '/admin/signin-help') {
@@ -2236,7 +2486,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       await logAudit(kv, { route: url.pathname, action: 'free_' + action, target: key, admin: principal.role, meta: { period, by } });
       if (principal.role !== 'owner') {
         const s = cfg.subscriptions[key];
-        await notifyOwner(env, action === 'give'
+        await ownerAlert(env, action === 'give'
           ? { cat: 'subs', title: by + ' gave ' + s.user + ' free access', body: (s.expiresAt >= FREE_FOREVER ? 'No end date.' : 'Until ' + day(s.expiresAt) + '.') + ' See Admin → Security → Free access.', url: adminLink('security', { focus: 'free', user: s.user }) }
           : { cat: 'subs', title: by + ' ended ' + s.user + '’s free access', body: s.user + ' was taken off your allowed users.', url: adminLink('security', { focus: 'free' }) }).catch(() => {});
       }
@@ -2562,7 +2812,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         const sess = await issue(acct, body.site);
         await logAudit(kv, { route: '/auth/owner-pin', action: 'owner_pin_reset', target: acct.user });
         await noteSec('owner_pin_reset', { user: acct.user });
-        notify({ cat: 'security', title: 'Your PIN was reset', body: 'Your Saints Service PIN was changed at ' + ownerTime(env) + '. Other sign-ins were signed out.', urgent: true, url: adminLink('security', { focus: 'events' }) });
+        notify({ cat: 'security', ownerOnly: true, title: 'Your PIN was reset', body: 'Your Saints Service PIN was changed at ' + ownerTime(env) + '. Other sign-ins were signed out.', urgent: true, url: adminLink('security', { focus: 'events' }) });
         return json({ ok: true, token: sess.token, exp: sess.exp, account: view(acct, roleOf(acct)) });
       }
       if (url.pathname === '/auth/register' && req.method === 'POST') {
@@ -3696,6 +3946,44 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       return json({ ok: true, status: 'pending' });
     }
 
+    // Staff pop-ups in the console (owner and admins): GET /staff/alerts
+    // ?since=<ts> hands out the alerts after that time that this person wants
+    // (see STAFF_POPUP_DEFS); /staff/popup-prefs reads (GET) or changes (POST
+    // { on, cats }) what they want. Separate from their phone notifications.
+    if (url.pathname === '/staff/alerts' || url.pathname === '/staff/popup-prefs') {
+      const kv = env && env.TELEMETRY;
+      const sp = await resolveSession();
+      const tp = sp ? null : await resolvePrincipal();
+      const p = sp || (tp && tp.kind === 'token' ? tp : null);
+      if (!p || !(p.role === 'owner' || p.role === 'admin')) return json({ ok: false, error: 'Staff pop-ups are for the owner and admins.' }, 403);
+      const owner = p.role === 'owner';
+      const viewer = String(owner && !sp ? OWNER : p.user || '').toLowerCase();
+      const defs = popupDefs(owner);
+      const pk = 'staffpopups:' + viewer;
+      let saved = {};
+      try { saved = (kv && (await kv.get(pk, 'json'))) || {}; } catch (e) { saved = {}; }
+      const prefsOf = (sv) => ({ on: sv.on !== false, cats: Object.fromEntries(Object.keys(defs).map((k) => [k, typeof (sv.cats || {})[k] === 'boolean' ? sv.cats[k] : defs[k].on])) });
+      let prefs = prefsOf(saved);
+      if (url.pathname === '/staff/popup-prefs') {
+        if (req.method === 'POST') {
+          let body = {};
+          try { const raw = await req.text(); if (raw.length > 4096) throw 0; body = JSON.parse(raw) || {}; } catch (e) { return json({ ok: false, error: 'invalid request' }, 400); }
+          if (typeof body.on === 'boolean') prefs.on = body.on;
+          for (const k of Object.keys(defs)) if (body.cats && typeof body.cats[k] === 'boolean') prefs.cats[k] = body.cats[k];
+          if (!kv) return json({ ok: false, error: 'storage not configured' }, 503);
+          await kv.put(pk, JSON.stringify(prefs));
+        } else if (req.method !== 'GET') return json({ ok: false, error: 'method not allowed' }, 405);
+        return json({ ok: true, defs, prefs });
+      }
+      if (req.method !== 'GET') return json({ ok: false, error: 'method not allowed' }, 405);
+      if (!env.CHAT_ROOMS) return json({ ok: true, alerts: [], latest: 0, on: prefs.on });
+      const since = Number(url.searchParams.get('since')) || 0;
+      let d;
+      try { d = await chatRoomCall(env, ALERT_FEED_ROOM, 'alerts_list', { since }); } catch (e) { return json({ ok: false, error: 'Alerts are temporarily unavailable.' }, 200); }
+      const alerts = prefs.on ? d.alerts.filter((a) => (owner || a.staff) && a.actor !== viewer && prefs.cats[popupKey(a.cat)] !== false).map(({ staff, actor, ...a }) => a) : [];
+      return json({ ok: true, alerts, latest: d.latest, on: prefs.on });
+    }
+
     // The chat box on the sign-in screen for a name that isn't allowed: the
     // owner can write to whoever tried, and they can write back (pushed to
     // the owner's phone). POST opens the thread (and sends `text`, if any);
@@ -3759,7 +4047,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
       t.msgs = [...(t.msgs || []), { from: 'them', text, ts: now }].slice(-ACCESS_CHAT_MAX);
       t.lastTs = now;
       await kv.put(key, JSON.stringify(t), { expirationTtl: ACCESS_CHAT_TTL });
-      notify({ cat: 'access', title: 'Message from ' + name + ' (not on your list)', urgent: true,
+      notify({ cat: 'access', ownerOnly: true, title: 'Message from ' + name + ' (not on your list)', urgent: true,
         url: adminLink('security', { focus: 'chat', user: name, id: auth.id }),
         body: '“' + text.slice(0, 160) + '” · ' + ownerTime(env),
         throttle: { key: 'accesschat:' + auth.id, seconds: 20 } });
@@ -3789,6 +4077,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         memoryEnabled: cfg.memoryEnabled !== false,
         usage: r.state === 'active' ? await usageMeter(kv, statusUser, mod, cfg) : null,
         subscription: mySubscription(cfg, statusUser),
+        // Their model settings, if the owner or an admin set any (the console uses them).
+        models: (() => { const um = userModelsOf(mod); return um.base || um.smart || um.autoUpgrade ? { base: um.base, smart: um.smart, autoUpgrade: um.autoUpgrade } : null; })(),
         // Only the browser tests turn this off (STUDENT_ID_OPTIONAL=1); production always asks.
         needsStudentId: statusId.verified && statusUser.toLowerCase() !== OWNER && !(env && env.STUDENT_ID_OPTIONAL === '1') ? !(((await getAcct(kv, statusUser)) || { studentId: 'x' }).studentId) : false,
         // What this account already dismissed (banner text hash, popup id), so
@@ -4294,7 +4584,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           await kv.put('config', JSON.stringify(cfg));
           try { const rq = await kv.get(accessReqKey(key), 'json'); if (rq && rq.status === 'pending') { rq.status = 'approved'; rq.decidedAt = now; await kv.put(accessReqKey(key), JSON.stringify(rq), { expirationTtl: 60 * 60 * 24 * 30 }); } } catch (e) { /* best-effort */ }
           await logAudit(kv, { route: url.pathname, action: 'subscription_stripe_' + action, target: key, meta: { amount } });
-          await notifyOwner(env, { cat: 'subs', title: info.renew ? user + ' renewed ($' + amount.toFixed(2) + ')' : 'New subscriber: ' + user, body: info.renew ? 'Paid through Stripe. Access extended a month.' : 'Paid $' + amount.toFixed(2) + ' through Stripe and was added to your allowed users.', url: adminLink('security', { focus: 'subs', user }) }, url.origin).catch(() => {});
+          await ownerAlert(env, { cat: 'subs', title: info.renew ? user + ' renewed ($' + amount.toFixed(2) + ')' : 'New subscriber: ' + user, body: info.renew ? 'Paid through Stripe. Access extended a month.' : 'Paid $' + amount.toFixed(2) + ' through Stripe and was added to your allowed users.', url: adminLink('security', { focus: 'subs', user }) }, url.origin).catch(() => {});
         }
         // A sign-up code for a name nobody has registered yet.
         let code = '';
@@ -4327,7 +4617,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             cfg.subLedger = [...ledger, { user: cur.user, at: Date.now(), amount, action: 'duplicate', via: 'stripe', ref: sess.id }].slice(-1000);
             await kv.put('config', JSON.stringify(cfg));
             await logAudit(kv, { route: url.pathname, action: 'subscription_duplicate', target: user.toLowerCase(), meta: { amount, subscription: subId } });
-            await notifyOwner(env, { cat: 'subs', title: user + ' paid twice', body: 'They were already subscribed. Refund the extra $' + amount.toFixed(2) + ' in Stripe (Payments) and cancel the extra subscription' + (subId ? ' ' + subId : '') + ' (Subscriptions).', url: adminLink('security', { focus: 'subs', user }) }, url.origin).catch(() => {});
+            await ownerAlert(env, { cat: 'subs', title: user + ' paid twice', body: 'They were already subscribed. Refund the extra $' + amount.toFixed(2) + ' in Stripe (Payments) and cancel the extra subscription' + (subId ? ' ' + subId : '') + ' (Subscriptions).', url: adminLink('security', { focus: 'subs', user }) }, url.origin).catch(() => {});
             const rec = { user, approved: true, duplicate: true, code: '' };
             await kv.put('subpay:' + sess.id, JSON.stringify(rec), { expirationTtl: 30 * 24 * 3600 });
             return rec;
@@ -4356,7 +4646,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           await kv.put('config', JSON.stringify(cfg));
           await logAudit(kv, { route: url.pathname, action: 'subscription_contribution', target: user.toLowerCase(), meta: { amount } });
           const own = user.toLowerCase() === OWNER;
-          await notifyOwner(env, { cat: 'subs', title: own ? 'Your $' + amount.toFixed(2) + ' test contribution came through' : user + ' contributed $' + amount.toFixed(2), body: own ? 'Stripe took the payment; it will reach your bank with your next payout.' : 'A one-time contribution through Stripe, on top of their subscription.', url: adminLink('security', { focus: 'subs', user }) }, url.origin).catch(() => {});
+          await ownerAlert(env, { cat: 'subs', title: own ? 'Your $' + amount.toFixed(2) + ' test contribution came through' : user + ' contributed $' + amount.toFixed(2), body: own ? 'Stripe took the payment; it will reach your bank with your next payout.' : 'A one-time contribution through Stripe, on top of their subscription.', url: adminLink('security', { focus: 'subs', user }) }, url.origin).catch(() => {});
         }
         const rec = { user, contribution: true, paid: true, amount };
         await kv.put('subpay:' + sess.id, JSON.stringify(rec), { expirationTtl: 30 * 24 * 3600 });
@@ -4474,7 +4764,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           await kv.delete(inviteKey(key));   // used up
           await kv.put('subpay:' + id, JSON.stringify({ ...rec, code: '', account: true }), { expirationTtl: 30 * 24 * 3600 });
           await noteSec('account_created', { user, note: 'subscribe page' });
-          await notifyOwner(env, { cat: 'newuser', title: 'New account: ' + user, body: 'Set their PIN on the subscribe page after paying.', url: adminLink('users', { user }) }, url.origin).catch(() => {});
+          await ownerAlert(env, { cat: 'newuser', title: 'New account: ' + user, body: 'Set their PIN on the subscribe page after paying.', url: adminLink('users', { user }) }, url.origin).catch(() => {});
           return json({ ok: true, user });
         }
         // Right after making their PIN, a new subscriber adds their school
@@ -4515,7 +4805,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
           await kv.put('config', JSON.stringify(cfg));
           const changed = (rec.emailChanges || 0) > 0;
           const alert = { title: (changed ? 'Email changed: ' : 'New subscriber email: ') + user, body: email + ' · Share the setup Google Doc with them in Admin → Security → New subscribers.', url: adminLink('security', { focus: 'emails', user }), tag: 'subemail-' + key };
-          await notifyOwner(env, { cat: 'newuser', ...alert }, url.origin).catch(() => {});
+          await ownerAlert(env, { cat: 'newuser', ...alert }, url.origin).catch(() => {});
           for (const a of await adminNames(kv)) await notifyUser(env, a, { cat: 'newuser', ...alert }, url.origin).catch(() => {});
           return json({ ok: true, email });
         }
@@ -4562,7 +4852,7 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
               const cfg = await getConfig(kv);
               const cur = cfg.subscriptions && cfg.subscriptions[user.toLowerCase()];
               if (cur) { cur.paymentFailedAt = Date.now(); cur.history = [...(cur.history || []), { at: Date.now(), action: 'payment_failed', note: 'Stripe' }].slice(-24); await kv.put('config', JSON.stringify(cfg)); }
-              await notifyOwner(env, { cat: 'subs', title: user + '’s payment failed', body: 'Stripe couldn’t charge their ' + (o.billing_reason === 'subscription_create' ? 'first' : 'monthly') + ' payment and will retry. If it keeps failing their access ends.', url: adminLink('security', { focus: 'subs', user }) }, url.origin).catch(() => {});
+              await ownerAlert(env, { cat: 'subs', title: user + '’s payment failed', body: 'Stripe couldn’t charge their ' + (o.billing_reason === 'subscription_create' ? 'first' : 'monthly') + ' payment and will retry. If it keeps failing their access ends.', url: adminLink('security', { focus: 'subs', user }) }, url.origin).catch(() => {});
             }
           } else if (ev.type === 'customer.subscription.updated' || ev.type === 'customer.subscription.deleted') {
             const user = await userForSub(o.id, o.metadata && o.metadata.user);
@@ -5336,6 +5626,8 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
             : { title: user + ' opened ' + entry.url.replace(/^https:\/\//, '').replace(/\/$/, ''), body: entry.url + ' · ' + where + ' · ' + ownerTime(env, entry.at) };
         const pushEv = { cat: ev === 'launch' ? 'proxylaunch' : 'proxysites', tag: 'proxy-' + user.toLowerCase(), url: adminLink('proxy', { user }), ...alert };
         const p = (async () => {
+          // The console pop-ups for the owner and admins (not the person who did it).
+          await feedAlert(env, { ...pushEv, staff: true, actor: user });
           if (user.toLowerCase() !== OWNER) await notifyOwner(env, pushEv, url.origin).catch(() => {});
           for (const a of await adminNamesCached(kv)) if (a.toLowerCase() !== user.toLowerCase()) await notifyUser(env, a, pushEv, url.origin).catch(() => {});
         })();
@@ -6806,8 +7098,10 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         return json({ error: { message: 'Requests from this origin are not allowed.', type: 'origin_blocked' } }, 403);
       }
     }
+    let ownerCaller = false;
     if (modUser && kv) {
       const r = await resolve(kv, modUser);   // owner resolves to active
+      ownerCaller = !!r.owner;
       if (r.state === 'blocked') {
         return json({ error: { message: 'Access to this tool has been blocked by the owner.' + (r.reason ? ' ' + r.reason : ''), type: 'blocked_by_owner' } }, 403);
       }
@@ -6888,7 +7182,57 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
         } catch (e) { /* not JSON — forward untouched */ }
       }
     }
-    const requestedModel = parsedBody && typeof parsedBody === 'object' ? String(parsedBody.model || '') : '';
+    let requestedModel = parsedBody && typeof parsedBody === 'object' ? String(parsedBody.model || '') : '';
+    // Models: this person's settings (base / upgraded model, auto-upgrade)
+    // and the big-model limits. A model they aren't given is swapped for
+    // their base model, and a premium model over a limit for a standard
+    // one, so the request still works; the answer says which model ran.
+    let modelNote = null;
+    const chatPath = url.pathname === '/v1/chat/completions' || url.pathname === '/v1/responses';
+    if (chatPath && req.method === 'POST' && requestedModel && parsedBody) {
+      const asked = requestedModel;
+      let model = asked, why = '';
+      const um = userModelsOf(modRec);
+      if (!ownerCaller && (um.base || um.smart || um.autoUpgrade)) {
+        const base = um.base || DEFAULT_BASE_MODEL;
+        const permitted = new Set([base]);
+        if (um.autoUpgrade !== 'off') permitted.add(um.smart || DEFAULT_SMART_MODEL);
+        if (!permitted.has(model)) { model = base; why = 'not_given'; }
+      }
+      const limits = premiumLimitsOf(vCfg);
+      if (kv && isPremiumModel(model) && (!ownerCaller || limits.includeOwner)) {
+        const who = String(modUser || 'unknown').toLowerCase();
+        const keys = { h: 'prem:h:' + hourKey() + ':' + who, d: 'prem:d:' + dayKey() + ':' + who, t: 'prem:t:' + dayKey() };
+        const [h, d, t] = await Promise.all([keys.h, keys.d, keys.t].map(async (k) => parseInt(await kv.get(k), 10) || 0));
+        const perDay = um.premiumDay !== null ? um.premiumDay : limits.perUserDay;
+        const over = (perDay !== null && d >= perDay) ? 'day' : (limits.perUserHour !== null && h >= limits.perUserHour) ? 'hour' : (limits.totalDay !== null && t >= limits.totalDay) ? 'total' : '';
+        if (over) {
+          const fallback = um.base && !isPremiumModel(um.base) ? um.base : DEFAULT_BASE_MODEL;
+          why = 'premium_' + over;
+          await ownerAlert(env, { cat: 'limits', title: 'Big-model limit: ' + (modUser || 'someone'),
+            body: model + ' → ' + fallback + ' · ' + (over === 'hour' ? 'hourly limit (' + limits.perUserHour + ')' : over === 'day' ? 'daily limit (' + perDay + ')' : 'everyone’s daily limit (' + limits.totalDay + ')') + ' · ' + ownerTime(env),
+            url: adminLink('ai'), throttle: { key: 'premlimit:' + who + ':' + over + ':' + dayKey(), seconds: 3600 } }, url.origin);
+          model = fallback;
+        } else {
+          await Promise.all([[keys.h, h, 7200], [keys.d, d, 3 * 86400], [keys.t, t, 3 * 86400]].map(([k, n, ttl]) => kv.put(k, String(n + 1), { expirationTtl: ttl })));
+        }
+      }
+      if (model !== asked) {
+        parsedBody.model = model;
+        // Reasoning models refuse temperature and want max_completion_tokens;
+        // the others refuse reasoning_effort.
+        if (isReasoningModel(model)) {
+          delete parsedBody.temperature; delete parsedBody.top_p;
+          if (typeof parsedBody.max_tokens === 'number') { parsedBody.max_completion_tokens = parsedBody.max_tokens; delete parsedBody.max_tokens; }
+        } else {
+          delete parsedBody.reasoning_effort;
+          if (parsedBody.reasoning) delete parsedBody.reasoning;
+        }
+        bodyText = JSON.stringify(parsedBody);
+        requestedModel = model;
+        modelNote = { asked, used: model, why };
+      }
+    }
     if (vCfg && vCfg.allowedModels.length && requestedModel && !vCfg.allowedModels.includes(requestedModel)) {
       return json({ error: { message: `Model "${requestedModel}" is not allowed.`, type: 'model_not_allowed' } }, 400);
     }
@@ -6961,10 +7305,12 @@ async function handleRequest(req, env, ctx, operationReserved = false) {
     }
     // Opted-in memory calls get the count added to the JSON body, since some
     // of the client's fetch transports can't read response headers.
-    if (memOpt && res.ok) {
+    const streaming = /text\/event-stream/.test(res.headers.get('Content-Type') || '');
+    if ((memOpt || modelNote) && res.ok && !streaming) {
       try {
         const j = await res.json();
-        j._gpa_memory = { used: memoryUsed };
+        if (memOpt) j._gpa_memory = { used: memoryUsed };
+        if (modelNote) j._gpa_model = modelNote;
         return new Response(JSON.stringify(j), { status: res.status, headers: { ...CORS_HEADERS, ...SECURITY_HEADERS, 'Content-Type': 'application/json' } });
       } catch (e) { /* fall through with the original stream consumed — report it */
         return json({ error: { message: 'Unreadable upstream response.', type: 'upstream_parse' } }, 502);

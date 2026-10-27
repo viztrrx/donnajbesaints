@@ -94,13 +94,36 @@
   const OPENAI_MODEL = 'gpt-4.1-mini';
   const SMART_MODEL_DEFAULT = 'gpt-5';
   const REASON_KEY = 'gpa_reason';
+// OpenAI chat models the console offers (Settings → power tools, Welcome →
+// AI models). Keep in step with MODEL_CATALOG in worker.js, which decides
+// what each person may use. ★ = a big (premium) model: those count against
+// the owner's big-model limits.
+const OPENAI_MODEL_LIST = [
+  ['gpt-4.1-nano', 'gpt-4.1-nano — cheapest'],
+  ['gpt-4o-mini', 'gpt-4o-mini — fast & cheap'],
+  ['gpt-4.1-mini', 'gpt-4.1-mini — the default'],
+  ['gpt-4o', 'gpt-4o — multimodal'],
+  ['gpt-4.1', 'gpt-4.1 — strong'],
+  ['gpt-5-nano', 'gpt-5-nano — fast reasoning'],
+  ['gpt-5-mini', 'gpt-5-mini — balanced reasoning'],
+  ['gpt-5', 'gpt-5 — the default for hard tasks'],
+  ['gpt-5.1', 'gpt-5.1'],
+  ['gpt-5.2', 'gpt-5.2 — top general'],
+  ['o4-mini', 'o4-mini — reasoning (math)'],
+  ['o3', '★ o3 — deep reasoning'],
+  ['gpt-5.5-pro', '★ gpt-5.5-pro'],
+  ['gpt-5.6-sol', '★ gpt-5.6-sol'],
+  ['gpt-5.6-terra', '★ gpt-5.6-terra'],
+  ['gpt-5.6-luna', '★ gpt-5.6-luna'],
+  ['gpt-6-astra', '★ gpt-6-astra — strongest']
+];
 const REASONING_MODELS = new Set([
-  'gpt-5',
-  'gpt-6-astra',
-  'gpt-5.6-luna',
-  // add other reasoning-capable IDs you allow-list, e.g.:
-  // 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.5-pro',
+  'gpt-5', 'gpt-5-nano', 'gpt-5-mini', 'gpt-5.1', 'gpt-5.2', 'o4-mini', 'o3',
+  'gpt-5.5-pro', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6-astra'
 ]);
+// The models the owner or an admin set for this person (from /status; null
+// = none, so the console's own settings apply). The Worker enforces them.
+let serverModels = null;
 let reasoningEffort = localStorage.getItem(REASON_KEY) || 'medium';
 function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').trim()); }
   // Browser→OpenAI calls can be blocked by ad blockers, antivirus shields or
@@ -870,6 +893,13 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     { at: '2026-10-26T19:00:00-04:00', commit: '', title: 'Message people who aren’t on your list', parts: {
       console: ['feature', 'A name that isn’t allowed gets a “Message the owner” box on the sign-in screen (and on the locked-device screen): the owner can write to them, and they can write back'],
       admin: ['feature', 'Security → Messages from people not on your list: everyone who tried to sign in, with a conversation and reply box for each (also from Message on an access request); their messages come to your phone and open that conversation'] } },
+    { at: '2026-10-27T12:00:00-04:00', commit: '', title: 'Staff pop-ups and a Security card on Welcome', parts: {
+      theme: ['feature', 'Settings → Account → Staff pop-ups (owner and admins): alerts pop up inside the console on computers, Discord-style, with a bar that runs down and then dismisses them. Choose which kinds (Proxy launches and sites opened can be turned off); your phone notifications aren’t changed'],
+      console: ['feature', 'Security alerts, like someone not on the list trying to get in or a device being locked, pop up as urgent: red, glowing and on screen longer'],
+      welcome: ['feature', 'Owner and admins: a Security card with what needs you (locked devices to approve, locked accounts, Forgot-PIN and access requests, unread messages) and the latest security events'] } },
+    { at: '2026-10-27T18:00:00-04:00', commit: '', title: 'More GPT models, per-person models and big-model limits', parts: {
+      ask: ['feature', 'More OpenAI models to pick from (gpt-4.1-nano, gpt-5-nano, gpt-5-mini, o3, gpt-5.5-pro, gpt-5.6-sol/terra/luna, gpt-6-astra…); ★ marks the big ones. When a big-model limit is reached, a standard model answers instead and the console says so'],
+      welcome: ['feature', 'Owner and admins: an AI models card to set a person’s base model, upgraded model and auto-upgrade for harder tasks, and their daily allowance of big models; the owner also sets big-model limits per person (hour and day) and for everyone each day'] } },
   ];
   const PART_NAMES = {
     console: 'Console shell', selection: 'Selection assistant', welcome: 'Welcome', scan: 'Page Insights', ask: 'Ask AI', chat: 'Chat',
@@ -3441,6 +3471,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       </div>
     </div>
     <div class="gpa-toast-wrap" id="gpa-toast-wrap"></div>
+    <div class="gpa-spop-wrap" id="gpa-spop-wrap" role="region" aria-label="Staff alerts" aria-live="polite"></div>
     <div class="gpa-login" id="gpa-login">
       <div class="gpa-login-card">
         <div class="gpa-login-brand">
@@ -3590,6 +3621,18 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
           </section>
 
           <div class="gpx-grid">
+            <div class="gpa-card gpx-card gpx-span-2 gpa-wsec" id="gpa-wsec" hidden>
+              <div class="gpx-card-head">${GPS_ICONS.warn}<div class="gpa-card-title">Security</div><span id="gpa-wsec-at" class="gpa-sub gpa-pubstats-at"></span>
+                <button id="gpa-wsec-refresh" class="gpa-btn gpx-btn-ghost">${gpxLbl('refresh', 'Refresh')}</button>
+              </div>
+              <div id="gpa-wsec-body" class="gpa-wsec-body"><p class="gpa-sub">Loading…</p></div>
+            </div>
+            <div class="gpa-card gpx-card gpx-span-2 gpa-wmod" id="gpa-wmod" hidden>
+              <div class="gpx-card-head">${GPS_ICONS.ai}<div class="gpa-card-title">AI models</div><span id="gpa-wmod-at" class="gpa-sub gpa-pubstats-at"></span>
+                <button id="gpa-wmod-refresh" class="gpa-btn gpx-btn-ghost">${gpxLbl('refresh', 'Refresh')}</button>
+              </div>
+              <div id="gpa-wmod-body"><p class="gpa-sub">Loading…</p></div>
+            </div>
             <div class="gpa-card gpx-card">
               <div class="gpx-card-head">${GPS_ICONS.sun}<div class="gpa-card-title">Right now</div></div>
               <div class="gpa-snapshot-grid">
@@ -4948,6 +4991,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
                   <div class="gpa-push-cats" id="gpa-mpush-cats" hidden></div>
                   <p class="gps-hint" id="gpa-mpush-msg" role="status" aria-live="polite"></p>
                 </div>
+                <div class="gps-item gpa-push" id="gpa-spop-card" data-k="staff pop-ups alerts popup security proxy owner admin notifications chromebook" hidden>
+                  <div class="gpa-push-head">
+                    <div><div class="gps-label">Staff pop-ups</div><p class="gps-hint" id="gpa-spop-hint">Alerts pop up inside the console on this computer: security, access requests, the Proxy and more. Pick which ones below. Your phone notifications aren’t changed.</p></div>
+                    <button id="gpa-spop-toggle" class="gps-switch primary" type="button" aria-pressed="true" aria-label="Staff pop-ups">Staff pop-ups</button>
+                  </div>
+                  <div class="gps-row"><button id="gpa-spop-test" class="gps-btn" type="button">Show a test</button><button id="gpa-spop-test-urgent" class="gps-btn" type="button">Show an urgent test</button></div>
+                  <div class="gpa-push-cats" id="gpa-spop-cats" hidden></div>
+                  <p class="gps-hint" id="gpa-spop-msg" role="status" aria-live="polite"></p>
+                </div>
                 <div class="gps-item gps-item-row" data-k="account server session sign in connected memory devices">
                   <div><div class="gps-label">Server account</div><p class="gps-hint" id="gps-srv-hint"></p></div>
                   <span class="gps-badge" id="gps-srv-badge">Not connected</span>
@@ -5848,6 +5900,40 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
          viewport" anti-pattern. Capping the floor at 100% lets it shrink to
          fit when the container itself is the constraint. */
       .gpa-pubstats-at { margin-left: auto; font-size: 11px; }
+      /* Welcome → Security (owner and admins) */
+      .gpa-wsec[hidden] { display: none; }
+      .gpa-wsec-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 4px; }
+      .gpa-wsec-chip { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--gpa-border); color: var(--gpa-sub); }
+      .gpa-wsec-chip.is-hot { color: var(--gpx-err, #e5453a); border-color: color-mix(in srgb, var(--gpx-err, #e5453a) 55%, var(--gpa-border)); font-weight: 600; }
+      .gpa-wsec-chip.is-ok { color: var(--gpx-ok, #3fb37f); border-color: color-mix(in srgb, var(--gpx-ok, #3fb37f) 50%, var(--gpa-border)); }
+      .gpa-wsec-h { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gpa-sub); margin: 14px 0 6px; }
+      .gpa-wsec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+      .gpa-wsec-item { border: 1px solid var(--gpa-border); border-radius: calc(10px * var(--gpa-rs, 1)); padding: 10px 12px; text-align: left; min-width: 0; }
+      .gpa-wsec-item.is-urgent { border-color: color-mix(in srgb, var(--gpx-err, #e5453a) 55%, var(--gpa-border)); background: color-mix(in srgb, var(--gpx-err, #e5453a) 7%, transparent); }
+      .gpa-wsec-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+      .gpa-wsec-top small { font-weight: 400; font-size: 11px; color: var(--gpa-sub); white-space: nowrap; }
+      .gpa-wsec-meta { font-size: 12px; line-height: 1.45; color: var(--gpa-sub); margin-top: 2px; overflow-wrap: anywhere; }
+      .gpa-wsec-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .gpa-wsec-actions .gpa-btn { min-height: 30px; font-size: 12.5px; }
+      .gpa-wsec-ev { cursor: pointer; }
+      /* Welcome → AI models (owner and admins) */
+      .gpa-wmod[hidden] { display: none; }
+      .gpa-wmod-meter { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--gpa-text) 10%, transparent); overflow: hidden; margin: 6px 0 4px; }
+      .gpa-wmod-meter > i { display: block; height: 100%; background: var(--gpa-accent); border-radius: inherit; }
+      .gpa-wmod-meter.is-hot > i { background: var(--gpx-err, #e5453a); }
+      .gpa-wmod-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 12px; margin-top: 6px; }
+      .gpa-wmod-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--gpa-sub); min-width: 0; }
+      .gpa-wmod-grid .gpa-input { width: 100%; min-width: 0; box-sizing: border-box; }
+      .gpa-wmod-check { flex-direction: row !important; align-items: center; gap: 8px !important; color: var(--gpa-text) !important; }
+      .gpa-wmod-pick { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+      .gpa-wmod-pick .gpa-input { flex: 1 1 180px; min-width: 0; }
+      .gpa-wmod-form { margin-top: 10px; padding: 12px; border: 1px solid var(--gpa-border); border-radius: calc(10px * var(--gpa-rs, 1)); }
+      .gpa-wmod-form[hidden] { display: none; }
+      .gpa-wmod-who { font-weight: 650; font-size: 14px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+      .gpa-wmod-who small { font-weight: 400; color: var(--gpa-sub); font-size: 12px; }
+      .gpa-wmod-custom { width: 100%; margin-top: 4px; }
+      .gpa-wmod-custom[hidden] { display: none; }
+      .gpa-wsec-ev:hover { border-color: color-mix(in srgb, var(--gpa-accent) 45%, var(--gpa-border)); }
       .gpa-pubstats-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 10px; margin-top: 10px; }
       .gpa-pubstats-lists:empty { display: none; }
       .gpa-pubstats-list .h { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
@@ -5983,6 +6069,44 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
       }
       .gpa-toggle.on .gpa-toggle-track { background: color-mix(in srgb, var(--gpa-accent) 20%, transparent); border-color: var(--gpa-accent); }
       .gpa-toggle.on .gpa-toggle-thumb { transform: translateX(14px); background: var(--gpa-accent); }
+      /* Staff pop-ups (owner and admins): Discord-style cards at the top right.
+         The bar along the top runs down; when it's done the card goes away.
+         Hovering holds it. Urgent ones (security) are red, glow and stay longer. */
+      .gpa-spop-wrap {
+        position: absolute; top: 58px; right: 12px; z-index: 75; width: min(340px, calc(100% - 24px));
+        display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+      }
+      .gpa-spop {
+        pointer-events: auto; position: relative; overflow: hidden; display: flex; gap: 10px; align-items: flex-start;
+        padding: 13px 34px 11px 12px; border-radius: calc(10px * var(--gpa-rs, 1)); cursor: pointer;
+        background: var(--gpa-panel); color: var(--gpa-text); border: 1px solid var(--gpa-border);
+        box-shadow: 0 12px 30px -10px color-mix(in srgb, var(--gpa-shade, #000) 65%, transparent);
+        animation: gpa-spop-in 0.22s ease-out; text-align: left;
+      }
+      .gpa-spop.is-leaving { animation: gpa-spop-out 0.18s ease-in forwards; }
+      .gpa-spop-bar { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--gpa-accent); transform-origin: left center; animation: gpa-spop-timer var(--spop-ms, 7000ms) linear forwards; }
+      .gpa-spop:hover .gpa-spop-bar, .gpa-spop:focus-within .gpa-spop-bar { animation-play-state: paused; }
+      .gpa-spop-ic { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--gpa-accent) 18%, transparent); color: var(--gpa-accent); }
+      .gpa-spop-ic svg { width: 16px; height: 16px; }
+      .gpa-spop-main { min-width: 0; flex: 1; }
+      .gpa-spop-top { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--gpa-sub); margin-bottom: 2px; }
+      .gpa-spop-tag { font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; }
+      .gpa-spop-title { font-size: 13px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+      .gpa-spop-body { font-size: 12px; line-height: 1.4; color: var(--gpa-sub); margin-top: 2px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+      .gpa-spop-x { position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--gpa-sub); font-size: 15px; line-height: 1; cursor: pointer; }
+      .gpa-spop-x:hover { background: color-mix(in srgb, var(--gpa-text) 10%, transparent); color: var(--gpa-text); }
+      .gpa-spop.is-urgent { border-color: var(--gpx-err, #e5453a); background: color-mix(in srgb, var(--gpx-err, #e5453a) 13%, var(--gpa-panel));
+        box-shadow: 0 0 0 1px var(--gpx-err, #e5453a), 0 14px 34px -8px color-mix(in srgb, var(--gpx-err, #e5453a) 60%, transparent);
+        animation: gpa-spop-in 0.22s ease-out, gpa-spop-pulse 1.3s ease-in-out 0.25s 3; }
+      .gpa-spop.is-urgent .gpa-spop-bar { background: var(--gpx-err, #e5453a); }
+      .gpa-spop.is-urgent .gpa-spop-ic { background: var(--gpx-err, #e5453a); color: #fff; }
+      .gpa-spop.is-urgent .gpa-spop-tag { color: var(--gpx-err, #e5453a); }
+      @keyframes gpa-spop-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+      @keyframes gpa-spop-out { to { opacity: 0; transform: translateX(24px); } }
+      @keyframes gpa-spop-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+      @keyframes gpa-spop-pulse { 0%, 100% { box-shadow: 0 0 0 1px var(--gpx-err, #e5453a), 0 14px 34px -8px color-mix(in srgb, var(--gpx-err, #e5453a) 60%, transparent); }
+        50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--gpx-err, #e5453a) 45%, transparent), 0 14px 34px -8px color-mix(in srgb, var(--gpx-err, #e5453a) 80%, transparent); } }
+      @media (prefers-reduced-motion: reduce) { .gpa-spop, .gpa-spop.is-urgent, .gpa-spop.is-leaving { animation: none; } }
       /* Lightweight non-blocking notifications, replacing window.alert() */
       .gpa-toast-wrap {
         position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
@@ -7289,6 +7413,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
 
   let isMin = false;
   function setMinimized(v) {
+    if (!v) setTimeout(() => { try { spopDrain(); } catch (e) { /* pop-ups not set up yet */ } }, 300);
     const prevRect = host.getBoundingClientRect(); // capture BEFORE resizing anything below
     isMin = v;
     if (v) stopActiveGame();
@@ -8044,6 +8169,224 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     document.head.appendChild(script);
   }
 
+  // ---- Welcome → Security (owner and admins only) -------------------------
+  // What needs them right now: devices locked after unauthorized sign-in
+  // tries (Approve = unlock), locked accounts, Forgot-PIN requests, and for
+  // the owner access requests and unread messages from people not on the
+  // list; then the last security alerts. One request (/admin/security-
+  // summary); each button uses the route Admin uses for the same thing.
+  const wsecCard = panel.querySelector('#gpa-wsec');
+  const wsecBody = panel.querySelector('#gpa-wsec-body');
+  const wsecAt = panel.querySelector('#gpa-wsec-at');
+  let wsecTimer = 0, wsecBusy = false;
+  const wsecRole = () => { try { return sessionToken() ? sessionRole() : null; } catch (e) { return null; } };
+  const wsecStaff = () => wsecRole() === 'owner' || wsecRole() === 'admin';
+  const wsecEsc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const wsecWhen = (ts) => { const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' }); };
+  const wsecTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const wsecDevice = (ua) => { ua = String(ua || ''); return /CrOS/.test(ua) ? 'Chromebook' : /iPhone|iPad/.test(ua) ? 'iPhone/iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS X/.test(ua) ? 'Mac' : 'a device'; };
+  const wsecTabVisible = () => { const pn = panel.querySelector('.gpa-pane[data-pane="welcome"]'); return !!pn && pn.classList.contains('active') && !isMin && !document.hidden; };
+  async function wsecApi(path, body) {
+    const r = await fetch(telemetryEndpoint() + path, body
+      ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-GPA-Session': sessionToken() }, body: JSON.stringify(body), cache: 'no-store' }
+      : { headers: { 'X-GPA-Session': sessionToken() }, cache: 'no-store' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.ok === false) throw new Error((d.error && d.error.message) || d.error || 'HTTP ' + r.status);
+    return d;
+  }
+  function renderWelcomeSecurity(d) {
+    const needs = d.locks.length + d.accountLocks.length + d.pinRequests.length + d.accessRequests.length;
+    const urgentToday = d.events.filter((e) => e.urgent && Date.now() - e.ts < 864e5).length;
+    const chip = (n, one, many, hot) => n ? `<span class="gpa-wsec-chip${hot ? ' is-hot' : ''}">${n} ${wsecEsc(n === 1 ? one : many)}</span>` : '';
+    let html = `<div class="gpa-wsec-chips">${needs || d.unreadChats || urgentToday
+      ? chip(d.locks.length, 'locked device', 'locked devices', true) + chip(d.accountLocks.length, 'locked account', 'locked accounts', true) + chip(d.accessRequests.length, 'access request', 'access requests', true)
+        + chip(d.pinRequests.length, 'PIN request', 'PIN requests', true) + chip(d.unreadChats, 'unread message', 'unread messages', true) + chip(urgentToday, 'urgent alert today', 'urgent alerts today', false)
+      : '<span class="gpa-wsec-chip is-ok">All clear: nothing needs you right now</span>'}</div>`;
+    const items = [];
+    d.locks.forEach((l) => items.push(`<li class="gpa-wsec-item is-urgent" data-kind="lock" data-id="${wsecEsc(l.id)}"><div class="gpa-wsec-top"><span>Locked device: ${wsecEsc(l.names.join(', ') || 'unknown names')}</span><small>${wsecEsc(wsecWhen(l.at))}</small></div>`
+      + `<div class="gpa-wsec-meta">${l.notAllowed >= 3 ? 'Tried names that aren’t on your list' : 'Too many wrong PINs or codes'} · ${wsecEsc(wsecDevice(l.ua))}${l.country && l.country !== '??' ? ' · ' + wsecEsc(l.country) : ''} · locked until ${wsecEsc(wsecTime(l.until))}${l.kept ? ' (kept locked)' : ''}</div>`
+      + `<div class="gpa-wsec-actions"><button class="gpa-btn primary" data-act="unlock" type="button">Approve (unlock)</button>${l.kept ? '' : '<button class="gpa-btn" data-act="keep" type="button">Keep locked</button>'}</div></li>`));
+    d.accountLocks.forEach((l) => items.push(`<li class="gpa-wsec-item is-urgent" data-kind="acct" data-user="${wsecEsc(l.user)}"><div class="gpa-wsec-top"><span>Locked account: ${wsecEsc(l.user)}</span><small>${wsecEsc(wsecWhen(l.at))}</small></div>`
+      + `<div class="gpa-wsec-meta">${wsecEsc(String(l.tries))} wrong sign-ins, maybe someone guessing · locked until ${wsecEsc(wsecTime(l.until))}</div>`
+      + `<div class="gpa-wsec-actions"><button class="gpa-btn primary" data-act="acctunlock" type="button">Unlock account</button></div></li>`));
+    d.accessRequests.forEach((q) => items.push(`<li class="gpa-wsec-item" data-kind="req" data-user="${wsecEsc(q.user)}"><div class="gpa-wsec-top"><span>Access request: ${wsecEsc(q.user)}</span><small>${wsecEsc(wsecWhen(q.ts))}</small></div>`
+      + `<div class="gpa-wsec-meta">${q.message ? '“' + wsecEsc(q.message) + '”' : 'Wants to use the console'}${q.count > 1 ? ' · asked ' + q.count + ' times' : ''}</div>`
+      + `<div class="gpa-wsec-actions"><button class="gpa-btn primary" data-act="approve" type="button">Approve</button><button class="gpa-btn" data-act="deny" type="button">Deny</button>${q.chatId ? `<button class="gpa-btn" data-act="message" data-chat="${wsecEsc(q.chatId)}" type="button">Message</button>` : ''}</div></li>`));
+    d.pinRequests.forEach((r) => items.push(`<li class="gpa-wsec-item" data-kind="pin" data-user="${wsecEsc(r.user)}"><div class="gpa-wsec-top"><span>Forgot PIN: ${wsecEsc(r.user)}</span><small>${wsecEsc(wsecWhen(r.at))}</small></div>`
+      + `<div class="gpa-wsec-meta">${r.sameDevice ? 'From their usual device' : 'From a device they haven’t used before'}${r.note ? ' · “' + wsecEsc(r.note) + '”' : ''}</div>`
+      + `<div class="gpa-wsec-actions"><button class="gpa-btn primary" data-act="pinapprove" type="button">Approve new PIN</button><button class="gpa-btn" data-act="pindeny" type="button">Deny</button></div></li>`));
+    if (d.unreadChats) items.push(`<li class="gpa-wsec-item"><div class="gpa-wsec-top"><span>${d.unreadChats} unread message${d.unreadChats === 1 ? '' : 's'} from people not on your list</span></div>`
+      + `<div class="gpa-wsec-actions"><button class="gpa-btn primary" data-act="chats" type="button">Open messages</button></div></li>`);
+    if (items.length) html += `<div class="gpa-wsec-h">Needs you</div><ul class="gpa-wsec-list">${items.join('')}</ul>`;
+    html += `<div class="gpa-wsec-h">Recent security events</div>` + (d.events.length
+      ? `<ul class="gpa-wsec-list">${d.events.slice(0, 8).map((e) => `<li class="gpa-wsec-item gpa-wsec-ev${e.urgent ? ' is-urgent' : ''}" data-url="${wsecEsc(e.url || '')}" tabindex="0" role="button"><div class="gpa-wsec-top"><span>${wsecEsc(e.title)}</span><small>${wsecEsc(wsecWhen(e.ts))}</small></div>${e.body ? `<div class="gpa-wsec-meta">${wsecEsc(e.body)}</div>` : ''}</li>`).join('')}</ul>`
+      : '<p class="gpa-sub">No security alerts in the last 2 days.</p>');
+    wsecBody.innerHTML = html;
+    wsecAt.textContent = 'Updated ' + wsecTime(Date.now());
+  }
+  async function refreshWelcomeSecurity() {
+    if (!wsecCard) return;
+    clearTimeout(wsecTimer);
+    const staff = wsecStaff() && typeof telemetryOn === 'function' && telemetryOn();
+    wsecCard.hidden = !staff;
+    if (!staff) return;
+    if (!wsecBusy) {
+      wsecBusy = true;
+      try { renderWelcomeSecurity(await wsecApi('/admin/security-summary')); }
+      catch (e) { if (!wsecBody.querySelector('.gpa-wsec-list')) wsecBody.innerHTML = '<p class="gpa-sub">Couldn’t load security events: ' + wsecEsc(e.message) + '</p>'; }
+      finally { wsecBusy = false; }
+    }
+    // Every minute while the Welcome page is on screen.
+    wsecTimer = setTimeout(() => { if (wsecTabVisible()) refreshWelcomeSecurity(); }, 60000);
+  }
+  if (wsecCard) {
+    panel.querySelector('#gpa-wsec-refresh').addEventListener('click', () => refreshWelcomeSecurity());
+    wsecBody.addEventListener('click', async (e) => {
+      const ev = e.target.closest('.gpa-wsec-ev');
+      if (ev && ev.dataset.url && /^\/console\/#/.test(ev.dataset.url)) { openTabFromUrl(ev.dataset.url); return; }
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const item = btn.closest('.gpa-wsec-item');
+      const act = btn.dataset.act, user = item.dataset.user;
+      if (act === 'chats') { openTabFromUrl('#tab=admin&sec=security&focus=chat'); return; }
+      if (act === 'message') { openTabFromUrl('#tab=admin&sec=security&focus=chat&user=' + encodeURIComponent(user) + '&id=' + encodeURIComponent(btn.dataset.chat)); return; }
+      if (act === 'pinapprove' && !confirm('Approve the new PIN for “' + user + '”? Only do this if you’re sure the request is theirs.')) return;
+      btn.disabled = true;
+      try {
+        if (act === 'unlock' || act === 'keep') await wsecApi('/admin/signin-help', { action: act, id: item.dataset.id });
+        else if (act === 'acctunlock') await wsecApi('/admin/signin-help', { action: 'acctunlock', user });
+        else if (act === 'approve' || act === 'deny') await wsecApi('/admin/access-requests/decide', { user, action: act });
+        else if (act === 'pinapprove' || act === 'pindeny') await wsecApi('/admin/user/action', { u: user, action: act });
+        showToast({ unlock: 'Device unlocked.', keep: 'It stays locked until the session ends.', acctunlock: user + ' is unlocked.', approve: user + ' can sign in now.', deny: 'Request from ' + user + ' declined.', pinapprove: user + '’s new PIN is approved.', pindeny: user + '’s PIN request was denied.' }[act] || 'Done.');
+        refreshWelcomeSecurity();
+      } catch (err) { btn.disabled = false; showToast(err.message, { type: 'danger' }); }
+    });
+    wsecBody.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.classList.contains('gpa-wsec-ev')) e.target.click(); });
+    setTimeout(() => { try { onSessionChange(() => { if (wsecTabVisible() || !wsecStaff()) refreshWelcomeSecurity(); }); } catch (e) { /* accounts not ready */ } }, 0);
+  }
+
+  // ---- Welcome → AI models (owner and admins only) -------------------------
+  // Pick a person and set their base model, their upgraded model for harder
+  // tasks and whether auto-upgrade is on, plus their own daily allowance of
+  // big (★) models. The owner also sets the big-model limits for everyone;
+  // over a limit a request still goes through on a standard model. The Worker
+  // enforces all of it (/admin/models, /admin/models/set).
+  const wmodCard = panel.querySelector('#gpa-wmod');
+  const wmodBody = panel.querySelector('#gpa-wmod-body');
+  const wmodAt = panel.querySelector('#gpa-wmod-at');
+  let wmodData = null, wmodUser = null, wmodBusy = false;
+  const wmodOptions = (catalog, dflt, value) => {
+    const known = catalog.some((m) => m.id === value);
+    return `<option value="">Default (${wsecEsc(dflt)})</option>`
+      + catalog.map((m) => `<option value="${wsecEsc(m.id)}"${m.id === value ? ' selected' : ''}>${wsecEsc((m.premium ? '★ ' : '') + m.label)}</option>`).join('')
+      + `<option value="__custom__"${value && !known ? ' selected' : ''}>Custom…</option>`;
+  };
+  const wmodLimit = (v) => (v === null ? 'no limit' : String(v));
+  function renderWelcomeModels() {
+    const d = wmodData;
+    if (!d) return;
+    const L = d.limits;
+    const pct = L.totalDay ? Math.min(100, Math.round(d.totalToday / L.totalDay * 100)) : 0;
+    let html = `<div class="gpa-wsec-h" style="margin-top:2px">Big models (★) today</div>`
+      + `<div class="gpa-wsec-meta"><b>${d.totalToday}</b> of ${wsecEsc(wmodLimit(L.totalDay))} big-model requests for everyone today${L.includeOwner ? '' : ' (not counting yours)'}. Over a limit, the request is answered by a standard model instead.</div>`
+      + (L.totalDay ? `<div class="gpa-wmod-meter${pct >= 80 ? ' is-hot' : ''}"><i style="width:${pct}%"></i></div>` : '')
+      + (d.topToday.length ? `<div class="gpa-wsec-chips">${d.topToday.map((x) => `<span class="gpa-wsec-chip">${wsecEsc(x.user)} · ${x.today}</span>`).join('')}</div>` : '');
+    html += `<div class="gpa-wsec-h">Big-model limits${d.owner ? '' : ' <span style="text-transform:none;font-weight:400">(the owner sets these)</span>'}</div>`
+      + `<div class="gpa-wmod-grid">`
+      + `<label>Per person, each hour<input class="gpa-input" id="gpa-wmod-lh" type="number" min="0" placeholder="no limit" value="${L.perUserHour === null ? '' : L.perUserHour}"${d.owner ? '' : ' disabled'}></label>`
+      + `<label>Per person, each day<input class="gpa-input" id="gpa-wmod-ld" type="number" min="0" placeholder="no limit" value="${L.perUserDay === null ? '' : L.perUserDay}"${d.owner ? '' : ' disabled'}></label>`
+      + `<label>Everyone together, each day<input class="gpa-input" id="gpa-wmod-lt" type="number" min="0" placeholder="no limit" value="${L.totalDay === null ? '' : L.totalDay}"${d.owner ? '' : ' disabled'}></label>`
+      + `</div>`
+      + (d.owner ? `<label class="gpa-wmod-check gpa-wsec-meta" style="display:flex;margin-top:8px"><input type="checkbox" id="gpa-wmod-lo"${L.includeOwner ? ' checked' : ''}> Limit my own requests too</label>`
+        + `<div class="gpa-wsec-actions"><button class="gpa-btn primary" type="button" data-wm="limits">Save limits</button></div><p class="gpa-sub" style="margin:4px 0 0">Empty = no limit, 0 = no big models.</p>` : '');
+    html += `<div class="gpa-wsec-h">Set someone’s models</div>`
+      + `<div class="gpa-wmod-pick"><input class="gpa-input" id="gpa-wmod-name" list="gpa-wmod-names" placeholder="Type a name" autocomplete="off" value="${wmodUser ? wsecEsc(wmodUser.user) : ''}"><datalist id="gpa-wmod-names">${d.users.map((u) => `<option value="${wsecEsc(u)}">`).join('')}</datalist><button class="gpa-btn" type="button" data-wm="load">Open</button></div>`
+      + `<div class="gpa-wmod-form" id="gpa-wmod-form" hidden></div>`;
+    html += `<div class="gpa-wsec-h">People with their own models</div>` + (d.custom.length
+      ? `<ul class="gpa-wsec-list">${d.custom.map((c) => `<li class="gpa-wsec-item" data-user="${wsecEsc(c.user)}"><div class="gpa-wsec-top"><span>${wsecEsc(c.user)}</span><small>${c.used.today} big today</small></div>`
+        + `<div class="gpa-wsec-meta">Base: ${wsecEsc(c.base || 'default')} · Upgraded: ${wsecEsc(c.smart || 'default')} · Auto-upgrade: ${wsecEsc(c.autoUpgrade || 'default')} · Big models a day: ${wsecEsc(c.premiumDay === null ? 'default' : String(c.premiumDay))}</div>`
+        + `<div class="gpa-wsec-actions"><button class="gpa-btn" type="button" data-wm="edit">Edit</button></div></li>`).join('')}</ul>`
+      : '<p class="gpa-sub">Nobody yet: everyone uses the default models.</p>');
+    wmodBody.innerHTML = html;
+    wmodAt.textContent = 'Updated ' + wsecTime(Date.now());
+    if (wmodUser) renderWmodForm();
+  }
+  function renderWmodForm() {
+    const f = wmodBody.querySelector('#gpa-wmod-form');
+    if (!f || !wmodUser) return;
+    const u = wmodUser, st = u.settings, d = wmodData;
+    const L = d.limits;
+    f.hidden = false;
+    const known = (v) => !v || d.catalog.some((m) => m.id === v);
+    f.innerHTML = `<div class="gpa-wmod-who">${wsecEsc(u.user)} <small>${wsecEsc(u.role)} · ${u.used.today} big-model request${u.used.today === 1 ? '' : 's'} today, ${u.used.hour} this hour</small></div>`
+      + (u.canEdit === false ? `<p class="gpa-sub">${u.role === 'owner' ? 'The owner’s models are set in Settings → power tools on their device.' : 'Only the owner can change an admin’s models.'}</p>` : '')
+      + `<div class="gpa-wmod-grid">`
+      + `<label>Base model<select class="gpa-input" data-f="base">${wmodOptions(d.catalog, d.defaults.base, st.base)}</select><input class="gpa-input gpa-wmod-custom" data-c="base" placeholder="Model id" value="${known(st.base) ? '' : wsecEsc(st.base)}"${known(st.base) ? ' hidden' : ''}></label>`
+      + `<label>Upgraded model (harder tasks)<select class="gpa-input" data-f="smart">${wmodOptions(d.catalog, d.defaults.smart, st.smart)}</select><input class="gpa-input gpa-wmod-custom" data-c="smart" placeholder="Model id" value="${known(st.smart) ? '' : wsecEsc(st.smart)}"${known(st.smart) ? ' hidden' : ''}></label>`
+      + `<label>Auto-upgrade for harder tasks<select class="gpa-input" data-f="auto"><option value=""${!st.autoUpgrade ? ' selected' : ''}>Default (their console’s setting)</option><option value="on"${st.autoUpgrade === 'on' ? ' selected' : ''}>On</option><option value="off"${st.autoUpgrade === 'off' ? ' selected' : ''}>Off: always the base model</option></select></label>`
+      + `<label>Big (★) models a day<input class="gpa-input" type="number" min="0" data-f="prem" placeholder="default (${wsecEsc(wmodLimit(L.perUserDay))})" value="${st.premiumDay === null ? '' : st.premiumDay}"></label>`
+      + `</div>`
+      + `<div class="gpa-wsec-actions"><button class="gpa-btn primary" type="button" data-wm="save">Save for ${wsecEsc(u.user)}</button><button class="gpa-btn" type="button" data-wm="reset">Back to defaults</button></div>`;
+    if (u.canEdit === false) f.querySelectorAll('select, input, button[data-wm]').forEach((el) => { el.disabled = true; });
+  }
+  async function wmodOpen(name) {
+    name = String(name || '').trim().toLowerCase();
+    if (!/^[a-z0-9_.-]{1,40}$/.test(name)) { showToast('Type a name first.', { type: 'danger' }); return; }
+    try {
+      const r = await wsecApi('/admin/models?user=' + encodeURIComponent(name));
+      wmodUser = { ...r.user, canEdit: r.canEdit };
+      renderWelcomeModels();
+      const f = wmodBody.querySelector('#gpa-wmod-form');
+      if (f) f.scrollIntoView({ block: 'nearest' });
+    } catch (e) { showToast(e.message, { type: 'danger' }); }
+  }
+  async function refreshWelcomeModels() {
+    if (!wmodCard) return;
+    const staff = wsecStaff() && typeof telemetryOn === 'function' && telemetryOn();
+    wmodCard.hidden = !staff;
+    if (!staff || wmodBusy) return;
+    wmodBusy = true;
+    try { wmodData = await wsecApi('/admin/models'); renderWelcomeModels(); }
+    catch (e) { if (!wmodData) wmodBody.innerHTML = '<p class="gpa-sub">Couldn’t load models: ' + wsecEsc(e.message) + '</p>'; }
+    finally { wmodBusy = false; }
+  }
+  if (wmodCard) {
+    panel.querySelector('#gpa-wmod-refresh').addEventListener('click', () => refreshWelcomeModels());
+    wmodBody.addEventListener('change', (e) => {
+      const sel = e.target.closest('select[data-f="base"], select[data-f="smart"]');
+      if (!sel) return;
+      const c = wmodBody.querySelector('input[data-c="' + sel.dataset.f + '"]');
+      if (c) { c.hidden = sel.value !== '__custom__'; if (!c.hidden) c.focus(); }
+    });
+    wmodBody.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'gpa-wmod-name') { e.preventDefault(); wmodOpen(e.target.value); } });
+    wmodBody.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-wm]');
+      if (!btn) return;
+      const act = btn.dataset.wm;
+      if (act === 'load') { wmodOpen(wmodBody.querySelector('#gpa-wmod-name').value); return; }
+      if (act === 'edit') { wmodOpen(btn.closest('.gpa-wsec-item').dataset.user); return; }
+      const num = (el) => { const v = String(el.value).trim(); return v === '' ? null : Math.max(0, parseInt(v, 10) || 0); };
+      btn.disabled = true;
+      try {
+        if (act === 'limits') {
+          const r = await wsecApi('/admin/models/set', { action: 'limits', perUserHour: num(wmodBody.querySelector('#gpa-wmod-lh')), perUserDay: num(wmodBody.querySelector('#gpa-wmod-ld')), totalDay: num(wmodBody.querySelector('#gpa-wmod-lt')), includeOwner: wmodBody.querySelector('#gpa-wmod-lo').checked });
+          wmodData.limits = r.limits;
+          showToast('Big-model limits saved.');
+        } else if (act === 'save' || act === 'reset') {
+          const f = wmodBody.querySelector('#gpa-wmod-form');
+          const model = (k) => { const sel = f.querySelector('select[data-f="' + k + '"]'); return sel.value === '__custom__' ? f.querySelector('input[data-c="' + k + '"]').value.trim() : sel.value; };
+          const body = act === 'reset' ? { action: 'user', u: wmodUser.user, base: '', smart: '', autoUpgrade: '', premiumDay: null }
+            : { action: 'user', u: wmodUser.user, base: model('base'), smart: model('smart'), autoUpgrade: f.querySelector('select[data-f="auto"]').value, premiumDay: num(f.querySelector('input[data-f="prem"]')) };
+          const r = await wsecApi('/admin/models/set', body);
+          wmodUser = { ...r.user, canEdit: true };
+          showToast(act === 'reset' ? wmodUser.user + ' is back on the default models.' : 'Saved. ' + wmodUser.user + '’s next request uses these models.');
+        }
+        await refreshWelcomeModels();
+      } catch (err) { btn.disabled = false; showToast(err.message, { type: 'danger' }); }
+    });
+    setTimeout(() => { try { onSessionChange(() => { if (wsecTabVisible() || !wsecStaff()) refreshWelcomeModels(); }); } catch (e) { /* accounts not ready */ } }, 0);
+  }
+
   function activateWelcomePane() {
     panel.querySelectorAll('.gpa-dropdown-item').forEach((b) => b.classList.remove('active'));
     panel.querySelectorAll('.gpa-pane').forEach((p) => p.classList.remove('active'));
@@ -8058,6 +8401,8 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     renderWelcomeGreeting();
     startNycClock();
     refreshWelcomeData();
+    refreshWelcomeSecurity();
+    refreshWelcomeModels();
     startWelcomeAiStatusPolling();
     loadThreeJs();
   }
@@ -8743,8 +9088,12 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     return { ...(extra || {}), Authorization: 'Bearer ' + t };
   }
   // Auto-upgrade defaults to ON until the owner explicitly turns it off.
-  function autoUpgradeOn() { const v = admGet(ADMIN_KEYS.AUTO_UPGRADE); return v === null ? true : v === 'on'; }
-  function smartModel() { return (admGet(ADMIN_KEYS.SMART_MODEL) || '').trim() || SMART_MODEL_DEFAULT; }
+  // Models the owner or an admin set for this person win over this device's.
+  function autoUpgradeOn() {
+    if (serverModels && serverModels.autoUpgrade) return serverModels.autoUpgrade === 'on';
+    const v = admGet(ADMIN_KEYS.AUTO_UPGRADE); return v === null ? true : v === 'on';
+  }
+  function smartModel() { return (serverModels && serverModels.smart) || (admGet(ADMIN_KEYS.SMART_MODEL) || '').trim() || SMART_MODEL_DEFAULT; }
   // Writes the default base and smart models into storage. Runs once when the
   // script loads and again on every sign-in (see enterApp), so each session
   // starts on gpt-4.1-mini / gpt-5 no matter what was picked before.
@@ -8760,6 +9109,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
   // else the default base model.
   function effectiveModel(dflt, hard) {
     if (hard && autoUpgradeOn() && smartModel()) return smartModel();
+    if (serverModels && serverModels.base) return serverModels.base;
     const m = (admGet(ADMIN_KEYS.MODEL) || '').trim();
     return m || dflt;
   }
@@ -9028,6 +9378,15 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }
     const data = await res.json();
     lastMemoryUsed = data && data._gpa_memory ? (data._gpa_memory.used || 0) : null;
+    // The Worker swapped the model (not one you're given, or a big-model limit).
+    if (data && data._gpa_model && data._gpa_model.used) {
+      lastAIModel = String(data._gpa_model.used);
+      lastAIUpgraded = false;
+      if (/^premium_/.test(data._gpa_model.why || '') && Date.now() - (callOpenAI.limitToastAt || 0) > 10 * 60000) {
+        callOpenAI.limitToastAt = Date.now();
+        showToast('Big-model limit reached' + (data._gpa_model.why === 'premium_total' ? ' for today' : '') + ', so ' + data._gpa_model.used + ' answered instead of ' + data._gpa_model.asked + '.', { duration: 7000 });
+      }
+    }
     return data?.choices?.[0]?.message?.content || '(no response)';
   }
 
@@ -15897,6 +16256,176 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     }).catch(() => {});
   } catch (e) { /* older browsers */ }
   setTimeout(() => { try { renderDeskSettings(); } catch (e) { /* not ready */ } }, 0);
+
+  // ---- Staff pop-ups (owner and admins) ------------------------------------
+  // The alerts the owner's phone gets (security, access requests, the Proxy,
+  // PIN help…) pop up inside the console on computers, Discord-style: a card
+  // at the top right whose bar runs down and then dismisses it (hover holds
+  // it). Security alerts and access requests are urgent: red, glowing and
+  // on screen longer. The Worker keeps the feed (/staff/alerts) and each
+  // person's choices (/staff/popup-prefs, Settings → Account → Staff
+  // pop-ups), which are separate from their phone notifications. Phones get
+  // those as push alerts, so nothing pops up there. While the console is
+  // minimized or the tab is hidden, pop-ups wait and show when it's back.
+  const SPOP_MS = 7000, SPOP_URGENT_MS = 14000, SPOP_POLL_MS = 15000, SPOP_MAX = 4;
+  const spopWrap = panel.querySelector('#gpa-spop-wrap');
+  const spop = { since: 0, for: '', timer: 0, held: [], busy: false };
+  const SPOP_TAGS = { security: 'Security', access: 'Access', pinhelp: 'PIN help', proxylaunch: 'Proxy', proxysites: 'Proxy', newuser: 'People', approval: 'People', signin: 'People', subs: 'Subscriptions', reports: 'Chat report', admin: 'Admins', error: 'Worker', jobs: 'Jobs', aierror: 'AI', limits: 'AI', digest: 'Summary', weekly: 'Summary' };
+  const SPOP_ICONS = { security: 'warn', access: 'key', pinhelp: 'key', proxylaunch: 'globe', proxysites: 'globe', newuser: 'users', approval: 'users', signin: 'users', subs: 'users', reports: 'chat' };
+  const spopRole = () => { try { return sessionRole(); } catch (e) { return null; } };
+  const spopStaff = () => !deskPhone && (spopRole() === 'owner' || spopRole() === 'admin');
+  const spopSinceKey = () => 'gpa_spop_since:' + String(currentUser || '').toLowerCase();
+  // Several tabs share where they got to, so one alert pops up in one tab.
+  function spopSeen(ts) {
+    if (ts) { spop.since = Math.max(spop.since, ts); try { localStorage.setItem(spopSinceKey(), String(spop.since)); } catch (e) { /* ignore */ } }
+    let shared = 0;
+    try { shared = Number(localStorage.getItem(spopSinceKey())) || 0; } catch (e) { /* ignore */ }
+    return Math.max(spop.since, shared);
+  }
+  const spopHidden = () => isMin || document.hidden;
+  function spopDismiss(el) {
+    if (!el || el.classList.contains('is-leaving')) return;
+    el.classList.add('is-leaving');
+    setTimeout(() => { el.remove(); spopDrain(); }, 180);
+  }
+  // One card. a: { cat, title, body, url, urgent }.
+  function spopShow(a) {
+    if (!spopWrap || !spopWrap.isConnected) return;
+    if (spopHidden() || spopWrap.querySelectorAll('.gpa-spop:not(.is-leaving)').length >= SPOP_MAX) { spop.held.push(a); spop.held = spop.held.slice(-20); return; }
+    const el = document.createElement('div');
+    el.className = 'gpa-spop' + (a.urgent ? ' is-urgent' : '');
+    el.setAttribute('role', a.urgent ? 'alert' : 'status');
+    el.tabIndex = 0;
+    el.style.setProperty('--spop-ms', (a.urgent ? SPOP_URGENT_MS : SPOP_MS) + 'ms');
+    const bar = document.createElement('div'); bar.className = 'gpa-spop-bar';
+    const ic = document.createElement('div'); ic.className = 'gpa-spop-ic'; ic.innerHTML = GPS_ICONS[a.urgent ? 'warn' : (SPOP_ICONS[a.cat] || 'chat')] || '';
+    const main = document.createElement('div'); main.className = 'gpa-spop-main';
+    const top = document.createElement('div'); top.className = 'gpa-spop-top';
+    const tag = document.createElement('span'); tag.className = 'gpa-spop-tag'; tag.textContent = (a.urgent ? 'Urgent · ' : '') + (SPOP_TAGS[a.cat] || 'Alert');
+    const when = document.createElement('span'); when.textContent = a.ts ? new Date(a.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'now';
+    top.append(tag, when);
+    const title = document.createElement('div'); title.className = 'gpa-spop-title'; title.textContent = String(a.title || 'Saints Service');
+    main.append(top, title);
+    if (a.body) { const b = document.createElement('div'); b.className = 'gpa-spop-body'; b.textContent = String(a.body); main.appendChild(b); }
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'gpa-spop-x'; x.setAttribute('aria-label', 'Dismiss'); x.textContent = '×';
+    x.addEventListener('click', (e) => { e.stopPropagation(); spopDismiss(el); });
+    el.append(bar, ic, main, x);
+    // The bar running out is what dismisses it.
+    bar.addEventListener('animationend', () => spopDismiss(el));
+    const open = () => {
+      spopDismiss(el);
+      if (a.url && /^\/console\/#/.test(a.url)) { try { openTabFromUrl(a.url); } catch (e) { /* ignore */ } }
+    };
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); if (e.key === 'Escape') spopDismiss(el); });
+    spopWrap.appendChild(el);
+  }
+  // Shows what waited (minimized, hidden tab, or too many at once).
+  function spopDrain() {
+    while (spop.held.length && !spopHidden() && spopWrap.querySelectorAll('.gpa-spop:not(.is-leaving)').length < SPOP_MAX) spopShow(spop.held.shift());
+  }
+  async function spopPoll() {
+    if (spop.busy) return;
+    if (!spopStaff() || !telemetryOn() || !sessionToken()) { spop.for = ''; return; }
+    const who = String(currentUser || '').toLowerCase();
+    spop.busy = true;
+    try {
+      if (spop.for !== who) {
+        // Signed in (or switched): start from now, plus anything from the
+        // last 10 minutes this browser hadn't shown yet.
+        spop.for = who; spop.since = 0; spop.held = [];
+        try { if (Date.now() - (Number(localStorage.getItem(spopSinceKey())) || 0) > 10 * 60000) localStorage.removeItem(spopSinceKey()); } catch (e) { /* ignore */ }
+      }
+      const since = spopSeen(0);
+      const r = await fetch(telemetryEndpoint() + '/staff/alerts?since=' + since, { cache: 'no-store', headers: { 'X-GPA-Session': sessionToken() } });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) return;
+      let list = Array.isArray(d.alerts) ? d.alerts : [];
+      if (!since) list = list.filter((a) => d.latest - a.ts < 10 * 60000 && Date.now() - a.ts < 10 * 60000).slice(-3);
+      if (since && spopSeen(0) > since) list = list.filter((a) => a.ts > spopSeen(0));   // another tab showed them
+      spopSeen(Math.max(d.latest || 0, ...list.map((a) => a.ts)));
+      // A burst (or a long gap) shows the newest few and a count of the rest.
+      if (list.length > 6) {
+        const rest = list.length - 5;
+        list = list.slice(-5);
+        spopShow({ cat: 'other', title: rest + ' more alert' + (rest === 1 ? '' : 's'), body: 'Open Admin to see everything.', url: '/console/#tab=admin&sec=security&focus=events', ts: Date.now() });
+      }
+      list.forEach(spopShow);
+      if (list.some((a) => ['security', 'access', 'pinhelp'].includes(a.cat))) { try { if (wsecTabVisible()) refreshWelcomeSecurity(); } catch (e) { /* ignore */ } }
+    } catch (e) { /* offline: next time */ }
+    finally { spop.busy = false; }
+  }
+  setInterval(() => { if (!document.hidden) spopPoll(); }, SPOP_POLL_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { spopDrain(); spopPoll(); } });
+  setTimeout(() => { try { onSessionChange(() => { spopPoll(); renderSpopSettings(); }); } catch (e) { /* accounts not ready */ } spopPoll(); }, 1500);
+
+  // Settings → Account → Staff pop-ups: on/off and which kinds (saved on the
+  // server for this person, so every computer they use follows it).
+  const spopCard = panel.querySelector('#gpa-spop-card');
+  const spopToggle = panel.querySelector('#gpa-spop-toggle');
+  const spopCats = panel.querySelector('#gpa-spop-cats');
+  const spopMsg = panel.querySelector('#gpa-spop-msg');
+  let spopPrefsFor = '';
+  async function spopPrefs(body) {
+    const r = await fetch(telemetryEndpoint() + '/staff/popup-prefs', body
+      ? { method: 'POST', headers: { 'Content-Type': 'text/plain', 'X-GPA-Session': sessionToken() }, body: JSON.stringify(body) }
+      : { cache: 'no-store', headers: { 'X-GPA-Session': sessionToken() } });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || 'Couldn’t reach the server.');
+    return d;
+  }
+  function paintSpopPrefs(d) {
+    const on = d.prefs.on !== false;
+    spopToggle.classList.toggle('primary', on);
+    spopToggle.setAttribute('aria-pressed', String(on));
+    spopCats.innerHTML = '';
+    let group = null;
+    Object.keys(d.defs).forEach((k) => {
+      const def = d.defs[k];
+      if (def.group !== group) {
+        group = def.group;
+        const h = document.createElement('div'); h.className = 'gpa-push-group'; h.textContent = group;
+        spopCats.appendChild(h);
+      }
+      const want = d.prefs.cats[k] !== false;
+      const row = document.createElement('div'); row.className = 'gpa-push-cat';
+      const name = document.createElement('span'); name.textContent = def.label;
+      const sw = document.createElement('button');
+      sw.type = 'button'; sw.className = 'gps-switch' + (want ? ' primary' : '');
+      sw.setAttribute('aria-pressed', String(want)); sw.setAttribute('aria-label', def.label); sw.textContent = def.label;
+      sw.disabled = !on;
+      sw.addEventListener('click', async () => {
+        sw.disabled = true;
+        try { paintSpopPrefs(await spopPrefs({ cats: { [k]: !want } })); spopMsg.textContent = ''; }
+        catch (e) { sw.disabled = false; spopMsg.textContent = e.message; }
+      });
+      row.append(name, sw);
+      spopCats.appendChild(row);
+    });
+    spopCats.hidden = false;
+  }
+  async function renderSpopSettings(force) {
+    if (!spopCard) return;
+    const staff = spopStaff() && sessionToken();
+    spopCard.hidden = !staff;
+    if (!staff) { spopPrefsFor = ''; return; }
+    const who = String(currentUser || '').toLowerCase();
+    if (who === spopPrefsFor && !force) return;
+    spopPrefsFor = who;
+    try { paintSpopPrefs(await spopPrefs()); } catch (e) { spopMsg.textContent = e.message; }
+  }
+  if (spopCard) {
+    spopToggle.addEventListener('click', async () => {
+      const on = spopToggle.getAttribute('aria-pressed') !== 'true';
+      spopToggle.disabled = true;
+      try { paintSpopPrefs(await spopPrefs({ on })); spopMsg.textContent = on ? 'Staff pop-ups are on.' : 'Staff pop-ups are off. Your phone notifications still come.'; }
+      catch (e) { spopMsg.textContent = e.message; }
+      spopToggle.disabled = false;
+    });
+    panel.querySelector('#gpa-spop-test').addEventListener('click', () => spopShow({ cat: 'proxylaunch', title: 'This is a test pop-up', body: 'The bar along the top runs down, then it goes away. Hover to hold it.', ts: Date.now() }));
+    panel.querySelector('#gpa-spop-test-urgent').addEventListener('click', () => spopShow({ cat: 'security', urgent: true, title: 'Test: unauthorized sign-in', body: 'Urgent alerts like someone not on your list trying to get in look like this.', ts: Date.now() }));
+    setTimeout(() => { try { renderSpopSettings(); } catch (e) { /* not ready */ } }, 1500);
+  }
 
   // ---- Extended tools -------------------------------------------------------
   // Voice input, read-aloud, text-selection assistant, table extractor, page
@@ -22780,6 +23309,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     if ('usage' in s) renderUsageMeter(s.usage);
     if ('subscription' in s) renderSubStrip(s.subscription);
     if (s.assignedKeys && typeof s.assignedKeys === 'object') applyAssignedKeys(s.assignedKeys);
+    if ('models' in s) serverModels = s.models && typeof s.models === 'object' ? s.models : null;
     if (typeof s.brandName === 'string') applyBrandName(s.brandName);
     if (typeof s.defaultTheme === 'string') maybeApplyServerDefaultTheme(s.defaultTheme);
     if (typeof s.kickNonce === 'number') {
@@ -26141,20 +26671,7 @@ function modelSupportsReasoning(id) { return REASONING_MODELS.has((id || '').tri
     // ---- Power tools ----
     // Known OpenAI chat model ids (Sept 2026). The Custom… option future-proofs
     // the list; an invalid id just returns a clear 404.
-    const MODEL_OPTIONS = [
-      ['', 'Default'],
-      ['gpt-4o-mini', 'gpt-4o-mini — fast & cheap'],
-      ['gpt-4o', 'gpt-4o — stronger, multimodal'],
-      ['gpt-4.1-mini', 'gpt-4.1-mini'],
-      ['gpt-4.1', 'gpt-4.1 — strong'],
-      ['gpt-5', 'gpt-5'],
-      ['gpt-5.1', 'gpt-5.1'],
-      ['gpt-5.2', 'gpt-5.2 — top general'],
-      ['o4-mini', 'o4-mini — reasoning (hard math)'],
-      ['gpt-5.6-luna', 'gpt-5.6-luna'],
-      ['gpt-6-astra', 'gpt-6-astra - strongest model (any subject)'],
-      ['__custom__', 'Custom…']
-    ];
+    const MODEL_OPTIONS = [['', 'Default'], ...OPENAI_MODEL_LIST, ['__custom__', 'Custom…']];
     function fillModelSelect(sel) {
       sel.innerHTML = MODEL_OPTIONS.map(([v, label]) => `<option value="${v}">${escapeHtml(label)}</option>`).join('');
     }

@@ -69,6 +69,7 @@ export function triviaMatches(text, answers) {
 }
 const PINS_MAX = 3;
 const INBOX_MAX = 200;                 // conversations kept per inbox (newest)
+const ALERTS_MAX = 150;                // staff alerts kept for the console's pop-ups
 
 const TTL_MS = 7 * 24 * 3600 * 1000;   // same week-long lifetime as before
 const MAX = 120;                       // newest messages kept per room
@@ -210,12 +211,53 @@ export class ChatRoom {
     return reply({ ok: false, error: 'unknown action' }, 404);
   }
 
+  // Staff alerts for the console's pop-ups (owner and admins): the same
+  // alerts the owner's phone gets, kept here (object "inbox-@alerts") so
+  // each staff console can ask "anything since <ts>?" every few seconds.
+  // Timestamps strictly increase, so polling with the newest one can't skip
+  // an alert. An alert with a throttle key is kept at most once per window.
+  async alerts(action, body) {
+    let list = (await this.storage.get('alerts')) || [];
+    if (action === 'alerts_push') {
+      const a = body.alert || {};
+      const now = Date.now();
+      const tk = body.throttle && body.throttle.key ? String(body.throttle.key).slice(0, 120) : '';
+      if (tk) {
+        let thr = (await this.storage.get('athr')) || {};
+        if (thr[tk] && thr[tk] > now) return reply({ ok: true, throttled: true });
+        thr[tk] = now + Math.max(10, Math.min(3600, Number(body.throttle.seconds) || 300)) * 1000;
+        thr = Object.fromEntries(Object.entries(thr).filter(([, until]) => until > now).slice(-300));
+        await this.storage.put('athr', thr);
+      }
+      const last = list.length ? list[list.length - 1].ts : 0;
+      const entry = {
+        ts: Math.max(now, last + 1),
+        cat: String(a.cat || 'other').slice(0, 20),
+        title: String(a.title || 'Saints Service').slice(0, 120),
+        body: String(a.body || '').slice(0, 300),
+        url: String(a.url || '').slice(0, 300),
+        urgent: !!a.urgent,
+        staff: !!a.staff,
+        actor: String(a.actor || '').toLowerCase().slice(0, 40)
+      };
+      list = [...list, entry].slice(-ALERTS_MAX);
+      await this.storage.put('alerts', list);
+      return reply({ ok: true, ts: entry.ts });
+    }
+    if (action === 'alerts_list') {
+      const since = Number(body.since) || 0;
+      return reply({ ok: true, alerts: list.filter((x) => x.ts > since).slice(-60), latest: list.length ? list[list.length - 1].ts : 0, now: Date.now() });
+    }
+    return reply({ ok: false, error: 'unknown action' }, 404);
+  }
+
   async fetch(req) {
     const action = new URL(req.url).pathname.slice(1);
     let body = {};
     try { body = await req.json(); } catch (e) { body = {}; }
     const id = String(body.id || '').toLowerCase().slice(0, 40);
     if (action.startsWith('inbox_')) return this.ctx.blockConcurrencyWhile(() => this.inbox(action, body));
+    if (action.startsWith('alerts_')) return this.ctx.blockConcurrencyWhile(() => this.alerts(action, body));
     // One request at a time per room: the read, append and write below can't
     // interleave with another send.
     return this.ctx.blockConcurrencyWhile(async () => {
